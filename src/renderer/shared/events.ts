@@ -164,7 +164,36 @@ export interface CompanionEvent {
   timestamp: number;
 }
 
+export interface ClaudeProviderConfig {
+  id: string;
+  name: string;
+  settingsConfig: {
+    env?: {
+      ANTHROPIC_BASE_URL?: string;
+      ANTHROPIC_AUTH_TOKEN?: string;
+      ANTHROPIC_MODEL?: string;
+    };
+    headers?: string;
+    modelAliases?: string;
+    proxyUrl?: string;
+    prefix?: string;
+    excludedModels?: string;
+  };
+  websiteUrl?: string;
+  category?: "official" | "third_party" | "custom";
+  createdAt?: number;
+  sortIndex?: number;
+  notes?: string;
+  icon?: string;
+  iconColor?: string;
+  meta?: Record<string, unknown>;
+}
+
 export interface CompanionSettings {
+  claudeProviders?: Record<string, ClaudeProviderConfig>;
+  currentClaudeProviderId?: string;
+  claudeRoutes?: unknown[];
+  activeClaudeRouteId?: string;
   port: number;
   token: string;
   privacyMode: PrivacyMode;

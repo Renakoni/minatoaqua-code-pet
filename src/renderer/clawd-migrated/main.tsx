@@ -2,29 +2,43 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
+import { CSS } from "@dnd-kit/utilities";
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent, type DraggableAttributes, type DraggableSyntheticListeners } from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import {
+  Activity,
+  ArrowLeft,
   Bell,
   BarChart3,
   Bot,
   Check,
+  CheckCircle2,
+  ChevronDown,
   Clipboard,
   Code2,
   DollarSign,
   Eye,
   EyeOff,
   FileText,
+  FlaskConical,
   Gauge,
+  GripVertical,
+  KeyRound,
   Layers3,
   MonitorCheck,
   MousePointer2,
+  Pencil,
   Play,
   PlugZap,
   Radio,
+  Save,
   Search,
   Shield,
+  SlidersHorizontal,
   Sparkles,
   Terminal,
   Timer,
+  Trash2,
   Wand2,
   Wrench,
   Zap,
@@ -897,6 +911,9 @@ function StateProp({ state }: { state: PetState }) {
   return null;
 }
 
+type HookStatus = { installed: boolean; configExists: boolean; hookCount: number; requiredCount: number; missingEvents: string[]; commandMatches: boolean };
+type HookSetupStage = "idle" | "success" | "hiding";
+
 export function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
   const { settings, updateSettings, connection, events, petState, toolStreams } = useCompanion();
@@ -937,6 +954,12 @@ export function SettingsApp() {
     try { return localStorage.getItem("clawd-onboarding-done") === "1"; } catch { return true; }
   });
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [overviewHookStatus, setOverviewHookStatus] = useState<HookStatus | null>(null);
+  const [hookSetupStage, setHookSetupStage] = useState<HookSetupStage>("idle");
+  const hookSetupTimers = useRef<number[]>([]);
+  const hookSetupNeedsAttention = overviewHookStatus ? !overviewHookStatus.installed || overviewHookStatus.missingEvents.length > 0 || !overviewHookStatus.commandMatches : false;
+  const hookSetupShowingSuccess = !hookSetupNeedsAttention && (hookSetupStage === "success" || hookSetupStage === "hiding");
+  const shouldRenderHookSetup = hookSetupNeedsAttention || hookSetupStage !== "idle";
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
   const sampleEvents = useMemo<CompanionEvent[]>(() => [
     makeEvent("session_start", "manual", t("data.sampleSessionStart", "Claude Code 会话开始"), t("data.sampleSessionStartMsg", "Clawd 已经进入陪跑状态。")),
@@ -972,6 +995,44 @@ export function SettingsApp() {
     const statsInterval = window.setInterval(() => window.companion.getStats().then(setPersistedStats), 10_000);
     return () => { offUpdate(); offIdle(); offPlaySound(); window.clearInterval(statsInterval); };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.companion.checkHooks().then(status => {
+      if (!cancelled) setOverviewHookStatus(status);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      hookSetupTimers.current.forEach(timer => window.clearTimeout(timer));
+      hookSetupTimers.current = [];
+    };
+  }, []);
+
+  function handleOverviewHookStatusChange(status: HookStatus) {
+    setOverviewHookStatus(status);
+    if (!status.installed || status.missingEvents.length > 0 || !status.commandMatches) {
+      hookSetupTimers.current.forEach(timer => window.clearTimeout(timer));
+      hookSetupTimers.current = [];
+      setHookSetupStage("idle");
+    }
+  }
+
+  function handleOverviewHookInstallSuccess(status: HookStatus) {
+    hookSetupTimers.current.forEach(timer => window.clearTimeout(timer));
+    hookSetupTimers.current = [];
+    setOverviewHookStatus(status);
+    setHookSetupStage("success");
+    hookSetupTimers.current = [
+      window.setTimeout(() => setHookSetupStage("hiding"), 4200),
+      window.setTimeout(() => {
+        setHookSetupStage("idle");
+        hookSetupTimers.current = [];
+      }, 5000)
+    ];
+  }
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
@@ -1101,40 +1162,12 @@ export function SettingsApp() {
 
       <div className="section-content" ref={sectionContentRef}>
         {activeSection === "general" && <>
-          <section className="onboarding-card overview-steps-card">
-            <div className="onboarding-steps">
-              {[t("main.onboardingWelcome", "欢迎"), t("main.onboardingConnect", "连接"), t("main.onboardingDone", "完成")].map((label, i) => (
-                <div key={label} className={`onboarding-step ${i === onboardingStep ? "active" : i < onboardingStep ? "done" : ""}`}>
-                  <span className="onboarding-step-num">{i + 1}</span>
-                  <span>{label}</span>
-                </div>
-              ))}
-            </div>
+          {shouldRenderHookSetup && <section className={`onboarding-card overview-steps-card hook-setup-card ${hookSetupShowingSuccess ? "install-success" : ""} ${hookSetupStage === "hiding" && !hookSetupNeedsAttention ? "closing" : ""}`}>
             <div className="onboarding-content overview-welcome-content">
-              {onboardingStep === 0 && <>
-                <h3>{t("main.welcomeTitle", "欢迎使用 Clawd Companion")}</h3>
-                <p>{t("main.welcomeDesc", "Clawd 是 Claude Code 的桌面宠物伴侣，会在你使用 Claude Code 时实时显示工具调用、会话状态和动画反馈。")}</p>
-                <p className="note">{t("main.welcomeNote", "接下来只需 2 步即可开始使用。")}</p>
-              </>}
-              {onboardingStep === 1 && <>
-                <h3>{t("main.connectTitle", "连接 Claude Code")}</h3>
-                <p>{t("main.connectDesc", "点击下方按钮，Clawd 会自动配置 Claude Code 的 hooks，让 Claude Code 把事件发送给 Clawd。")}</p>
-                <div className="hooks-manager" style={{ marginTop: 12 }}><HooksManager /></div>
-              </>}
-              {onboardingStep === 2 && <>
-                <h3>{t("main.doneTitle", "一切就绪")}</h3>
-                <p>{t("main.doneDesc", "打开任意 Claude Code 会话，Clawd 会自动跟随。你可以在配置面板中调整桌宠外观、动画和行为。")}</p>
-                <p className="note">{t("main.doneNote", "点击下方按钮开始使用。")}</p>
-              </>}
+              <h3>{hookSetupShowingSuccess ? t("main.hooksInstallSuccess", "连接完成") : t("main.connectTitle", "连接 Claude Code")}</h3>
+              <HooksManager compact success={hookSetupShowingSuccess} onStatusChange={handleOverviewHookStatusChange} onInstallSuccess={handleOverviewHookInstallSuccess} />
             </div>
-            <div className="onboarding-actions">
-              {onboardingStep > 0 && <button className="ghost" onClick={() => setOnboardingStep(onboardingStep - 1)}>{t("main.prev", "上一步")}</button>}
-              <button onClick={() => {
-                if (onboardingStep < 2) setOnboardingStep(onboardingStep + 1);
-                else { localStorage.setItem("clawd-onboarding-done", "1"); setOnboardingDone(true); setOnboardingStep(0); }
-              }}>{onboardingStep < 2 ? t("main.next", "下一步") : t("main.start", "开始使用")}</button>
-            </div>
-          </section>
+          </section>}
 
           <ClaudeRoutingPanel settings={settings} updateSettings={updateSettings} connection={connection} />
 
@@ -1417,47 +1450,72 @@ function Panel({ id, title, icon, wide, children }: { id?: string; title: string
 }
 
 function ClaudeRoutingPanel({ settings, updateSettings }: { settings: CompanionSettings; updateSettings: (next: Partial<CompanionSettings>) => void; connection: any }) {
-  type RouteEntry = { id: string; name: string; baseUrl: string; enabled?: boolean; apiKeyMasked?: string; headersText?: string; modelAliasesText?: string; proxyUrl?: string; prefix?: string; excludedModelsText?: string };
-  const routes = (((settings as any).claudeRoutes ?? []) as RouteEntry[]);
-  const activeRouteId = (settings as any).activeClaudeRouteId ?? routes[0]?.id;
-  const [adding, setAdding] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [runtimePreview, setRuntimePreview] = useState<any>(null);
-  const emptyDraft = { name: "", baseUrl: "", apiKey: "", headersText: "", modelAliasesText: "", proxyUrl: "", prefix: "", excludedModelsText: "", enabled: true };
-  const [draft, setDraft] = useState(emptyDraft);
+  type ClaudeProvider = { id: string; name: string; settingsConfig: { env?: { ANTHROPIC_BASE_URL?: string; ANTHROPIC_AUTH_TOKEN?: string; ANTHROPIC_MODEL?: string }; headers?: string; modelAliases?: string; proxyUrl?: string; prefix?: string; excludedModels?: string }; websiteUrl?: string; category?: "official" | "third_party" | "custom"; createdAt?: number; sortIndex?: number; notes?: string; icon?: string; iconColor?: string };
+  type LegacyRoute = { id: string; name: string; baseUrl: string; apiKeyMasked?: string };
+  type DragHandleProps = { attributes: DraggableAttributes; listeners: DraggableSyntheticListeners; isDragging: boolean };
+  const legacyRoutes = (((settings as any).claudeRoutes ?? []) as LegacyRoute[]);
+  const storedProviders = ((settings as any).claudeProviders ?? null) as Record<string, ClaudeProvider> | null;
+  const currentProviderId = ((settings as any).currentClaudeProviderId ?? (settings as any).activeClaudeRouteId ?? "") as string;
+  const [editingProvider, setEditingProvider] = useState<ClaudeProvider | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
 
-  function maskSecret(secret: string) {
-    const value = secret.trim();
-    if (!value) return "";
-    return value.length <= 10 ? "••••••" : `${value.slice(0, 6)}…${value.slice(-4)}`;
+  function providerFromLegacy(route: LegacyRoute, index: number): ClaudeProvider {
+    const official = route.id === "claude-official" || /official/i.test(route.name);
+    return { id: route.id, name: route.name, category: official ? "official" : "third_party", websiteUrl: route.baseUrl, notes: route.baseUrl, createdAt: Date.now() + index, sortIndex: index, icon: official ? "anthropic" : undefined, iconColor: official ? "#d97757" : "#f97316", settingsConfig: { env: { ANTHROPIC_BASE_URL: route.baseUrl, ANTHROPIC_AUTH_TOKEN: route.apiKeyMasked } } };
   }
-  function saveRoutes(nextRoutes: RouteEntry[], nextActiveId = activeRouteId) {
-    updateSettings({ claudeRoutes: nextRoutes, activeClaudeRouteId: nextActiveId } as any);
+  function normalizeProviders() {
+    if (storedProviders && Object.keys(storedProviders).length > 0) return storedProviders;
+    return Object.fromEntries(legacyRoutes.map((route, index) => [route.id, providerFromLegacy(route, index)])) as Record<string, ClaudeProvider>;
   }
-  function resetDraft() { setDraft(emptyDraft); setEditingId(null); setAdding(false); }
-  function routeFromDraft(id: string, existing?: RouteEntry): RouteEntry {
-    return { ...(existing ?? {}), id, name: draft.name.trim(), baseUrl: draft.baseUrl.trim(), enabled: draft.enabled, apiKeyMasked: draft.apiKey.trim() ? maskSecret(draft.apiKey) : existing?.apiKeyMasked, headersText: draft.headersText, modelAliasesText: draft.modelAliasesText, proxyUrl: draft.proxyUrl, prefix: draft.prefix, excludedModelsText: draft.excludedModelsText };
+  const providers = normalizeProviders();
+  const sortedProviders = useMemo(() => Object.values(providers).sort((a, b) => {
+    if (a.sortIndex !== undefined && b.sortIndex !== undefined) return a.sortIndex - b.sortIndex;
+    if (a.sortIndex !== undefined) return -1;
+    if (b.sortIndex !== undefined) return 1;
+    const timeA = a.createdAt ?? 0;
+    const timeB = b.createdAt ?? 0;
+    if (timeA && timeB && timeA !== timeB) return timeA - timeB;
+    return a.name.localeCompare(b.name, "zh-CN");
+  }), [providers]);
+  const effectiveCurrentId = currentProviderId || sortedProviders[0]?.id || "";
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
+  function saveProviders(nextProviders: Record<string, ClaudeProvider>, nextCurrentId = effectiveCurrentId) { updateSettings({ claudeProviders: nextProviders, currentClaudeProviderId: nextCurrentId, claudeRoutes: undefined, activeClaudeRouteId: undefined } as any); }
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = sortedProviders.findIndex(provider => provider.id === active.id);
+    const newIndex = sortedProviders.findIndex(provider => provider.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const reordered = arrayMove(sortedProviders, oldIndex, newIndex);
+    const next = { ...providers };
+    reordered.forEach((provider, index) => { next[provider.id] = { ...next[provider.id], sortIndex: index }; });
+    saveProviders(next);
+    setStatus("排序已更新");
   }
-  function addRoute() {
-    if (!draft.name.trim() || !draft.baseUrl.trim()) return;
-    const id = `${draft.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "route"}-${Date.now().toString(36)}`;
-    saveRoutes([...routes, routeFromDraft(id)], id); resetDraft();
-  }
-  function beginEdit(route: RouteEntry) {
-    setAdding(false); setEditingId(route.id);
-    setDraft({ name: route.name, baseUrl: route.baseUrl, apiKey: "", headersText: route.headersText ?? "", modelAliasesText: route.modelAliasesText ?? "", proxyUrl: route.proxyUrl ?? "", prefix: route.prefix ?? "", excludedModelsText: route.excludedModelsText ?? "", enabled: route.enabled !== false });
-  }
-  function saveEdit() {
-    if (!editingId || !draft.name.trim() || !draft.baseUrl.trim()) return;
-    saveRoutes(routes.map(route => route.id === editingId ? routeFromDraft(editingId, route) : route)); resetDraft();
-  }
-  function removeRoute(id: string) { if (routes.length <= 1) return; const next = routes.filter(route => route.id !== id); saveRoutes(next, activeRouteId === id ? next[0]?.id : activeRouteId); if (editingId === id) resetDraft(); }
-  function moveRoute(id: string, direction: -1 | 1) { const index = routes.findIndex(route => route.id === id); const nextIndex = index + direction; if (index < 0 || nextIndex < 0 || nextIndex >= routes.length) return; const next = [...routes]; const [item] = next.splice(index, 1); next.splice(nextIndex, 0, item); saveRoutes(next); }
-  useEffect(() => { void window.companion.getClaudeRouteRuntime?.().then(setRuntimePreview).catch(() => setRuntimePreview(null)); }, [activeRouteId, routes.length]);
+  function createEmptyProvider(): ClaudeProvider { const now = Date.now(); return { id: `provider-${now.toString(36)}`, name: "新供应商", category: "custom", createdAt: now, sortIndex: sortedProviders.length, iconColor: "#f97316", settingsConfig: { env: { ANTHROPIC_BASE_URL: "" } } }; }
+  function saveProvider(provider: ClaudeProvider, originalId?: string) { const next = { ...providers }; if (originalId && originalId !== provider.id) delete next[originalId]; next[provider.id] = provider; saveProviders(next, effectiveCurrentId === originalId ? provider.id : effectiveCurrentId || provider.id); setCreating(false); setEditingProvider(null); }
+  function removeProvider(provider: ClaudeProvider) { if (sortedProviders.length <= 1) return; const next = { ...providers }; delete next[provider.id]; const fallback = sortedProviders.find(item => item.id !== provider.id)?.id || ""; saveProviders(next, effectiveCurrentId === provider.id ? fallback : effectiveCurrentId); }
+  async function handleSwitch(provider: ClaudeProvider) { const result = await window.companion.applyClaudeRoute?.(provider.id); if ((result as any)?.liveApply?.ok === false) { setStatus((result as any).liveApply.error ?? "应用失败"); return; } saveProviders(providers, provider.id); setStatus((result as any)?.liveApply?.path ? "已写入 Claude Code 全局设置" : result?.activeRoute ? "已切换" : "已设为当前供应商"); }
+  async function handleTest(provider: ClaudeProvider) { const result = await window.companion.testClaudeRoute?.(provider.id); setStatus(result?.message ?? (result?.ok ? "检测完成" : "检测失败")); }
+  async function handleTerminal(provider: ClaudeProvider) { const result = await window.companion.openClaudeRouteTerminal?.(provider.id); setStatus(result?.ok ? "终端已打开" : result?.error ?? "打开终端失败"); }
+  function ProviderIconBlock({ provider }: { provider: ClaudeProvider }) { const label = provider.icon === "anthropic" ? "AI" : provider.name.slice(0, 1).toUpperCase(); return <div className="ccs-provider-icon" style={{ color: provider.iconColor || undefined }}>{label}</div>; }
+  function ClaudeProviderActions({ provider, isCurrent }: { provider: ClaudeProvider; isCurrent: boolean }) { return <div className="ccs-provider-actions-inner"><span className={isCurrent ? "ccs-provider-action-wrap disabled" : "ccs-provider-action-wrap"}><button className={`ccs-provider-main-action ${isCurrent ? "current" : ""}`} onClick={() => handleSwitch(provider)} disabled={isCurrent} title={isCurrent ? "使用中" : "启用"}>{isCurrent ? <Check size={16} /> : <Play size={16} />}<span>{isCurrent ? "使用中" : "启用"}</span></button></span><div className="ccs-provider-icon-actions"><button onClick={() => setEditingProvider(provider)} title="编辑"><Pencil size={16} /></button><button onClick={() => handleTest(provider)} title="检测连通"><Activity size={16} /></button><button onClick={() => handleTerminal(provider)} title="打开终端"><Terminal size={16} /></button><button onClick={() => removeProvider(provider)} disabled={sortedProviders.length <= 1} title="删除"><Trash2 size={16} /></button></div></div>; }
+  function ClaudeProviderCard({ provider, isCurrent, dragHandleProps }: { provider: ClaudeProvider; isCurrent: boolean; dragHandleProps?: DragHandleProps }) { const displayUrl = provider.notes || provider.websiteUrl || provider.settingsConfig.env?.ANTHROPIC_BASE_URL || "未配置接口地址"; const isOfficial = provider.category === "official"; const isRouted = provider.category !== "official" && provider.settingsConfig.env?.ANTHROPIC_BASE_URL; return <div className={`ccs-provider-card ${isCurrent ? "active" : ""} ${dragHandleProps?.isDragging ? "dragging" : ""}`}><div className="ccs-provider-gradient" /><div className="ccs-provider-content"><div className="ccs-provider-left"><button className="ccs-drag-handle" aria-label="拖拽排序" {...(dragHandleProps?.attributes ?? {})} {...(dragHandleProps?.listeners ?? {})}><GripVertical size={16} /></button><ProviderIconBlock provider={provider} /><div className="ccs-provider-main"><div className="ccs-provider-titleline"><h3>{provider.name}</h3>{isOfficial ? <span>不支持路由</span> : isRouted ? <span>需要路由</span> : null}</div><button className="ccs-provider-url" type="button" title={displayUrl}>{displayUrl}</button></div></div><div className="ccs-provider-actions"><ClaudeProviderActions provider={provider} isCurrent={isCurrent} /></div></div></div>; }
+  function SortableClaudeProviderCard({ provider }: { provider: ClaudeProvider }) { const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: provider.id }); const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition }; return <div ref={setNodeRef} style={style}><ClaudeProviderCard provider={provider} isCurrent={provider.id === effectiveCurrentId} dragHandleProps={{ attributes, listeners, isDragging }} /></div>; }
+  function ClaudeProviderEditPanel({ provider, mode }: { provider: ClaudeProvider; mode: "add" | "edit" }) {
+    const [draft, setDraft] = useState<ClaudeProvider>(provider);
+    const env = draft.settingsConfig.env ?? {};
+    const baseUrl = env.ANTHROPIC_BASE_URL ?? "";
+    const token = env.ANTHROPIC_AUTH_TOKEN ?? "";
+    const model = env.ANTHROPIC_MODEL ?? "";
+    const updateEnv = (key: "ANTHROPIC_BASE_URL" | "ANTHROPIC_AUTH_TOKEN" | "ANTHROPIC_MODEL", value: string) => setDraft(current => ({ ...current, settingsConfig: { ...current.settingsConfig, env: { ...current.settingsConfig.env, [key]: value } } }));
+    const updateConfig = (key: keyof ClaudeProvider["settingsConfig"], value: string) => setDraft(current => ({ ...current, settingsConfig: { ...current.settingsConfig, [key]: value } }));
+    const closePanel = () => { setCreating(false); setEditingProvider(null); };
 
-  function RouteEditor({ mode }: { mode: "add" | "edit" }) { return <div className="cc-route-editor"><div className="cc-route-editor-grid"><label><span>名称</span><input value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} placeholder="Claude Official" /></label><label><span>Base URL</span><input value={draft.baseUrl} onChange={event => setDraft({ ...draft, baseUrl: event.target.value })} placeholder="https://api.anthropic.com" /></label><label><span>API Key</span><input type="password" value={draft.apiKey} onChange={event => setDraft({ ...draft, apiKey: event.target.value })} placeholder="sk-ant-...（留空保持原值）" /></label><label><span>Proxy URL</span><input value={draft.proxyUrl} onChange={event => setDraft({ ...draft, proxyUrl: event.target.value })} placeholder="可选：代理覆盖" /></label><label><span>Prefix</span><input value={draft.prefix} onChange={event => setDraft({ ...draft, prefix: event.target.value })} placeholder="可选：路径前缀" /></label><label className="cc-route-check"><input type="checkbox" checked={draft.enabled} onChange={event => setDraft({ ...draft, enabled: event.target.checked })} />启用此路由</label></div><div className="cc-route-editor-textareas"><label><span>Headers</span><textarea rows={3} value={draft.headersText} onChange={event => setDraft({ ...draft, headersText: event.target.value })} placeholder="X-Project: internal-routing" /></label><label><span>模型映射</span><textarea rows={3} value={draft.modelAliasesText} onChange={event => setDraft({ ...draft, modelAliasesText: event.target.value })} placeholder="claude-sonnet-4-5=claude-3-7-sonnet-latest" /></label><label><span>排除模型</span><textarea rows={3} value={draft.excludedModelsText} onChange={event => setDraft({ ...draft, excludedModelsText: event.target.value })} placeholder="每行一个模型 ID" /></label></div><div className="cc-route-form-actions"><button className="ghost" onClick={resetDraft}>取消</button><button onClick={mode === "add" ? addRoute : saveEdit}>{mode === "add" ? "添加" : "保存"}</button></div></div>; }
-
-  return <section className="cc-switch-panel"><header className="cc-switch-header"><div><h3>Claude Code 路由</h3><span>选择当前 Claude Code 上游；添加、排序、编辑和切换都会持久化保存。</span></div><button className="cc-switch-add" onClick={() => { setAdding(v => !v); setEditingId(null); setDraft(emptyDraft); }} title="添加路由">+</button></header>{adding && <RouteEditor mode="add" />}<div className="cc-route-scroll">{routes.map((route, index) => { const active = route.id === activeRouteId; const configured = Boolean(route.apiKeyMasked || route.headersText || route.modelAliasesText || route.proxyUrl || route.prefix); return <article key={route.id} className={`cc-route-row ${active ? "active" : ""} ${route.enabled === false ? "disabled" : ""}`} onClick={() => saveRoutes(routes, route.id)}><button className="cc-route-drag" onClick={event => { event.stopPropagation(); moveRoute(route.id, -1); }} disabled={index === 0} title="上移">⋮⋮</button><div className="cc-route-logo"><span>{route.name.slice(0, 2).toUpperCase()}</span></div><div className="cc-route-main"><strong>{route.name}</strong><a onClick={event => event.preventDefault()}>{route.baseUrl}</a><div className="cc-route-badges"><em>{route.enabled === false ? "disabled" : "enabled"}</em><em>{configured ? "configured" : "minimal"}</em>{route.apiKeyMasked ? <em>{route.apiKeyMasked}</em> : null}</div></div><div className="cc-route-actions">{active ? <span className="cc-route-active">当前</span> : null}<button onClick={event => { event.stopPropagation(); void window.companion.applyClaudeRoute?.(route.id).then(setRuntimePreview); }} title="应用">应用</button><button onClick={event => { event.stopPropagation(); beginEdit(route); }} title="编辑">编辑</button><button onClick={event => { event.stopPropagation(); void window.companion.testClaudeRoute?.(route.id).then(setRuntimePreview); }} title="测试模型">测试模型</button><button onClick={event => { event.stopPropagation(); void window.companion.openClaudeRouteTerminal?.(route.id); }} title="打开终端">终端</button><button onClick={event => { event.stopPropagation(); moveRoute(route.id, 1); }} disabled={index === routes.length - 1} title="下移">↓</button><button onClick={event => { event.stopPropagation(); removeRoute(route.id); }} disabled={routes.length <= 1} title="删除">删除</button></div></article>; })}</div>{editingId && <RouteEditor mode="edit" />}{runtimePreview?.activeRoute ? <div className="cc-runtime-preview"><strong>运行时预览（未自动应用）</strong><code>{runtimePreview.commandPrefix || "使用 Claude Code 默认环境"}</code><span>{runtimePreview.note}</span></div> : null}</section>;
+    return <div className="ccs-fullscreen-panel"><header className="ccs-fullscreen-header"><button className="ccs-back-button" type="button" onClick={closePanel}><ArrowLeft size={18} /></button><div className="ccs-fullscreen-title"><h2>{mode === "edit" ? "编辑供应商" : "添加供应商"}</h2><span>Claude Code Provider</span></div></header><main className="ccs-fullscreen-body"><form id="claude-provider-form" className="ccs-provider-form" onSubmit={event => { event.preventDefault(); saveProvider(draft, mode === "edit" ? provider.id : undefined); }}><section className="ccs-form-card"><div className="ccs-form-section-heading"><div><h3>基础信息</h3><p>供应商在列表中的显示名称、官网和分类。</p></div></div><div className="ccs-form-grid two"><label><span>供应商名称</span><input value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} placeholder="Claude Official" /></label><label><span>分类</span><select value={draft.category ?? "custom"} onChange={event => setDraft({ ...draft, category: event.target.value as any })}><option value="official">official</option><option value="third_party">third_party</option><option value="custom">custom</option></select></label><label><span>官网 / 展示 URL</span><input value={draft.websiteUrl ?? ""} onChange={event => setDraft({ ...draft, websiteUrl: event.target.value })} placeholder="https://provider.example.com" /></label><label><span>备注</span><input value={draft.notes ?? ""} onChange={event => setDraft({ ...draft, notes: event.target.value })} placeholder="显示在供应商卡片下方" /></label></div></section><section className="ccs-form-card"><div className="ccs-form-section-heading"><div><h3>Claude Code 配置</h3><p>写入新终端/切换预览使用的 Claude Code 环境变量。</p></div></div><div className="ccs-form-grid"><label><span>ANTHROPIC_BASE_URL</span><input value={baseUrl} onChange={event => updateEnv("ANTHROPIC_BASE_URL", event.target.value)} placeholder="https://api.anthropic.com" /></label><label><span>ANTHROPIC_AUTH_TOKEN</span><input type="password" value={token} onChange={event => updateEnv("ANTHROPIC_AUTH_TOKEN", event.target.value)} placeholder="sk-ant-..." /></label><label><span>ANTHROPIC_MODEL</span><input value={model} onChange={event => updateEnv("ANTHROPIC_MODEL", event.target.value)} placeholder="可选，例如 claude-sonnet-4-6" /></label></div></section><section className="ccs-form-card"><div className="ccs-form-section-heading"><div><h3>高级路由</h3><p>保持 cc-switch ProviderForm 的分组式配置入口。</p></div></div><div className="ccs-form-grid two"><label><span>Headers</span><textarea value={draft.settingsConfig.headers ?? ""} onChange={event => updateConfig("headers", event.target.value)} placeholder={'{"X-Api-Key":"..."}'} /></label><label><span>Model aliases</span><textarea value={draft.settingsConfig.modelAliases ?? ""} onChange={event => updateConfig("modelAliases", event.target.value)} placeholder="alias=upstream-model" /></label><label><span>Proxy URL</span><input value={draft.settingsConfig.proxyUrl ?? ""} onChange={event => updateConfig("proxyUrl", event.target.value)} placeholder="http://127.0.0.1:7890" /></label><label><span>Prefix</span><input value={draft.settingsConfig.prefix ?? ""} onChange={event => updateConfig("prefix", event.target.value)} placeholder="可选路由前缀" /></label><label className="wide"><span>Excluded models</span><textarea value={draft.settingsConfig.excludedModels ?? ""} onChange={event => updateConfig("excludedModels", event.target.value)} placeholder="每行一个模型规则" /></label></div></section><section className="ccs-form-card"><div className="ccs-form-section-heading"><div><h3>图标</h3><p>列表左侧 provider icon 的名称和颜色。</p></div></div><div className="ccs-form-grid two compact"><label><span>Icon</span><input value={draft.icon ?? ""} onChange={event => setDraft({ ...draft, icon: event.target.value })} placeholder="anthropic / openai / custom" /></label><label><span>Icon color</span><input value={draft.iconColor ?? ""} onChange={event => setDraft({ ...draft, iconColor: event.target.value })} placeholder="#f97316" /></label></div></section></form></main><footer className="ccs-fullscreen-footer"><button className="ccs-panel-cancel" type="button" onClick={closePanel}>取消</button><button className="ccs-save-button" type="submit" form="claude-provider-form"><Save size={16} />保存</button></footer></div>;
+  }
+  return <section className="ccs-provider-board"><header className="ccs-provider-board-header"><div><h3>Claude Code 路由</h3></div><button className="cc-switch-add" onClick={() => { setCreating(true); setEditingProvider(null); }} title="添加供应商">+</button></header>{status ? <div className="ccs-provider-status">{status}</div> : null}<DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}><SortableContext items={sortedProviders.map(provider => provider.id)} strategy={verticalListSortingStrategy}><div className="ccs-provider-list">{sortedProviders.map(provider => <SortableClaudeProviderCard key={provider.id} provider={provider} />)}</div></SortableContext></DndContext>{creating ? <ClaudeProviderEditPanel provider={createEmptyProvider()} mode="add" /> : null}{editingProvider ? <ClaudeProviderEditPanel provider={editingProvider} mode="edit" /> : null}</section>;
 }
 
 function GroupCard({ icon, title, children }: { icon?: React.ReactNode; title: string; children: React.ReactNode }) {
@@ -1469,30 +1527,43 @@ function GroupCard({ icon, title, children }: { icon?: React.ReactNode; title: s
   );
 }
 
-function HooksManager() {
+function HooksManager({ compact = false, success = false, onStatusChange, onInstallSuccess }: { compact?: boolean; success?: boolean; onStatusChange?: (status: HookStatus) => void; onInstallSuccess?: (status: HookStatus) => void } = {}) {
   const { t } = useI18n();
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
-  const [status, setStatus] = useState<{ installed: boolean; configExists: boolean; hookCount: number; requiredCount: number; missingEvents: string[]; commandMatches: boolean } | null>(null);
+  const [status, setStatus] = useState<HookStatus | null>(null);
   const [action, setAction] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
+  function updateHookStatus(next: HookStatus) {
+    setStatus(next);
+    onStatusChange?.(next);
+  }
+
   useEffect(() => {
-    window.companion.checkHooks().then(setStatus);
+    window.companion.checkHooks().then(updateHookStatus);
   }, []);
 
   async function handleInstall() {
     setAction("installing");
-    const res = await window.companion.installHooks();
-    setResult(res.success ? t("doctor.installDone", "安装成功！重启 Claude Code 会话后生效。") : formatText(t("doctor.installFailed", "安装失败: {error}"), { error: res.error ?? "" }));
-    setStatus(await window.companion.checkHooks());
-    setAction(null);
+    try {
+      const res = await window.companion.installHooks();
+      const nextStatus = await window.companion.checkHooks();
+      const installed = !!res.success && nextStatus.installed && nextStatus.commandMatches && nextStatus.missingEvents.length === 0;
+      setResult(installed ? t("doctor.installDone", "安装成功！重启 Claude Code 会话后生效。") : res.success ? t("doctor.installIncomplete", "安装完成，但仍有 hooks 未配置完整。") : formatText(t("doctor.installFailed", "安装失败: {error}"), { error: res.error ?? "" }));
+      updateHookStatus(nextStatus);
+      if (installed) onInstallSuccess?.(nextStatus);
+    } catch (error) {
+      setResult(formatText(t("doctor.installFailed", "安装失败: {error}"), { error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setAction(null);
+    }
   }
 
   async function handleRepair() {
     setAction("repairing");
     const res = await window.companion.repairHooks();
     setResult(res.success ? formatText(t("doctor.repairDone", "修复完成，修复了 {count} 项配置。"), { count: res.fixed.length }) : formatText(t("doctor.repairFailed", "修复失败: {error}"), { error: res.error ?? "" }));
-    setStatus(await window.companion.checkHooks());
+    updateHookStatus(await window.companion.checkHooks());
     setAction(null);
   }
 
@@ -1500,44 +1571,46 @@ function HooksManager() {
     setAction("removing");
     const res = await window.companion.removeHooks();
     setResult(res.success ? t("doctor.removeDone", "已移除所有 Clawd hooks。") : formatText(t("doctor.removeFailed", "移除失败: {error}"), { error: res.error ?? "" }));
-    setStatus(await window.companion.checkHooks());
+    updateHookStatus(await window.companion.checkHooks());
     setAction(null);
   }
 
+  const configuredLabel = formatText(t("doctor.configuredCount", "已配置 {count} / {total} 个事件"), { count: status?.hookCount ?? 0, total: status?.requiredCount ?? 6 });
+  const missingLabel = status?.missingEvents && status.missingEvents.length > 0 ? formatText(t("doctor.missingPrefix", "缺少: {events}"), { events: status.missingEvents.join(", ") }) : undefined;
+  const mismatchLabel = status && !status.commandMatches && status.configExists ? t("doctor.mismatchHint", "命令路径不匹配，建议修复") : undefined;
+  const hookMeta = [missingLabel, mismatchLabel].filter(Boolean).join(" · ");
+
   return (
-    <div className="hooks-manager">
+    <div className={`hooks-manager ${compact ? "compact" : ""} ${success ? "install-success" : ""}`}>
       <StatusCard
-        icon={<Wrench size={18} />}
-        label={t("doctor.status", "Hooks 状态")}
-        value={status?.installed ? t("hooks.installed", "已安装") : status?.configExists ? t("doctor.partial", "部分安装") : t("hooks.notInstalled", "未安装")}
-        tone={status?.installed ? "good" : status?.configExists ? "wait" : "bad"}
+        icon={success ? <CheckCircle2 size={18} /> : <Wrench size={18} />}
+        label={success ? t("doctor.hooksReady", "Hooks 已就绪") : t("doctor.status", "Hooks 状态")}
+        value={success ? t("doctor.installSuccessValue", "安装成功") : compact ? configuredLabel : status?.installed ? t("hooks.installed", "已安装") : status?.configExists ? t("doctor.partial", "部分安装") : t("hooks.notInstalled", "未安装")}
+        meta={success ? undefined : compact && hookMeta ? hookMeta : undefined}
+        tone={success ? "good" : status?.installed ? "good" : status?.configExists ? "wait" : "bad"}
       />
 
-      <div className="hooks-detail">
-        <span>{formatText(t("doctor.configuredCount", "已配置 {count} / {total} 个事件"), { count: status?.hookCount ?? 0, total: status?.requiredCount ?? 6 })}</span>
-        {status?.missingEvents && status.missingEvents.length > 0 && (
-          <span className="hooks-missing">{formatText(t("doctor.missingPrefix", "缺少: {events}"), { events: status.missingEvents.join(", ") })}</span>
-        )}
-        {status && !status.commandMatches && status.configExists && (
-          <span className="hooks-mismatch">{t("doctor.mismatchHint", "命令路径不匹配，建议修复")}</span>
-        )}
-      </div>
+      {!compact && <div className="hooks-detail">
+        <span>{configuredLabel}</span>
+        {missingLabel && <span className="hooks-missing">{missingLabel}</span>}
+        {mismatchLabel && <span className="hooks-mismatch">{mismatchLabel}</span>}
+      </div>}
 
       <div className="hooks-actions">
-        <button onClick={handleInstall} disabled={!!action}>
-          {action === "installing" ? t("doctor.installing", "安装中...") : t("doctor.oneClickInstall", "一键安装")}
+        <button onClick={handleInstall} disabled={!!action || success}>
+          {success ? <><CheckCircle2 size={16} />{t("doctor.installed", "已安装")}</> : action === "installing" ? t("doctor.installing", "安装中...") : t("doctor.oneClickInstall", "一键安装")}
         </button>
-        <button onClick={handleRepair} disabled={!!action}>
+        {!compact && <button onClick={handleRepair} disabled={!!action}>
           {action === "repairing" ? t("doctor.repairing", "修复中...") : t("doctor.repairConfig", "修复配置")}
-        </button>
-        <button className="danger" onClick={handleRemove} disabled={!!action}>
+        </button>}
+        {!compact && <button className="danger" onClick={handleRemove} disabled={!!action}>
           {action === "removing" ? t("doctor.removing", "移除中...") : t("doctor.removeHooks", "移除 Hooks")}
-        </button>
+        </button>}
       </div>
 
       {result && <p className="hooks-result">{result}</p>}
 
-      <p className="note">{t("doctor.note", "安装 hooks 后，Claude Code 会自动将事件发送到 Clawd Companion。备份文件保存在 ~/.claude/settings.clawd-backup.json")}</p>
+      {!compact && <p className="note">{t("doctor.note", "安装 hooks 后，Claude Code 会自动将事件发送到 Clawd Companion。备份文件保存在 ~/.claude/settings.clawd-backup.json")}</p>}
     </div>
   );
 }

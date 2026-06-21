@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } from "electron";
 import { spawn } from "node:child_process";
-import { createReadStream, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
@@ -149,6 +149,18 @@ function loadRenderer(window: BrowserWindow, view?: "panel") {
   window.loadFile(join(__dirname, "../../dist/index.html"), view ? { query: { view } } : undefined);
 }
 
+function getAppIcon() {
+  const candidates = [
+    join(__dirname, "../../src/main/assets/kuaclock.png"),
+    join(process.cwd(), "src/main/assets/kuaclock.png"),
+    join(process.resourcesPath ?? "", "kuaclock.png")
+  ];
+  const iconPath = candidates.find(candidate => candidate && existsSync(candidate));
+  if (!iconPath) return createTrayIcon();
+  const image = nativeImage.createFromPath(iconPath);
+  return image.isEmpty() ? createTrayIcon() : image;
+}
+
 function createPetWindow() {
   const bounds = getPetWindowBounds();
 
@@ -161,6 +173,7 @@ function createPetWindow() {
     backgroundColor: "#00000000",
     hasShadow: false,
     skipTaskbar: true,
+    icon: getAppIcon(),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -190,6 +203,7 @@ function createPanelWindow() {
     frame: false,
     backgroundColor: "#f5efe3",
     autoHideMenuBar: true,
+    icon: getAppIcon(),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -295,7 +309,7 @@ function updateTrayMenu() {
 }
 
 function createTray() {
-  const trayIcon = createTrayIcon();
+  const trayIcon = getAppIcon().resize({ width: 16, height: 16 });
 
   tray = new Tray(trayIcon);
   tray.setToolTip("Claude Codex Pet is running");
@@ -1500,7 +1514,78 @@ function getCompanionEvents() {
   return eventHistory.map(toCompanionEvent);
 }
 
+function getClaudeSettingsPath() {
+  const claudeDir = join(homedir(), ".claude");
+  const settings = join(claudeDir, "settings.json");
+  const legacy = join(claudeDir, "claude.json");
+  if (existsSync(settings)) return settings;
+  if (existsSync(legacy)) return legacy;
+  return settings;
+}
+
+function readLiveJsonObject(path: string) {
+  if (!existsSync(path)) return {} as Record<string, any>;
+  const raw = readFileSync(path, "utf-8").trim();
+  if (!raw) return {} as Record<string, any>;
+  const parsed = JSON.parse(raw);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, any> : {} as Record<string, any>;
+}
+
+function backupFile(path: string) {
+  if (!existsSync(path)) return null;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupPath = path.replace(/\.json$/i, `.clawd-backup-${stamp}.json`);
+  copyFileSync(path, backupPath);
+  return backupPath;
+}
+
+function sanitizeClaudeSettingsConfig(config: Record<string, any>) {
+  const next = { ...config };
+  delete next.api_format;
+  delete next.apiFormat;
+  delete next.openrouter_compat_mode;
+  delete next.openrouterCompatMode;
+  return next;
+}
+
+function applyClaudeProviderToLiveSettings(routeId: string) {
+  const providers = companionSettings.claudeProviders && typeof companionSettings.claudeProviders === "object" ? companionSettings.claudeProviders as Record<string, Record<string, any>> : null;
+  const provider = providers?.[routeId];
+  if (!provider) return { ok: false, error: `Provider ${routeId} not found` };
+  const settingsConfig = provider.settingsConfig && typeof provider.settingsConfig === "object" ? sanitizeClaudeSettingsConfig(provider.settingsConfig as Record<string, any>) : {};
+  const path = getClaudeSettingsPath();
+  mkdirSync(join(homedir(), ".claude"), { recursive: true });
+  const existing = readLiveJsonObject(path);
+  const backupPath = backupFile(path);
+  const next = { ...existing, ...settingsConfig };
+  if (existing.env || settingsConfig.env) {
+    next.env = { ...(existing.env && typeof existing.env === "object" ? existing.env : {}), ...(settingsConfig.env && typeof settingsConfig.env === "object" ? settingsConfig.env : {}) };
+  }
+  writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`, "utf-8");
+  return { ok: true, path, backupPath };
+}
+
 function getActiveClaudeRoute() {
+  const providers = companionSettings.claudeProviders && typeof companionSettings.claudeProviders === "object" ? companionSettings.claudeProviders as Record<string, Record<string, unknown>> : null;
+  if (providers && Object.keys(providers).length > 0) {
+    const activeId = typeof companionSettings.currentClaudeProviderId === "string" ? companionSettings.currentClaudeProviderId : undefined;
+    const provider = (activeId ? providers[activeId] : undefined) ?? Object.values(providers).sort((a, b) => Number(a.sortIndex ?? 0) - Number(b.sortIndex ?? 0))[0];
+    const settingsConfig = provider?.settingsConfig && typeof provider.settingsConfig === "object" ? provider.settingsConfig as Record<string, unknown> : {};
+    const env = settingsConfig.env && typeof settingsConfig.env === "object" ? settingsConfig.env as Record<string, unknown> : {};
+    return provider ? {
+      id: provider.id,
+      name: provider.name,
+      baseUrl: env.ANTHROPIC_BASE_URL,
+      apiKeyMasked: env.ANTHROPIC_AUTH_TOKEN,
+      headersText: settingsConfig.headers,
+      modelAliasesText: settingsConfig.modelAliases,
+      proxyUrl: settingsConfig.proxyUrl,
+      prefix: settingsConfig.prefix,
+      excludedModelsText: settingsConfig.excludedModels,
+      enabled: true
+    } : null;
+  }
+
   const routes = Array.isArray(companionSettings.claudeRoutes) ? companionSettings.claudeRoutes as Array<Record<string, unknown>> : [];
   const activeId = typeof companionSettings.activeClaudeRouteId === "string" ? companionSettings.activeClaudeRouteId : undefined;
   return routes.find(route => route.id === activeId) ?? routes[0] ?? null;
@@ -1541,22 +1626,29 @@ function getClaudeRouteRuntimePreview() {
 }
 
 function applyClaudeRoute(routeId: string) {
-  companionSettings = { ...companionSettings, activeClaudeRouteId: routeId };
+  const liveApply = applyClaudeProviderToLiveSettings(routeId);
+  if (!liveApply.ok) return { ...getClaudeRouteRuntimePreview(), liveApply };
+  companionSettings = { ...companionSettings, activeClaudeRouteId: routeId, currentClaudeProviderId: routeId };
   saveCompanionSettings();
   panelWindow?.webContents.send("companion:settings", companionSettings);
-  return getClaudeRouteRuntimePreview();
+  return { ...getClaudeRouteRuntimePreview(), liveApply };
 }
 
 function testClaudeRoute(routeId: string) {
-  const previous = companionSettings.activeClaudeRouteId;
-  companionSettings = { ...companionSettings, activeClaudeRouteId: routeId };
+  const previousRoute = companionSettings.activeClaudeRouteId;
+  const previousProvider = companionSettings.currentClaudeProviderId;
+  companionSettings = { ...companionSettings, activeClaudeRouteId: routeId, currentClaudeProviderId: routeId };
   const preview = getClaudeRouteRuntimePreview();
-  companionSettings = { ...companionSettings, activeClaudeRouteId: previous };
+  companionSettings = { ...companionSettings, activeClaudeRouteId: previousRoute, currentClaudeProviderId: previousProvider };
   return { ok: Boolean(preview.activeRoute), preview, message: "Dry-run only: generated Claude Code route environment without sending a model request." };
 }
 
 function openClaudeRouteTerminal(routeId: string) {
-  const preview = applyClaudeRoute(routeId) as any;
+  const previousRoute = companionSettings.activeClaudeRouteId;
+  const previousProvider = companionSettings.currentClaudeProviderId;
+  companionSettings = { ...companionSettings, activeClaudeRouteId: routeId, currentClaudeProviderId: routeId };
+  const preview = getClaudeRouteRuntimePreview() as any;
+  companionSettings = { ...companionSettings, activeClaudeRouteId: previousRoute, currentClaudeProviderId: previousProvider };
   const prefix = preview.commandPrefix ? `${preview.commandPrefix}; ` : "";
   const command = `${prefix}claude`;
   if (process.platform === "win32") {
@@ -1721,15 +1813,114 @@ function getSessionHistory() {
   }];
 }
 
+const requiredClaudeHookEvents = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
+
+function getHookForwarderPath() {
+  const candidates = [
+    join(app.getAppPath(), "scripts", "hook-forwarder.js"),
+    join(process.cwd(), "scripts", "hook-forwarder.js"),
+    join(__dirname, "../../scripts/hook-forwarder.js")
+  ];
+  return candidates.find(candidate => existsSync(candidate)) ?? candidates[0];
+}
+
+function getHookCommand(eventName: string) {
+  return `node ${JSON.stringify(getHookForwarderPath())} ${eventName}`;
+}
+
+function isClawdHookCommand(command: unknown, eventName?: string) {
+  if (typeof command !== "string") return false;
+  const normalized = command.replace(/\\/g, "/");
+  const scriptNameMatches = normalized.includes("hook-forwarder.js");
+  return scriptNameMatches && (!eventName || normalized.includes(eventName));
+}
+
+function getHookEntries(settings: Record<string, any>, eventName: string): Array<Record<string, any>> {
+  const eventConfig = settings.hooks?.[eventName];
+  if (!Array.isArray(eventConfig)) return [];
+  return eventConfig.filter(entry => entry && typeof entry === "object") as Array<Record<string, any>>;
+}
+
 function getHooksStatus() {
+  const path = getClaudeSettingsPath();
+  const configExists = existsSync(path);
+  let settings: Record<string, any> = {};
+  try {
+    settings = readLiveJsonObject(path);
+  } catch {
+    settings = {};
+  }
+
+  const missingEvents = requiredClaudeHookEvents.filter(eventName => {
+    const entries = getHookEntries(settings, eventName);
+    return !entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => isClawdHookCommand(hook?.command, eventName)));
+  });
+  const hookCount = requiredClaudeHookEvents.length - missingEvents.length;
+  const commandMatches = missingEvents.length === 0;
+
   return {
-    installed: false,
-    configExists: false,
-    hookCount: 0,
-    requiredCount: 6,
-    missingEvents: ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"],
-    commandMatches: false
+    installed: commandMatches,
+    configExists,
+    hookCount,
+    requiredCount: requiredClaudeHookEvents.length,
+    missingEvents,
+    commandMatches
   };
+}
+
+function installHooks() {
+  const path = getClaudeSettingsPath();
+  mkdirSync(join(homedir(), ".claude"), { recursive: true });
+  const settings = readLiveJsonObject(path);
+  backupFile(path);
+  const hooks = settings.hooks && typeof settings.hooks === "object" && !Array.isArray(settings.hooks) ? { ...settings.hooks } : {};
+
+  for (const eventName of requiredClaudeHookEvents) {
+    const entries = Array.isArray(hooks[eventName]) ? [...hooks[eventName]] : [];
+    const existingIndex = entries.findIndex(entry => entry && typeof entry === "object" && Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => isClawdHookCommand(hook?.command)));
+    const clawdEntry = { matcher: "*", hooks: [{ type: "command", command: getHookCommand(eventName) }] };
+    if (existingIndex >= 0) entries[existingIndex] = clawdEntry;
+    else entries.push(clawdEntry);
+    hooks[eventName] = entries;
+  }
+
+  writeFileSync(path, `${JSON.stringify({ ...settings, hooks }, null, 2)}\n`, "utf-8");
+  return { success: true, status: getHooksStatus() };
+}
+
+function repairHooks() {
+  const before = getHooksStatus();
+  const result = installHooks();
+  const after = getHooksStatus();
+  return { success: true, fixed: before.missingEvents, status: after, install: result };
+}
+
+function removeHooks() {
+  const path = getClaudeSettingsPath();
+  if (!existsSync(path)) return { success: true, removed: 0, status: getHooksStatus() };
+  const settings = readLiveJsonObject(path);
+  backupFile(path);
+  let removed = 0;
+  const hooks = settings.hooks && typeof settings.hooks === "object" && !Array.isArray(settings.hooks) ? { ...settings.hooks } : {};
+
+  for (const eventName of Object.keys(hooks)) {
+    if (!Array.isArray(hooks[eventName])) continue;
+    hooks[eventName] = hooks[eventName].map((entry: any) => {
+      if (!entry || typeof entry !== "object" || !Array.isArray(entry.hooks)) return entry;
+      const nextHooks = entry.hooks.filter((hook: any) => {
+        const shouldRemove = isClawdHookCommand(hook?.command);
+        if (shouldRemove) removed += 1;
+        return !shouldRemove;
+      });
+      return { ...entry, hooks: nextHooks };
+    }).filter((entry: any) => !entry || typeof entry !== "object" || !Array.isArray(entry.hooks) || entry.hooks.length > 0);
+    if (hooks[eventName].length === 0) delete hooks[eventName];
+  }
+
+  const nextSettings = { ...settings, hooks };
+  if (Object.keys(hooks).length === 0) delete nextSettings.hooks;
+  writeFileSync(path, `${JSON.stringify(nextSettings, null, 2)}\n`, "utf-8");
+  return { success: true, removed, status: getHooksStatus() };
 }
 
 function getUpdateStatus() {
@@ -1901,9 +2092,9 @@ app.whenReady().then(() => {
     }));
   });
   ipcMain.handle("companion:check-hooks", () => getHooksStatus());
-  ipcMain.handle("companion:install-hooks", () => undefined);
-  ipcMain.handle("companion:repair-hooks", () => undefined);
-  ipcMain.handle("companion:remove-hooks", () => undefined);
+  ipcMain.handle("companion:install-hooks", () => installHooks());
+  ipcMain.handle("companion:repair-hooks", () => repairHooks());
+  ipcMain.handle("companion:remove-hooks", () => removeHooks());
   ipcMain.handle("companion:open-settings", () => showPanelWindow());
   ipcMain.handle("companion:minimize-settings", () => panelWindow?.minimize());
   ipcMain.handle("companion:toggle-maximize-settings", () => {
