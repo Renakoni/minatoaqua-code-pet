@@ -2,12 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { CSS } from "@dnd-kit/utilities";
-import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent, type DraggableAttributes, type DraggableSyntheticListeners } from "@dnd-kit/core";
-import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import {
-  Activity,
-  ArrowLeft,
   Bell,
   BarChart3,
   Bot,
@@ -22,23 +17,18 @@ import {
   FileText,
   FlaskConical,
   Gauge,
-  GripVertical,
   KeyRound,
   Layers3,
   MonitorCheck,
   MousePointer2,
-  Pencil,
-  Play,
   PlugZap,
   Radio,
-  Save,
   Search,
   Shield,
   SlidersHorizontal,
   Sparkles,
   Terminal,
   Timer,
-  Trash2,
   Wand2,
   Wrench,
   Zap,
@@ -58,6 +48,7 @@ import { PermissionCard } from "./components/PermissionCard";
 import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
 import { PluginsPage } from "./components/plugins/PluginsPage";
 import { SessionsPage } from "./components/sessions/SessionsPage";
+import { ClaudeRoutingPanel } from "./components/claude-routing/ClaudeRoutingPanel";
 import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
 import { NotificationRulesPanel } from "./components/NotificationRulesPanel";
 import { MonitorSettings } from "./components/MonitorSettings";
@@ -202,15 +193,6 @@ function PetApp() {
       off();
       if (gitToastTimer.current) window.clearTimeout(gitToastTimer.current);
     };
-  }, []);
-
-  // 响应测试按钮
-  useEffect(() => {
-    const off = window.companion.onTriggerIdleBubble(() => {
-      setRandomBubble("idle");
-      setTimeout(() => setRandomBubble(null), 2500);
-    });
-    return () => off();
   }, []);
 
   // HTML5 Audio 播放音效
@@ -948,7 +930,6 @@ export function SettingsApp() {
   });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [installing, setInstalling] = useState(false);
-  const [previewIdleBubble, setPreviewIdleBubble] = useState<string | null>(null);
   const [persistedStats, setPersistedStats] = useState<any>(null);
   const [onboardingDone, setOnboardingDone] = useState(() => {
     try { return localStorage.getItem("clawd-onboarding-done") === "1"; } catch { return true; }
@@ -961,20 +942,6 @@ export function SettingsApp() {
   const hookSetupShowingSuccess = !hookSetupNeedsAttention && (hookSetupStage === "success" || hookSetupStage === "hiding");
   const shouldRenderHookSetup = hookSetupNeedsAttention || hookSetupStage !== "idle";
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
-  const sampleEvents = useMemo<CompanionEvent[]>(() => [
-    makeEvent("session_start", "manual", t("data.sampleSessionStart", "Claude Code 会话开始"), t("data.sampleSessionStartMsg", "Clawd 已经进入陪跑状态。")),
-    makeEvent("prompt_submit", "manual", t("data.samplePrompt", "收到新任务"), t("data.samplePromptMsg", "正在分析你的输入。")),
-    makeEvent("tool_start", "manual", t("data.sampleRead", "正在读取文件"), t("data.sampleReadMsg", "Read 工具已开始。"), "Read"),
-    makeEvent("tool_start", "manual", t("data.sampleEdit", "正在编辑代码"), t("data.sampleEditMsg", "Edit 工具已开始。"), "Edit"),
-    makeEvent("tool_start", "manual", t("data.sampleBash", "正在跑命令"), t("data.sampleBashMsg", "Bash 工具已开始。"), "Bash"),
-    makeEvent("tool_start", "manual", t("data.sampleSearch", "正在搜索"), t("data.sampleSearchMsg", "Grep/Glob 正在检索。"), "Grep"),
-    makeEvent("permission_wait", "manual", t("data.samplePermission", "需要确认"), t("data.samplePermissionMsg", "Claude Code 正在等待你的许可。")),
-    makeEvent("done", "manual", t("data.sampleDone", "处理完成"), t("data.sampleDoneMsg", "这一轮已经结束。")),
-    makeEvent("error", "manual", t("data.sampleError", "执行失败"), t("data.sampleErrorMsg", "有一个工具调用没有成功。")),
-    makeEvent("git_operation", "manual", "✓ commit", t("data.sampleCommitMsg", "feat: 添加新功能"), undefined),
-    makeEvent("git_operation", "manual", "↔ checkout", t("data.sampleCheckoutMsg", "已切换到 main"), undefined),
-    makeEvent("git_operation", "manual", "✓ merge", "Merge branch 'feature'", undefined)
-  ], [t]);
   const hookCommand = "node D:/build/GitLocal/Clawd-Companion/dist/hook-forwarder/index.js";
   const hookConfigPath = "C:/Users/Doulor/.claude/settings.json";
   const hookSnippet = useMemo(() => buildHookSnippet(hookCommand), [hookCommand]);
@@ -984,16 +951,12 @@ export function SettingsApp() {
     window.companion.getUpdateStatus().then(setUpdateStatus);
     window.companion.getStats().then(setPersistedStats);
     const offUpdate = window.companion.onUpdateStatus(setUpdateStatus);
-    const offIdle = window.companion.onTriggerIdleBubble(() => {
-      setPreviewIdleBubble("idle");
-      setTimeout(() => setPreviewIdleBubble(null), 2500);
-    });
     const offPlaySound = window.companion.onPlaySound((dataUrl) => {
       try { new Audio(dataUrl).play(); } catch { /* ignore */ }
     });
-    // 每 10 秒刷新统计
-    const statsInterval = window.setInterval(() => window.companion.getStats().then(setPersistedStats), 10_000);
-    return () => { offUpdate(); offIdle(); offPlaySound(); window.clearInterval(statsInterval); };
+    // 每秒刷新统计
+    const statsInterval = window.setInterval(() => window.companion.getStats().then(setPersistedStats), 1_000);
+    return () => { offUpdate(); offPlaySound(); window.clearInterval(statsInterval); };
   }, []);
 
   useEffect(() => {
@@ -1038,10 +1001,6 @@ export function SettingsApp() {
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, []);
-
-  async function test(event: CompanionEvent) {
-    await window.companion.sendTestEvent({ ...event, id: crypto.randomUUID(), timestamp: Date.now() });
-  }
 
   function jumpTo(section: string) {
     if (section === activeSection) return;
@@ -1161,7 +1120,7 @@ export function SettingsApp() {
       </nav>
 
       <div className="section-content" ref={sectionContentRef}>
-        {activeSection === "general" && <>
+        {activeSection === "general" && <section className="overview-workbench">
           {shouldRenderHookSetup && <section className={`onboarding-card overview-steps-card hook-setup-card ${hookSetupShowingSuccess ? "install-success" : ""} ${hookSetupStage === "hiding" && !hookSetupNeedsAttention ? "closing" : ""}`}>
             <div className="onboarding-content overview-welcome-content">
               <h3>{hookSetupShowingSuccess ? t("main.hooksInstallSuccess", "连接完成") : t("main.connectTitle", "连接 Claude Code")}</h3>
@@ -1169,17 +1128,28 @@ export function SettingsApp() {
             </div>
           </section>}
 
-          <ClaudeRoutingPanel settings={settings} updateSettings={updateSettings} connection={connection} />
-
-          <section className="status-strip">
-            <StatusCard icon={<Radio size={18} />} label={t("status.connection", "连接状态")} value={connection.connected ? t("status.connected", "已连接") : connection.serverListening ? t("status.waiting", "等待会话") : t("status.notListening", "未监听")} meta={connection.activeClientLabel} tone={connection.connected ? "good" : connection.serverListening ? "wait" : "bad"} />
-            <StatusCard icon={<Timer size={18} />} label={t("status.recentEvent", "最近事件")} value={connection.lastEventAt ? timeAgo(connection.lastEventAt, now) : t("status.noEvent", "还没收到")} tone={connection.lastEventAt ? "good" : "wait"} />
-            <StatusCard icon={<Shield size={18} />} label={t("status.session", "会话")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} tone="neutral" />
-            <StatusCard icon={<MonitorCheck size={18} />} label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} tone={connection.serverListening ? "good" : "bad"} />
+          <section className="overview-status-panel">
+            <header className="workbench-section-head">
+              <div>
+                <span>{t("settings.tabs.general", "总览")}</span>
+                <h2>{t("sections.connectionDetails", "连接详情")}</h2>
+              </div>
+              <span className={`overview-state-badge ${connection.connected ? "good" : connection.serverListening ? "wait" : "bad"}`}>
+                {connection.connected ? t("status.connected", "已连接") : connection.serverListening ? t("status.waiting", "等待会话") : t("status.notListening", "未监听")}
+                {connection.activeClientLabel ? <small>{connection.activeClientLabel}</small> : null}
+              </span>
+            </header>
+            <div className="overview-status-grid">
+              <StatusCard icon={<Radio size={18} />} label={t("status.connection", "连接状态")} value={connection.connected ? t("status.connected", "已连接") : connection.serverListening ? t("status.waiting", "等待会话") : t("status.notListening", "未监听")} meta={connection.activeClientLabel} tone={connection.connected ? "good" : connection.serverListening ? "wait" : "bad"} />
+              <StatusCard icon={<Timer size={18} />} label={t("status.recentEvent", "最近事件")} value={connection.lastEventAt ? timeAgo(connection.lastEventAt, now) : t("status.noEvent", "还没收到")} tone={connection.lastEventAt ? "good" : "wait"} />
+              <StatusCard icon={<Shield size={18} />} label={t("status.session", "会话")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} tone="neutral" />
+              <StatusCard icon={<MonitorCheck size={18} />} label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} tone={connection.serverListening ? "good" : "bad"} />
+            </div>
           </section>
 
           {connection.error ? <section className="connection-error"><Wrench size={18} />{connection.error}</section> : null}
-        </>}
+          <ClaudeRoutingPanel settings={settings} updateSettings={updateSettings} connection={connection} />
+        </section>}
 
         {activeSection === "settings" && (
           <section className="settings-page">
@@ -1366,36 +1336,29 @@ export function SettingsApp() {
           </GroupCard>
         </>}
 
-        {activeSection === "data" && <>
-          <GroupCard icon={<Gauge size={18} />} title={t("sections.runtimeStats", "运行统计")}>
+        {activeSection === "data" && <section className="data-workbench">
+          <section className="workbench-section data-runtime-section">
+            <header className="workbench-section-head">
+              <div>
+                <span>Runtime</span>
+                <h2>{t("sections.runtimeStats", "运行统计")}</h2>
+              </div>
+              <Gauge size={18} />
+            </header>
             {persistedStats ? <StatsPanel stats={persistedStats} /> : <p className="note">{t("common.loading", "加载中...")}</p>}
-          </GroupCard>
+          </section>
 
-          <GroupCard icon={<Code2 size={18} />} title={t("sections.tokenUsage", "Token 用量")}>
+          <section className="workbench-section data-token-section">
+            <header className="workbench-section-head">
+              <div>
+                <span>Claude Code</span>
+                <h2>{t("sections.tokenUsage", "Token 用量")}</h2>
+              </div>
+              <Code2 size={18} />
+            </header>
             <TokenPanel />
-          </GroupCard>
-
-
-          <GroupCard icon={<Play size={18} />} title={t("sections.testEvents", "测试事件")}>
-            <div className="test-grid">
-              {sampleEvents.map(event => <button key={`${event.event}-${event.tool ?? "x"}`} onClick={() => test(event)}>{event.title}</button>)}
-              <button onClick={() => window.companion.triggerIdleBubble()}>{t("data.idleAnimation", "待机动画")}</button>
-              <button onClick={async () => {
-                const sid1 = "test-" + Math.random().toString(36).slice(2, 8);
-                const sid2 = "test-" + Math.random().toString(36).slice(2, 8);
-                const send = (e: CompanionEvent) => window.companion.sendTestEvent(e);
-                await send({ ...makeEvent("session_start", "manual", t("data.session1Test", "会话 1 测试"), t("data.frontend", "前端")), sessionId: sid1, tool: undefined });
-                await send({ ...makeEvent("tool_start", "manual", t("data.sampleRead", "读取文件"), "package.json"), sessionId: sid1, tool: "Read" as ToolName });
-                await send({ ...makeEvent("session_start", "manual", t("data.session2Test", "会话 2 测试"), t("data.backend", "后端")), sessionId: sid2, tool: undefined });
-                await send({ ...makeEvent("tool_start", "manual", t("data.sampleBash", "执行命令"), "npm install"), sessionId: sid2, tool: "Bash" as ToolName });
-              }}>{t("data.multiSessionTest", "多会话测试")}</button>
-              <button onClick={async () => {
-                await window.companion.sendTestEvent({ ...makeEvent("done", "manual", t("data.allSessionsDone", "任务完成"), t("data.allSessionsDoneMsg", "两个会话都结束了")), sessionId: undefined, tool: undefined });
-              }}>{t("data.finishAllSessions", "结束全部会话")}</button>
-            </div>
-          </GroupCard>
-
-        </>}
+          </section>
+        </section>}
       </div>
 
       <footer className="version-bar">
@@ -1447,75 +1410,6 @@ export function SettingsApp() {
 
 function Panel({ id, title, icon, wide, children }: { id?: string; title: string; icon: React.ReactNode; wide?: boolean; children: React.ReactNode }) {
   return <section id={id} className={`panel ${wide ? "wide" : ""}`}><header>{icon}<h2>{title}</h2></header>{children}</section>;
-}
-
-function ClaudeRoutingPanel({ settings, updateSettings }: { settings: CompanionSettings; updateSettings: (next: Partial<CompanionSettings>) => void; connection: any }) {
-  type ClaudeProvider = { id: string; name: string; settingsConfig: { env?: { ANTHROPIC_BASE_URL?: string; ANTHROPIC_AUTH_TOKEN?: string; ANTHROPIC_MODEL?: string }; headers?: string; modelAliases?: string; proxyUrl?: string; prefix?: string; excludedModels?: string }; websiteUrl?: string; category?: "official" | "third_party" | "custom"; createdAt?: number; sortIndex?: number; notes?: string; icon?: string; iconColor?: string };
-  type LegacyRoute = { id: string; name: string; baseUrl: string; apiKeyMasked?: string };
-  type DragHandleProps = { attributes: DraggableAttributes; listeners: DraggableSyntheticListeners; isDragging: boolean };
-  const legacyRoutes = (((settings as any).claudeRoutes ?? []) as LegacyRoute[]);
-  const storedProviders = ((settings as any).claudeProviders ?? null) as Record<string, ClaudeProvider> | null;
-  const currentProviderId = ((settings as any).currentClaudeProviderId ?? (settings as any).activeClaudeRouteId ?? "") as string;
-  const [editingProvider, setEditingProvider] = useState<ClaudeProvider | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-
-  function providerFromLegacy(route: LegacyRoute, index: number): ClaudeProvider {
-    const official = route.id === "claude-official" || /official/i.test(route.name);
-    return { id: route.id, name: route.name, category: official ? "official" : "third_party", websiteUrl: route.baseUrl, notes: route.baseUrl, createdAt: Date.now() + index, sortIndex: index, icon: official ? "anthropic" : undefined, iconColor: official ? "#d97757" : "#f97316", settingsConfig: { env: { ANTHROPIC_BASE_URL: route.baseUrl, ANTHROPIC_AUTH_TOKEN: route.apiKeyMasked } } };
-  }
-  function normalizeProviders() {
-    if (storedProviders && Object.keys(storedProviders).length > 0) return storedProviders;
-    return Object.fromEntries(legacyRoutes.map((route, index) => [route.id, providerFromLegacy(route, index)])) as Record<string, ClaudeProvider>;
-  }
-  const providers = normalizeProviders();
-  const sortedProviders = useMemo(() => Object.values(providers).sort((a, b) => {
-    if (a.sortIndex !== undefined && b.sortIndex !== undefined) return a.sortIndex - b.sortIndex;
-    if (a.sortIndex !== undefined) return -1;
-    if (b.sortIndex !== undefined) return 1;
-    const timeA = a.createdAt ?? 0;
-    const timeB = b.createdAt ?? 0;
-    if (timeA && timeB && timeA !== timeB) return timeA - timeB;
-    return a.name.localeCompare(b.name, "zh-CN");
-  }), [providers]);
-  const effectiveCurrentId = currentProviderId || sortedProviders[0]?.id || "";
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
-  function saveProviders(nextProviders: Record<string, ClaudeProvider>, nextCurrentId = effectiveCurrentId) { updateSettings({ claudeProviders: nextProviders, currentClaudeProviderId: nextCurrentId, claudeRoutes: undefined, activeClaudeRouteId: undefined } as any); }
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = sortedProviders.findIndex(provider => provider.id === active.id);
-    const newIndex = sortedProviders.findIndex(provider => provider.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
-    const reordered = arrayMove(sortedProviders, oldIndex, newIndex);
-    const next = { ...providers };
-    reordered.forEach((provider, index) => { next[provider.id] = { ...next[provider.id], sortIndex: index }; });
-    saveProviders(next);
-    setStatus("排序已更新");
-  }
-  function createEmptyProvider(): ClaudeProvider { const now = Date.now(); return { id: `provider-${now.toString(36)}`, name: "新供应商", category: "custom", createdAt: now, sortIndex: sortedProviders.length, iconColor: "#f97316", settingsConfig: { env: { ANTHROPIC_BASE_URL: "" } } }; }
-  function saveProvider(provider: ClaudeProvider, originalId?: string) { const next = { ...providers }; if (originalId && originalId !== provider.id) delete next[originalId]; next[provider.id] = provider; saveProviders(next, effectiveCurrentId === originalId ? provider.id : effectiveCurrentId || provider.id); setCreating(false); setEditingProvider(null); }
-  function removeProvider(provider: ClaudeProvider) { if (sortedProviders.length <= 1) return; const next = { ...providers }; delete next[provider.id]; const fallback = sortedProviders.find(item => item.id !== provider.id)?.id || ""; saveProviders(next, effectiveCurrentId === provider.id ? fallback : effectiveCurrentId); }
-  async function handleSwitch(provider: ClaudeProvider) { const result = await window.companion.applyClaudeRoute?.(provider.id); if ((result as any)?.liveApply?.ok === false) { setStatus((result as any).liveApply.error ?? "应用失败"); return; } saveProviders(providers, provider.id); setStatus((result as any)?.liveApply?.path ? "已写入 Claude Code 全局设置" : result?.activeRoute ? "已切换" : "已设为当前供应商"); }
-  async function handleTest(provider: ClaudeProvider) { const result = await window.companion.testClaudeRoute?.(provider.id); setStatus(result?.message ?? (result?.ok ? "检测完成" : "检测失败")); }
-  async function handleTerminal(provider: ClaudeProvider) { const result = await window.companion.openClaudeRouteTerminal?.(provider.id); setStatus(result?.ok ? "终端已打开" : result?.error ?? "打开终端失败"); }
-  function ProviderIconBlock({ provider }: { provider: ClaudeProvider }) { const label = provider.icon === "anthropic" ? "AI" : provider.name.slice(0, 1).toUpperCase(); return <div className="ccs-provider-icon" style={{ color: provider.iconColor || undefined }}>{label}</div>; }
-  function ClaudeProviderActions({ provider, isCurrent }: { provider: ClaudeProvider; isCurrent: boolean }) { return <div className="ccs-provider-actions-inner"><span className={isCurrent ? "ccs-provider-action-wrap disabled" : "ccs-provider-action-wrap"}><button className={`ccs-provider-main-action ${isCurrent ? "current" : ""}`} onClick={() => handleSwitch(provider)} disabled={isCurrent} title={isCurrent ? "使用中" : "启用"}>{isCurrent ? <Check size={16} /> : <Play size={16} />}<span>{isCurrent ? "使用中" : "启用"}</span></button></span><div className="ccs-provider-icon-actions"><button onClick={() => setEditingProvider(provider)} title="编辑"><Pencil size={16} /></button><button onClick={() => handleTest(provider)} title="检测连通"><Activity size={16} /></button><button onClick={() => handleTerminal(provider)} title="打开终端"><Terminal size={16} /></button><button onClick={() => removeProvider(provider)} disabled={sortedProviders.length <= 1} title="删除"><Trash2 size={16} /></button></div></div>; }
-  function ClaudeProviderCard({ provider, isCurrent, dragHandleProps }: { provider: ClaudeProvider; isCurrent: boolean; dragHandleProps?: DragHandleProps }) { const displayUrl = provider.notes || provider.websiteUrl || provider.settingsConfig.env?.ANTHROPIC_BASE_URL || "未配置接口地址"; const isOfficial = provider.category === "official"; const isRouted = provider.category !== "official" && provider.settingsConfig.env?.ANTHROPIC_BASE_URL; return <div className={`ccs-provider-card ${isCurrent ? "active" : ""} ${dragHandleProps?.isDragging ? "dragging" : ""}`}><div className="ccs-provider-gradient" /><div className="ccs-provider-content"><div className="ccs-provider-left"><button className="ccs-drag-handle" aria-label="拖拽排序" {...(dragHandleProps?.attributes ?? {})} {...(dragHandleProps?.listeners ?? {})}><GripVertical size={16} /></button><ProviderIconBlock provider={provider} /><div className="ccs-provider-main"><div className="ccs-provider-titleline"><h3>{provider.name}</h3>{isOfficial ? <span>不支持路由</span> : isRouted ? <span>需要路由</span> : null}</div><button className="ccs-provider-url" type="button" title={displayUrl}>{displayUrl}</button></div></div><div className="ccs-provider-actions"><ClaudeProviderActions provider={provider} isCurrent={isCurrent} /></div></div></div>; }
-  function SortableClaudeProviderCard({ provider }: { provider: ClaudeProvider }) { const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: provider.id }); const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition }; return <div ref={setNodeRef} style={style}><ClaudeProviderCard provider={provider} isCurrent={provider.id === effectiveCurrentId} dragHandleProps={{ attributes, listeners, isDragging }} /></div>; }
-  function ClaudeProviderEditPanel({ provider, mode }: { provider: ClaudeProvider; mode: "add" | "edit" }) {
-    const [draft, setDraft] = useState<ClaudeProvider>(provider);
-    const env = draft.settingsConfig.env ?? {};
-    const baseUrl = env.ANTHROPIC_BASE_URL ?? "";
-    const token = env.ANTHROPIC_AUTH_TOKEN ?? "";
-    const model = env.ANTHROPIC_MODEL ?? "";
-    const updateEnv = (key: "ANTHROPIC_BASE_URL" | "ANTHROPIC_AUTH_TOKEN" | "ANTHROPIC_MODEL", value: string) => setDraft(current => ({ ...current, settingsConfig: { ...current.settingsConfig, env: { ...current.settingsConfig.env, [key]: value } } }));
-    const updateConfig = (key: keyof ClaudeProvider["settingsConfig"], value: string) => setDraft(current => ({ ...current, settingsConfig: { ...current.settingsConfig, [key]: value } }));
-    const closePanel = () => { setCreating(false); setEditingProvider(null); };
-
-    return <div className="ccs-fullscreen-panel"><header className="ccs-fullscreen-header"><button className="ccs-back-button" type="button" onClick={closePanel}><ArrowLeft size={18} /></button><div className="ccs-fullscreen-title"><h2>{mode === "edit" ? "编辑供应商" : "添加供应商"}</h2><span>Claude Code Provider</span></div></header><main className="ccs-fullscreen-body"><form id="claude-provider-form" className="ccs-provider-form" onSubmit={event => { event.preventDefault(); saveProvider(draft, mode === "edit" ? provider.id : undefined); }}><section className="ccs-form-card"><div className="ccs-form-section-heading"><div><h3>基础信息</h3><p>供应商在列表中的显示名称、官网和分类。</p></div></div><div className="ccs-form-grid two"><label><span>供应商名称</span><input value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} placeholder="Claude Official" /></label><label><span>分类</span><select value={draft.category ?? "custom"} onChange={event => setDraft({ ...draft, category: event.target.value as any })}><option value="official">official</option><option value="third_party">third_party</option><option value="custom">custom</option></select></label><label><span>官网 / 展示 URL</span><input value={draft.websiteUrl ?? ""} onChange={event => setDraft({ ...draft, websiteUrl: event.target.value })} placeholder="https://provider.example.com" /></label><label><span>备注</span><input value={draft.notes ?? ""} onChange={event => setDraft({ ...draft, notes: event.target.value })} placeholder="显示在供应商卡片下方" /></label></div></section><section className="ccs-form-card"><div className="ccs-form-section-heading"><div><h3>Claude Code 配置</h3><p>写入新终端/切换预览使用的 Claude Code 环境变量。</p></div></div><div className="ccs-form-grid"><label><span>ANTHROPIC_BASE_URL</span><input value={baseUrl} onChange={event => updateEnv("ANTHROPIC_BASE_URL", event.target.value)} placeholder="https://api.anthropic.com" /></label><label><span>ANTHROPIC_AUTH_TOKEN</span><input type="password" value={token} onChange={event => updateEnv("ANTHROPIC_AUTH_TOKEN", event.target.value)} placeholder="sk-ant-..." /></label><label><span>ANTHROPIC_MODEL</span><input value={model} onChange={event => updateEnv("ANTHROPIC_MODEL", event.target.value)} placeholder="可选，例如 claude-sonnet-4-6" /></label></div></section><section className="ccs-form-card"><div className="ccs-form-section-heading"><div><h3>高级路由</h3><p>保持 cc-switch ProviderForm 的分组式配置入口。</p></div></div><div className="ccs-form-grid two"><label><span>Headers</span><textarea value={draft.settingsConfig.headers ?? ""} onChange={event => updateConfig("headers", event.target.value)} placeholder={'{"X-Api-Key":"..."}'} /></label><label><span>Model aliases</span><textarea value={draft.settingsConfig.modelAliases ?? ""} onChange={event => updateConfig("modelAliases", event.target.value)} placeholder="alias=upstream-model" /></label><label><span>Proxy URL</span><input value={draft.settingsConfig.proxyUrl ?? ""} onChange={event => updateConfig("proxyUrl", event.target.value)} placeholder="http://127.0.0.1:7890" /></label><label><span>Prefix</span><input value={draft.settingsConfig.prefix ?? ""} onChange={event => updateConfig("prefix", event.target.value)} placeholder="可选路由前缀" /></label><label className="wide"><span>Excluded models</span><textarea value={draft.settingsConfig.excludedModels ?? ""} onChange={event => updateConfig("excludedModels", event.target.value)} placeholder="每行一个模型规则" /></label></div></section><section className="ccs-form-card"><div className="ccs-form-section-heading"><div><h3>图标</h3><p>列表左侧 provider icon 的名称和颜色。</p></div></div><div className="ccs-form-grid two compact"><label><span>Icon</span><input value={draft.icon ?? ""} onChange={event => setDraft({ ...draft, icon: event.target.value })} placeholder="anthropic / openai / custom" /></label><label><span>Icon color</span><input value={draft.iconColor ?? ""} onChange={event => setDraft({ ...draft, iconColor: event.target.value })} placeholder="#f97316" /></label></div></section></form></main><footer className="ccs-fullscreen-footer"><button className="ccs-panel-cancel" type="button" onClick={closePanel}>取消</button><button className="ccs-save-button" type="submit" form="claude-provider-form"><Save size={16} />保存</button></footer></div>;
-  }
-  return <section className="ccs-provider-board"><header className="ccs-provider-board-header"><div><h3>Claude Code 路由</h3></div><button className="cc-switch-add" onClick={() => { setCreating(true); setEditingProvider(null); }} title="添加供应商">+</button></header>{status ? <div className="ccs-provider-status">{status}</div> : null}<DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}><SortableContext items={sortedProviders.map(provider => provider.id)} strategy={verticalListSortingStrategy}><div className="ccs-provider-list">{sortedProviders.map(provider => <SortableClaudeProviderCard key={provider.id} provider={provider} />)}</div></SortableContext></DndContext>{creating ? <ClaudeProviderEditPanel provider={createEmptyProvider()} mode="add" /> : null}{editingProvider ? <ClaudeProviderEditPanel provider={editingProvider} mode="edit" /> : null}</section>;
 }
 
 function GroupCard({ icon, title, children }: { icon?: React.ReactNode; title: string; children: React.ReactNode }) {
@@ -2088,6 +1982,106 @@ function TokenKpi({ icon, value, label, tone }: { icon: React.ReactNode; value: 
   );
 }
 
+function TokenDisclosure({ title, summary, defaultOpen = false, children }: { title: string; summary?: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className={`token-disclosure ${open ? "open" : ""}`}>
+      <button className="token-disclosure-trigger" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>
+        <ChevronDown size={15} className="token-disclosure-chevron" />
+        <span>
+          <strong>{title}</strong>
+          {summary ? <small>{summary}</small> : null}
+        </span>
+      </button>
+      {open ? <div className="token-disclosure-body">{children}</div> : null}
+    </section>
+  );
+}
+
+type TokenHeatmapDaily = {
+  date: string;
+  requestCount?: number;
+  totalTokens?: number;
+  costUsd?: number;
+};
+
+type TokenHeatmapCell = {
+  date: string;
+  week: number;
+  day: number;
+  future: boolean;
+  requests: number;
+  tokens: number;
+  costUsd: number;
+};
+
+function dateKeyToLocalDate(key: string) {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+}
+
+function shiftLocalDate(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function tokenHeatLevel(value: number, maxValue: number): 0 | 1 | 2 | 3 | 4 {
+  if (value <= 0 || maxValue <= 0) return 0;
+  const ratio = value / maxValue;
+  if (ratio >= 0.75) return 4;
+  if (ratio >= 0.5) return 3;
+  if (ratio >= 0.25) return 2;
+  return 1;
+}
+
+function buildTokenHeatmap(dailyTotals: TokenHeatmapDaily[], zh: boolean) {
+  const weekCount = 53;
+  const today = dateKeyToLocalDate(localDateKey());
+  const start = shiftLocalDate(today, -((weekCount - 1) * 7 + today.getDay()));
+  const dailyMap = new Map<string, TokenHeatmapDaily>((dailyTotals ?? []).map(entry => [entry.date, entry]));
+  const cells: TokenHeatmapCell[] = Array.from({ length: weekCount * 7 }, (_, index) => {
+    const date = shiftLocalDate(start, index);
+    const dateKey = localDateKey(date.getTime());
+    const future = date.getTime() > today.getTime();
+    const entry = dailyMap.get(dateKey);
+    return {
+      date: dateKey,
+      week: Math.floor(index / 7),
+      day: date.getDay(),
+      future,
+      requests: future ? 0 : entry?.requestCount ?? 0,
+      tokens: future ? 0 : entry?.totalTokens ?? 0,
+      costUsd: future ? 0 : entry?.costUsd ?? 0
+    };
+  });
+  const maxRequests = Math.max(0, ...cells.map(cell => cell.requests));
+  const activeCells = cells.filter(cell => !cell.future && cell.requests > 0);
+  const monthLabels: Array<{ week: number; label: string }> = [];
+  const seenMonths = new Set<string>();
+  for (let week = 0; week < weekCount; week++) {
+    const weekCells = cells.slice(week * 7, week * 7 + 7).filter(cell => !cell.future);
+    const firstOfMonth = weekCells.find(cell => dateKeyToLocalDate(cell.date).getDate() === 1);
+    if (!firstOfMonth) continue;
+    const date = dateKeyToLocalDate(firstOfMonth.date);
+    const monthId = `${date.getFullYear()}-${date.getMonth()}`;
+    if (seenMonths.has(monthId)) continue;
+    seenMonths.add(monthId);
+    monthLabels.push({ week, label: zh ? `${date.getMonth() + 1}月` : date.toLocaleString("en-US", { month: "short" }) });
+  }
+  const bestDay = activeCells.reduce((best, cell) => {
+    if (!best || cell.requests > best.requests || (cell.requests === best.requests && cell.tokens > best.tokens)) return cell;
+    return best;
+  }, null as null | (typeof cells)[number]);
+  return {
+    cells: cells.map(cell => ({ ...cell, level: tokenHeatLevel(cell.requests, maxRequests) })),
+    monthLabels,
+    activeDays: activeCells.length,
+    totalRequests: activeCells.reduce((sum, cell) => sum + cell.requests, 0),
+    bestDay
+  };
+}
+
 function TokenPanel() {
   const { t, locale } = useI18n();
   const zh = locale === "zh";
@@ -2114,6 +2108,7 @@ function TokenPanel() {
   const fmtTok = (n: number) => n >= 1_000_000_000 ? (n / 1_000_000_000).toFixed(2) + "B" : n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + "M" : n >= 1_000 ? (n / 1_000).toFixed(1) + "K" : String(Math.round(n || 0));
   const fmtUsd = (n: number) => n > 0 ? `$${n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2)}` : "—";
   const fmtPct = (n: number) => `${Math.round((n || 0) * 100)}%`;
+  const fmtCount = (n: number) => Math.round(n || 0).toLocaleString(zh ? "zh-CN" : "en-US");
 
   if (error) return <div className="note" style={{ color: "var(--coral)" }}>{t("stats.scanFailed", "加载失败")}: {error}</div>;
   if (!stats) return <div className="note">{t("stats.scanning", "扫描中…")} {zh ? "正在读取 ~/.claude/projects 的 Claude Code 用量" : "Reading Claude Code usage from ~/.claude/projects"}</div>;
@@ -2121,13 +2116,24 @@ function TokenPanel() {
   const todayStr = localDateKey();
   const todayEntry = stats.dailyTotals?.find((d: any) => d.date === todayStr);
   const todayTokens = todayEntry?.totalTokens ?? 0;
-  const thirtyDaysAgo = localDateKey(Date.now() - 30 * 86400_000);
+  const thirtyDaysAgo = localDateKey(shiftLocalDate(dateKeyToLocalDate(todayStr), -29).getTime());
   const last30Entries = (stats.dailyTotals ?? []).filter((d: any) => d.date >= thirtyDaysAgo).sort((a: any, b: any) => b.date.localeCompare(a.date));
   const last30 = last30Entries.reduce((s: number, d: any) => s + (d.totalTokens ?? 0), 0);
   const last30Cost = last30Entries.reduce((s: number, d: any) => s + (d.costUsd ?? 0), 0);
   const maxDailyTokens = Math.max(1, ...last30Entries.map((d: any) => d.totalTokens ?? 0));
   const modelRows = showAllModels ? stats.modelTotals ?? [] : (stats.modelTotals ?? []).slice(0, 8);
   const projectRows = showAllProjects ? stats.projectTotals ?? [] : (stats.projectTotals ?? []).slice(0, 8);
+  const highRequestRows = (stats.recentRequests ?? []).slice(0, 10);
+  const heatmap = buildTokenHeatmap(stats.dailyTotals ?? [], zh);
+  const trendSummary = last30Entries.length > 0
+    ? `${last30Entries.length} ${zh ? "天" : "days"} · ${fmtTok(last30)} · ${fmtUsd(last30Cost)}`
+    : t("stats.noData", "无数据");
+  const projectSummary = (stats.projectTotals ?? []).length > 0
+    ? `${stats.projectTotals.length} ${zh ? "个项目" : "projects"} · ${fmtTok((stats.projectTotals ?? []).reduce((sum: number, project: any) => sum + (project.totalTokens ?? 0), 0))}`
+    : t("stats.noData", "无数据");
+  const highRequestSummary = highRequestRows.length > 0
+    ? `${highRequestRows.length} ${zh ? "条请求" : "requests"} · ${fmtTok(highRequestRows.reduce((sum: number, request: any) => sum + (request.totalTokens ?? 0), 0))} · ${fmtUsd(highRequestRows.reduce((sum: number, request: any) => sum + (request.costUsd ?? 0), 0))}`
+    : t("stats.noData", "无数据");
 
   return (
     <div className="token-panel token-panel-rich">
@@ -2156,70 +2162,118 @@ function TokenPanel() {
         <span><b>{fmtUsd(last30Cost)}</b>{zh ? "近30天" : "30d cost"}</span>
       </div>
 
-      <div className="panel-divider" />
-      <h3 className="panel-subtitle">{zh ? "近 30 天趋势" : "Last 30 days"}</h3>
-      {last30Entries.length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
-        <div className="token-daily-bars">
-          {last30Entries.slice(0, 30).map((d: any) => (
-            <div key={d.date} className="token-daily-bar-row" title={`${d.date}: ${fmtTok(d.totalTokens)} · ${fmtUsd(d.costUsd ?? 0)}`}>
-              <time>{d.date.slice(5)}</time>
-              <div><span style={{ width: `${Math.max(3, ((d.totalTokens ?? 0) / maxDailyTokens) * 100)}%` }} /></div>
-              <b>{fmtTok(d.totalTokens ?? 0)}</b>
-              <em>{fmtUsd(d.costUsd ?? 0)}</em>
+      <section className="token-heatmap-panel">
+        <div className="token-heatmap-head">
+          <div>
+            <h3 className="panel-subtitle">{zh ? "调用热力" : "Request heatmap"}</h3>
+            <p className="note">{zh ? "近 12 个月 · 调用热力图" : "Last 12 months · request heatmap"}</p>
+          </div>
+          <div className="token-heatmap-summary">
+            <span><small>{zh ? "活跃日" : "active days"}</small><b>{fmtCount(heatmap.activeDays)}</b></span>
+            <span><small>{zh ? "请求" : "requests"}</small><b>{fmtCount(heatmap.totalRequests)}</b></span>
+            <span><small>{zh ? "最高峰" : "peak"}</small><b>{heatmap.bestDay ? heatmap.bestDay.date.slice(5) : "—"}</b></span>
+          </div>
+        </div>
+        <div className="token-heatmap-scroll" aria-label={zh ? "近 12 个月调用热力图" : "Request heatmap for the last 12 months"}>
+          <div className="token-heatmap">
+            <div className="token-heatmap-months">
+              {heatmap.monthLabels.map(label => <span key={`${label.week}-${label.label}`} style={{ gridColumn: `${label.week + 1}` }}>{label.label}</span>)}
             </div>
-          ))}
-        </div>
-      )}
-
-      <div className="panel-divider" />
-      <h3 className="panel-subtitle">{t("stats.byModel", "按模型拆分")}</h3>
-      {(stats.modelTotals ?? []).length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
-        <div className="token-table token-table-wide">
-          <div className="token-table-header"><span>{t("stats.model", "模型")}</span><span>Tokens</span><span>Cost</span><span>Req</span><span>Cache</span></div>
-          {modelRows.map((m: any) => (
-            <div key={m.model} className="token-table-row">
-              <span className="token-model-name">{m.model}</span>
-              <span>{fmtTok(m.totalTokens)}</span>
-              <span>{m.priced ? fmtUsd(m.costUsd) : "—"}</span>
-              <span>{m.requestCount}</span>
-              <span>{fmtPct(m.cacheHitRatio)}</span>
+            <div className="token-heatmap-body">
+              <div className="token-heatmap-weekdays" aria-hidden="true">
+                <span style={{ gridRow: "2" }}>{zh ? "一" : "Mon"}</span>
+                <span style={{ gridRow: "4" }}>{zh ? "三" : "Wed"}</span>
+                <span style={{ gridRow: "6" }}>{zh ? "五" : "Fri"}</span>
+              </div>
+              <div className="token-heatmap-cells">
+                {heatmap.cells.map(cell => (
+                  <span
+                    key={cell.date}
+                    className={`token-heat-cell level-${cell.level}${cell.future ? " future" : ""}`}
+                    style={{ gridColumn: `${cell.week + 1}`, gridRow: `${cell.day + 1}` }}
+                    title={cell.future ? undefined : `${cell.date}: ${cell.requests} ${zh ? "次请求" : "requests"} · ${fmtTok(cell.tokens)} · ${fmtUsd(cell.costUsd)}`}
+                    aria-label={cell.future ? undefined : `${cell.date}: ${cell.requests} ${zh ? "次请求" : "requests"}`}
+                  />
+                ))}
+              </div>
             </div>
-          ))}
-          {(stats.modelTotals ?? []).length > 8 && <button className="ghost-btn" style={{ marginTop: 4, width: "100%" }} onClick={() => setShowAllModels(v => !v)}>{showAllModels ? t("stats.collapse", "收起") : `${t("stats.showMore", "查看更多")} (${stats.modelTotals.length - 8})`}</button>}
+          </div>
         </div>
-      )}
+        <div className="token-heatmap-legend">
+          <span>{zh ? "少" : "Less"}</span>
+          {[0, 1, 2, 3, 4].map(level => <i key={level} className={`token-heat-cell level-${level}`} />)}
+          <span>{zh ? "多" : "More"}</span>
+        </div>
+      </section>
 
-      <div className="panel-divider" />
-      <h3 className="panel-subtitle">{zh ? "项目排行" : "Projects"}</h3>
-      {(stats.projectTotals ?? []).length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
-        <div className="token-project-list">
-          {projectRows.map((p: any) => (
-            <article key={p.projectPath} className="token-project-row">
-              <div><strong>{p.projectName}</strong><p>{p.projectPath}</p></div>
-              <span>{fmtTok(p.totalTokens)}</span>
-              <span>{fmtUsd(p.costUsd)}</span>
-              <time>{p.lastActivity ? new Date(p.lastActivity).toLocaleDateString() : "—"}</time>
-            </article>
-          ))}
-          {(stats.projectTotals ?? []).length > 8 && <button className="ghost-btn" style={{ marginTop: 4, width: "100%" }} onClick={() => setShowAllProjects(v => !v)}>{showAllProjects ? t("stats.collapse", "收起") : `${t("stats.showMore", "查看更多")} (${stats.projectTotals.length - 8})`}</button>}
-        </div>
-      )}
+      <TokenDisclosure title={zh ? "近 30 天趋势" : "Last 30 days"} summary={trendSummary}>
+        {last30Entries.length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
+          <div className="token-daily-bars">
+            {last30Entries.slice(0, 30).map((d: any) => (
+              <div key={d.date} className="token-daily-bar-row" title={`${d.date}: ${fmtTok(d.totalTokens)} · ${fmtUsd(d.costUsd ?? 0)}`}>
+                <time>{d.date.slice(5)}</time>
+                <div><span style={{ width: `${Math.max(3, ((d.totalTokens ?? 0) / maxDailyTokens) * 100)}%` }} /></div>
+                <b>{fmtTok(d.totalTokens ?? 0)}</b>
+                <em>{fmtUsd(d.costUsd ?? 0)}</em>
+              </div>
+            ))}
+          </div>
+        )}
+      </TokenDisclosure>
 
-      <div className="panel-divider" />
-      <h3 className="panel-subtitle">{zh ? "高消耗请求" : "Largest requests"}</h3>
-      {(stats.recentRequests ?? []).length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
-        <div className="token-table token-table-requests">
-          <div className="token-table-header"><span>{zh ? "时间 / 项目" : "Time / Project"}</span><span>Model</span><span>Tokens</span><span>Cost</span></div>
-          {(stats.recentRequests ?? []).slice(0, 10).map((r: any) => (
-            <div key={r.id} className="token-table-row">
-              <span><b>{new Date(r.timestamp).toLocaleString()}</b><small>{r.projectName}</small></span>
-              <span className="token-model-name">{r.model}</span>
-              <span>{fmtTok(r.totalTokens)}</span>
-              <span>{r.priced ? fmtUsd(r.costUsd) : "—"}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <section className="token-flat-section">
+        <header className="token-section-head">
+          <h3 className="panel-subtitle">{t("stats.byModel", "按模型拆分")}</h3>
+          <span>{fmtCount((stats.modelTotals ?? []).length)}</span>
+        </header>
+        {(stats.modelTotals ?? []).length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
+          <div className="token-table token-table-wide">
+            <div className="token-table-header"><span>{t("stats.model", "模型")}</span><span>Tokens</span><span>Cost</span><span>Req</span><span>Cache</span></div>
+            {modelRows.map((m: any) => (
+              <div key={m.model} className="token-table-row">
+                <span className="token-model-name">{m.model}</span>
+                <span>{fmtTok(m.totalTokens)}</span>
+                <span>{m.priced ? fmtUsd(m.costUsd) : "—"}</span>
+                <span>{m.requestCount}</span>
+                <span>{fmtPct(m.cacheHitRatio)}</span>
+              </div>
+            ))}
+            {(stats.modelTotals ?? []).length > 8 && <button className="ghost-btn token-more-btn" onClick={() => setShowAllModels(v => !v)}>{showAllModels ? t("stats.collapse", "收起") : `${t("stats.showMore", "查看更多")} (${stats.modelTotals.length - 8})`}</button>}
+          </div>
+        )}
+      </section>
+
+      <TokenDisclosure title={zh ? "项目排行" : "Projects"} summary={projectSummary}>
+        {(stats.projectTotals ?? []).length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
+          <div className="token-project-list">
+            {projectRows.map((p: any) => (
+              <article key={p.projectPath} className="token-project-row">
+                <div><strong>{p.projectName}</strong><p>{p.projectPath}</p></div>
+                <span>{fmtTok(p.totalTokens)}</span>
+                <span>{fmtUsd(p.costUsd)}</span>
+                <time>{p.lastActivity ? new Date(p.lastActivity).toLocaleDateString() : "—"}</time>
+              </article>
+            ))}
+            {(stats.projectTotals ?? []).length > 8 && <button className="ghost-btn token-more-btn" onClick={() => setShowAllProjects(v => !v)}>{showAllProjects ? t("stats.collapse", "收起") : `${t("stats.showMore", "查看更多")} (${stats.projectTotals.length - 8})`}</button>}
+          </div>
+        )}
+      </TokenDisclosure>
+
+      <TokenDisclosure title={zh ? "高消耗请求" : "Largest requests"} summary={highRequestSummary}>
+        {highRequestRows.length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
+          <div className="token-table token-table-requests">
+            <div className="token-table-header"><span>{zh ? "时间 / 项目" : "Time / Project"}</span><span>Model</span><span>Tokens</span><span>Cost</span></div>
+            {highRequestRows.map((r: any) => (
+              <div key={r.id} className="token-table-row">
+                <span><b>{new Date(r.timestamp).toLocaleString()}</b><small>{r.projectName}</small></span>
+                <span className="token-model-name">{r.model}</span>
+                <span>{fmtTok(r.totalTokens)}</span>
+                <span>{r.priced ? fmtUsd(r.costUsd) : "—"}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </TokenDisclosure>
     </div>
   );
 }

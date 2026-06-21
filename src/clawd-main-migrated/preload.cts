@@ -14,7 +14,6 @@ const companionApi = {
   getSettings: () => ipcRenderer.invoke("settings:get") as Promise<CompanionSettings>,
   saveSettings: (settings: Partial<CompanionSettings>) => ipcRenderer.invoke("settings:save", settings) as Promise<CompanionSettings>,
   getConnectionStatus: () => ipcRenderer.invoke("connection:get") as Promise<CompanionConnectionStatus>,
-  sendTestEvent: (event: CompanionEvent) => ipcRenderer.invoke("event:test", event) as Promise<void>,
   checkHooks: (providerId: "claude-code" | "codex" = "claude-code") => ipcRenderer.invoke("hooks:check", providerId) as Promise<HooksStatus>,
   installHooks: (providerId: "claude-code" | "codex" = "claude-code") => ipcRenderer.invoke("hooks:install", providerId) as Promise<{ success: boolean; error?: string }>,
   repairHooks: (providerId: "claude-code" | "codex" = "claude-code") => ipcRenderer.invoke("hooks:repair", providerId) as Promise<{ success: boolean; fixed: string[]; error?: string }>,
@@ -63,7 +62,6 @@ const companionApi = {
   getDefaultSoundPaths: () => ipcRenderer.invoke("sound:get-default-paths") as Promise<Record<"done" | "error" | "permission" | "session-start", string>>,
   previewSoundFile: (filePath: string) => ipcRenderer.invoke("sound:preview-file", filePath) as Promise<{ ok: boolean; dataUrl?: string; error?: string }>,
   pickSoundFile: () => ipcRenderer.invoke("sound:pick-file") as Promise<string | null>,
-  triggerIdleBubble: () => ipcRenderer.invoke("test:idle-bubble") as Promise<void>,
   syncIdleBubble: (sprite: string | null) => ipcRenderer.invoke("idle-bubble:sync", sprite) as Promise<void>,
   onIdleBubbleSync: (callback: (sprite: string | null) => void) => {
     const handler = (_: Electron.IpcRendererEvent, sprite: string | null) => callback(sprite);
@@ -90,11 +88,6 @@ const companionApi = {
   exportStatsFile: () => ipcRenderer.invoke("stats:export-file") as Promise<{ ok: boolean; error?: string }>,
   importStatsFile: () => ipcRenderer.invoke("stats:import-file") as Promise<{ ok: boolean; error?: string }>,
   getDoctorReport: () => ipcRenderer.invoke("doctor:get-report") as Promise<DoctorReport>,
-  onTriggerIdleBubble: (callback: () => void) => {
-    const handler = () => callback();
-    ipcRenderer.on("companion:test-idle-bubble", handler);
-    return () => { ipcRenderer.off("companion:test-idle-bubble", handler); };
-  },
   onUpdateStatus: (callback: (status: UpdateStatus) => void) => {
     const handler = (_: Electron.IpcRendererEvent, status: UpdateStatus) => callback(status);
     ipcRenderer.on("companion:update-status", handler);

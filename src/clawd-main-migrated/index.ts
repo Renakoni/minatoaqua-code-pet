@@ -780,7 +780,6 @@ function backupPathFor(provider: Provider): string {
 ipcMain.handle("settings:get", () => settings);
 ipcMain.handle("settings:save", (_, next: Partial<CompanionSettings>) => saveSettings(next));
 ipcMain.handle("connection:get", () => getConnectionStatus());
-ipcMain.handle("event:test", (_, event: CompanionEvent) => emitEvent(event));
 ipcMain.handle("hooks:check", (_, providerId: "claude-code" | "codex" = "claude-code") => checkHooksFor(providerId));
 ipcMain.handle("hooks:install", (_, providerId: "claude-code" | "codex" = "claude-code") => installProviderHooks(getProvider(providerId)));
 ipcMain.handle("hooks:repair", (_, providerId: "claude-code" | "codex" = "claude-code") => repairProviderHooks(getProvider(providerId)));
@@ -1133,11 +1132,6 @@ ipcMain.handle("plugins:market-install", async (_, pluginId: string) => {
   const next = [...(settings.customPlugins ?? []).filter(plugin => plugin.id !== installed.id), installed];
   saveSettings({ customPlugins: next });
   return { ok: true, plugin: installed };
-});
-
-ipcMain.handle("test:idle-bubble", () => {
-  petWindow?.webContents.send("companion:test-idle-bubble");
-  settingsWindow?.webContents.send("companion:test-idle-bubble");
 });
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();

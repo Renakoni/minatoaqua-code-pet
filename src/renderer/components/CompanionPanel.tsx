@@ -267,7 +267,7 @@ export function CompanionPanel({ state, events, startedAt, eventPort }: Companio
 
           <GroupCard icon="☰" title="最近事件">
             <div className="event-list data-event-list">
-              {events.length === 0 ? <div className="empty">还没有收到事件。先配置 hooks，或点击托盘测试事件看状态变化。</div> : events.map(event => (
+              {events.length === 0 ? <div className="empty">还没有收到事件。先检查 hooks 配置，收到真实事件后这里会更新。</div> : events.map(event => (
                 <article key={event.id} className="event-row">
                   <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
                   <strong>{event.title ?? event.event}</strong>

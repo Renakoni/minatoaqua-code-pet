@@ -28,7 +28,6 @@ type CompanionApi = {
   getSettings: () => Promise<CompanionSettings>;
   saveSettings: (next: Partial<CompanionSettings>) => Promise<CompanionSettings>;
   getConnectionStatus: () => Promise<CompanionConnectionStatus>;
-  sendTestEvent: (event?: CompanionEvent | CompanionEventType) => Promise<void>;
   checkHooks: (provider?: ProviderId) => Promise<ReturnType<typeof hooksStatus>>;
   installHooks: (provider?: ProviderId) => Promise<void>;
   repairHooks: (provider?: ProviderId) => Promise<void>;
@@ -56,7 +55,6 @@ type CompanionApi = {
   getDefaultSoundPaths: () => Promise<Record<string, string | null>>;
   previewSoundFile: (path: string) => Promise<void>;
   pickSoundFile: () => Promise<string | null>;
-  triggerIdleBubble: () => Promise<void>;
   syncIdleBubble: (payload: unknown) => Promise<void>;
   onIdleBubbleSync: (callback: Listener<unknown>) => Unsubscribe;
   getEventHistory: () => Promise<EventHistoryEntry[]>;
@@ -84,7 +82,6 @@ type CompanionApi = {
   exportStatsFile: () => Promise<void>;
   importStatsFile: () => Promise<AppStats | null>;
   getDoctorReport: () => Promise<DoctorReport>;
-  onTriggerIdleBubble: (callback: Listener<void>) => Unsubscribe;
   onUpdateStatus: (callback: Listener<UpdateStatus>) => Unsubscribe;
   onPlaySound: (callback: Listener<string>) => Unsubscribe;
   onOpenSection: (callback: Listener<string>) => Unsubscribe;
@@ -117,7 +114,6 @@ const connectionListeners = new Set<Listener<CompanionConnectionStatus>>();
 const companionEventListeners = new Set<Listener<CompanionEvent>>();
 const permissionRequestListeners = new Set<Listener<PermissionRequest>>();
 const permissionResolvedListeners = new Set<Listener<{ id: string }>>();
-const idleBubbleListeners = new Set<Listener<void>>();
 const idleBubbleSyncListeners = new Set<Listener<unknown>>();
 const updateStatusListeners = new Set<Listener<UpdateStatus>>();
 const playSoundListeners = new Set<Listener<string>>();
@@ -321,26 +317,6 @@ function doctorReport(): DoctorReport {
   };
 }
 
-async function sendTestEvent(event: CompanionEvent | CompanionEventType = "prompt_submit") {
-  if (typeof event === "object") {
-    applyCompanionEvent(event);
-    return;
-  }
-
-  applyCompanionEvent({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    source: "manual",
-    event,
-    sessionId,
-    clientType: "desktop",
-    clientLabel: "Minato Aqua Code Pet",
-    tool: event === "tool_start" ? "Bash" : undefined,
-    title: event === "done" ? "Completed" : event === "permission_wait" ? "Permission needed" : "Test event",
-    message: "Generated from the Clawd-compatible panel",
-    timestamp: Date.now()
-  });
-}
-
 function bindPetApi(petApi: PetApi) {
   void petApi.getSnapshot().then(snapshot => {
     startedAt = snapshot.startedAt;
@@ -382,7 +358,6 @@ export function installClawdCompat() {
       return currentSettings;
     },
     getConnectionStatus: async () => currentConnection(),
-    sendTestEvent,
     checkHooks: async () => hooksStatus(),
     installHooks: async () => undefined,
     repairHooks: async () => undefined,
@@ -410,7 +385,6 @@ export function installClawdCompat() {
     getDefaultSoundPaths: async () => ({}),
     previewSoundFile: async () => undefined,
     pickSoundFile: async () => null,
-    triggerIdleBubble: async () => emit(idleBubbleListeners, undefined),
     syncIdleBubble: async payload => emit(idleBubbleSyncListeners, payload),
     onIdleBubbleSync: callback => subscribe(idleBubbleSyncListeners, callback),
     getEventHistory: async () => eventHistory,
@@ -440,7 +414,6 @@ export function installClawdCompat() {
     exportStatsFile: async () => undefined,
     importStatsFile: async () => null,
     getDoctorReport: async () => doctorReport(),
-    onTriggerIdleBubble: callback => subscribe(idleBubbleListeners, callback),
     onUpdateStatus: callback => subscribe(updateStatusListeners, callback),
     onPlaySound: callback => subscribe(playSoundListeners, callback),
     onOpenSection: callback => subscribe(openSectionListeners, callback)

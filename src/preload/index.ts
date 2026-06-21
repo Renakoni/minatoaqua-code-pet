@@ -41,7 +41,6 @@ contextBridge.exposeInMainWorld("companion", {
   getSettings: () => ipcRenderer.invoke("companion:get-settings"),
   saveSettings: (next: unknown) => ipcRenderer.invoke("companion:save-settings", next),
   getConnectionStatus: () => ipcRenderer.invoke("companion:get-connection-status"),
-  sendTestEvent: (event?: unknown) => ipcRenderer.invoke("companion:send-test-event", event),
   checkHooks: (provider?: unknown) => ipcRenderer.invoke("companion:check-hooks", provider),
   installHooks: (provider?: unknown) => ipcRenderer.invoke("companion:install-hooks", provider),
   repairHooks: (provider?: unknown) => ipcRenderer.invoke("companion:repair-hooks", provider),
@@ -73,7 +72,6 @@ contextBridge.exposeInMainWorld("companion", {
   getDefaultSoundPaths: () => ipcRenderer.invoke("companion:get-default-sound-paths"),
   previewSoundFile: (path: string) => ipcRenderer.invoke("companion:preview-sound-file", path),
   pickSoundFile: () => ipcRenderer.invoke("companion:pick-sound-file"),
-  triggerIdleBubble: () => ipcRenderer.invoke("companion:trigger-idle-bubble"),
   syncIdleBubble: (payload: unknown) => ipcRenderer.invoke("companion:sync-idle-bubble", payload),
   onIdleBubbleSync: (callback: (payload: unknown) => void) => onChannel("companion:idle-bubble-sync", callback),
   getEventHistory: () => ipcRenderer.invoke("companion:get-event-history"),
@@ -101,7 +99,6 @@ contextBridge.exposeInMainWorld("companion", {
   exportStatsFile: () => ipcRenderer.invoke("companion:export-stats-file"),
   importStatsFile: () => ipcRenderer.invoke("companion:import-stats-file"),
   getDoctorReport: () => ipcRenderer.invoke("companion:get-doctor-report"),
-  onTriggerIdleBubble: (callback: () => void) => onChannel("companion:trigger-idle-bubble", callback),
   onUpdateStatus: (callback: (status: unknown) => void) => onChannel("companion:update-status", callback),
   onPlaySound: (callback: (dataUrl: string) => void) => onChannel("companion:play-sound", callback),
   onOpenSection: (callback: (section: string) => void) => onChannel("companion:open-section", callback)

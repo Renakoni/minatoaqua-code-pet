@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useEffect, useMemo, useState } from "react";
-import { MessageSquareText, Play, RefreshCw, Search, Terminal, TriangleAlert } from "lucide-react";
+import { Play, RefreshCw, Search, Terminal, TriangleAlert } from "lucide-react";
 import type { ClaudeSessionDetail, ClaudeSessionIndexItem, ClaudeSessionSnapshot } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 
@@ -59,7 +59,7 @@ export function SessionsPage() {
       const text = message.text.trim();
       if (!text) return false;
       if (/^(PowerShell|Bash|Shell|cmd)$/i.test(text)) return false;
-      return message.role === "user" || message.role === "assistant" || message.role === "system";
+      return message.role === "user" || message.role === "assistant";
     });
   }, [detail?.messages]);
 
@@ -105,8 +105,8 @@ export function SessionsPage() {
         <div className="session-viewer-search">
           <Search size={16} />
           <input value={query} onChange={event => setQuery(event.target.value)} placeholder={zh ? "搜索会话、项目或 session id..." : "Search sessions, projects, or session id..."} />
+          <span>{formatSessionCount(filteredSessions.length, snapshot.sessions.length, zh)}</span>
         </div>
-        <span>{filteredSessions.length}/{snapshot.sessions.length}</span>
         <button onClick={() => void refresh(true)} disabled={loading} title={zh ? "刷新" : "Refresh"}>
           <RefreshCw size={17} />
         </button>
@@ -125,10 +125,9 @@ export function SessionsPage() {
               <strong>{compactTitle(session.title)}</strong>
               <p className="session-viewer-project-path">{session.projectPath || session.projectName}</p>
               <footer>
-                <span>{session.projectName}</span>
+                <em className={session.status}>{session.status}</em>
                 <span>{session.messageCount} {zh ? "条事件" : "events"}</span>
                 <time>{formatTime(session.lastMessageAt)}</time>
-                <em className={session.status}>{session.status}</em>
               </footer>
             </button>
           ))}
@@ -142,13 +141,13 @@ export function SessionsPage() {
                   <h2>{selected.title}</h2>
                 </div>
                 <div className="session-viewer-actions">
-                  <button className="session-resume-button" onClick={() => void resumeSession(selected)}><Play size={14} />Resume</button>
+                  <button className="session-resume-button" onClick={() => void resumeSession(selected)}><Play size={14} />{zh ? "恢复" : "Resume"}</button>
                 </div>
               </header>
 
               <div className="session-viewer-meta">
-                <Meta label="Model" value={selected.model || "—"} />
-                <Meta label={zh ? "Git 分支" : "Git branch"} value={selected.branch || "—"} />
+                <Meta label="Model" value={selected.model || unknownValue(zh)} />
+                <Meta label={zh ? "Git 分支" : "Git branch"} value={selected.branch || unknownValue(zh)} />
                 <Meta label={zh ? "消息" : "Messages"} value={String(detail?.totalMessages ?? selected.messageCount)} />
                 <Meta label={zh ? "最后活动" : "Last activity"} value={formatDateTime(selected.lastMessageAt)} />
               </div>
@@ -159,8 +158,7 @@ export function SessionsPage() {
                 {previewMessages.map(message => (
                   <section key={message.id} className={`session-message-row ${message.role}`}>
                     <div>
-                      <MessageSquareText size={14} />
-                      <strong>{message.role}</strong>
+                      <strong>{roleLabel(message.role, zh)}</strong>
                       {message.timestamp ? <time>{formatTime(message.timestamp)}</time> : null}
                     </div>
                     <p>{message.text}</p>
@@ -186,6 +184,23 @@ function Meta({ label, value }: { label: string; value: string }) {
 function compactTitle(title: string) {
   const normalized = (title || "").replace(/\s+/g, " ").trim();
   return normalized || "Untitled session";
+}
+
+function formatSessionCount(filtered: number, total: number, zh: boolean) {
+  if (filtered === total) return zh ? `${total} 项` : `${total} items`;
+  return zh ? `${filtered} / ${total} 项` : `${filtered} / ${total} items`;
+}
+
+function unknownValue(zh: boolean) {
+  return zh ? "未知" : "unknown";
+}
+
+function roleLabel(role: string, zh: boolean) {
+  if (role === "assistant") return "Claude";
+  if (!zh) return role;
+  if (role === "user") return "用户";
+  if (role === "system") return "记录";
+  return role;
 }
 
 function shortId(id: string) {

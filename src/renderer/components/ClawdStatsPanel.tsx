@@ -20,6 +20,11 @@ function formatDuration(ms: number): string {
   return `${s}s`;
 }
 
+function formatHourRange(hour: number): string {
+  const label = String(hour).padStart(2, "0");
+  return `${label}:00-${label}:59`;
+}
+
 export function buildStats(events: PetEvent[], startedAt: number): AppStats {
   const today = new Date().toISOString().slice(0, 10);
   const toolUsage = events.reduce<Record<string, number>>((acc, event) => {
@@ -112,7 +117,7 @@ export function StatsPanel({ stats }: { stats: AppStats }) {
           <div className="stats-grid">
             {topHours.filter(hour => hour.count > 0).map(hour => (
               <div key={hour.hour} className="stat-item">
-                <span className="stat-value">{String(hour.hour).padStart(2, "0")}:00</span>
+                <span className="stat-value">{formatHourRange(hour.hour)}</span>
                 <span className="stat-label">{hour.count} 次</span>
               </div>
             ))}

@@ -185,6 +185,10 @@ function createPetWindow() {
   petWindow.setAlwaysOnTop(true, "screen-saver");
   loadRenderer(petWindow);
 
+  petWindow.on("show", updateTrayMenu);
+  petWindow.on("hide", updateTrayMenu);
+  petWindow.on("minimize", updateTrayMenu);
+  petWindow.on("restore", updateTrayMenu);
   petWindow.on("closed", () => {
     petWindow = null;
     updateTrayMenu();
@@ -212,6 +216,10 @@ function createPanelWindow() {
   });
 
   loadRenderer(panelWindow, "panel");
+  panelWindow.on("show", updateTrayMenu);
+  panelWindow.on("hide", updateTrayMenu);
+  panelWindow.on("minimize", updateTrayMenu);
+  panelWindow.on("restore", updateTrayMenu);
   panelWindow.on("closed", () => {
     panelWindow = null;
     updateTrayMenu();
@@ -228,13 +236,17 @@ function showPanelWindow() {
   updateTrayMenu();
 }
 
+function hidePanelWindow() {
+  panelWindow?.hide();
+  updateTrayMenu();
+}
+
 function togglePanelWindow() {
   if (panelWindow?.isVisible()) {
-    panelWindow.hide();
+    hidePanelWindow();
   } else {
     showPanelWindow();
   }
-  updateTrayMenu();
 }
 
 function createTrayIcon() {
@@ -273,31 +285,33 @@ function showPetWindow() {
   updateTrayMenu();
 }
 
+function hidePetWindow() {
+  petWindow?.hide();
+  updateTrayMenu();
+}
+
 function togglePetWindow() {
   if (petWindow?.isVisible()) {
-    petWindow.hide();
+    hidePetWindow();
   } else {
     showPetWindow();
   }
-  updateTrayMenu();
 }
 
 function updateTrayMenu() {
   if (!tray) return;
+  const isPetVisible = Boolean(petWindow && !petWindow.isDestroyed() && petWindow.isVisible());
+  const isPanelVisible = Boolean(panelWindow && !panelWindow.isDestroyed() && panelWindow.isVisible());
 
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
-        label: petWindow?.isVisible() ? "隐藏桌宠" : "显示桌宠",
-        click: togglePetWindow
+        label: isPetVisible ? "隐藏桌宠" : "显示桌宠",
+        click: isPetVisible ? hidePetWindow : showPetWindow
       },
       {
-        label: panelWindow?.isVisible() ? "隐藏面板" : "显示面板",
-        click: togglePanelWindow
-      },
-      {
-        label: "发送测试事件",
-        click: sendTestEvent
+        label: isPanelVisible ? "隐藏面板" : "显示面板",
+        click: isPanelVisible ? hidePanelWindow : showPanelWindow
       },
       { type: "separator" },
       {
@@ -426,26 +440,6 @@ function toCompanionEvent(event: PetEvent): CompanionEvent {
   };
 }
 
-function toPetEvent(event: CompanionEvent): PetEvent {
-  const mappedEvent: PetState = event.event === "permission_wait"
-    ? "permission-prompt"
-    : event.event === "done"
-      ? "completed"
-      : event.event === "session_start" || event.event === "heartbeat"
-        ? "idle"
-        : "running";
-
-  return {
-    id: event.id,
-    event: mappedEvent,
-    title: event.title,
-    message: event.message,
-    tool: event.tool,
-    detail: event.detail,
-    timestamp: event.timestamp
-  };
-}
-
 type ClaudeResourceKind = "skill" | "plugin" | "mcp";
 
 type ClaudeResourceItem = {
@@ -457,6 +451,15 @@ type ClaudeResourceItem = {
   enabled?: boolean;
   source: "claude" | "claude-json" | "unknown";
   detail?: string;
+};
+
+type ClaudeInstalledPluginEntry = Record<string, unknown> & {
+  scope?: string;
+  installPath?: string;
+  path?: string;
+  version?: string;
+  description?: string;
+  enabled?: boolean;
 };
 
 function getClaudePaths() {
@@ -489,6 +492,14 @@ function readJsonObject(filePath: string): Record<string, unknown> | null {
   }
 }
 
+function isDirectoryPath(dirPath: string) {
+  try {
+    return statSync(dirPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function extractMarkdownDescription(markdown: string) {
   const frontmatter = markdown.match(/^---\s*\n([\s\S]*?)\n---/);
   if (frontmatter) {
@@ -503,50 +514,99 @@ function extractMarkdownDescription(markdown: string) {
     .find(Boolean);
 }
 
+function readClaudeEnabledPlugins(claudeDir: string): Record<string, boolean> | null {
+  const settings = readJsonObject(join(claudeDir, "settings.json"));
+  const enabledPlugins = settings?.enabledPlugins;
+  if (!enabledPlugins || typeof enabledPlugins !== "object" || Array.isArray(enabledPlugins)) return null;
+  return enabledPlugins as Record<string, boolean>;
+}
+
+function readClaudeInstalledPlugins(claudeDir: string): Record<string, unknown> | null {
+  const registry = readJsonObject(join(claudeDir, "plugins", "installed_plugins.json"));
+  const plugins = registry?.plugins;
+  if (!plugins || typeof plugins !== "object" || Array.isArray(plugins)) return null;
+  return plugins as Record<string, unknown>;
+}
+
+function normalizeInstalledPluginEntries(value: unknown): ClaudeInstalledPluginEntry[] {
+  if (Array.isArray(value)) return value.filter(entry => entry && typeof entry === "object" && !Array.isArray(entry)) as ClaudeInstalledPluginEntry[];
+  if (value && typeof value === "object") return [value as ClaudeInstalledPluginEntry];
+  return [];
+}
+
+function scanSkillDirectory(skillDir: string, name: string, detail = "SKILL.md"): ClaudeResourceItem | null {
+  const skillFile = join(skillDir, "SKILL.md");
+  if (!readTextIfExists(skillFile)) return null;
+  return {
+    id: `skill:${name}`,
+    kind: "skill" as const,
+    name,
+    description: extractMarkdownDescription(readTextIfExists(skillFile)),
+    path: skillDir,
+    source: "claude" as const,
+    detail
+  };
+}
+
 function scanClaudeSkills(claudeDir: string): ClaudeResourceItem[] {
+  const found = new Map<string, ClaudeResourceItem>();
   const skillsDir = join(claudeDir, "skills");
   try {
-    if (!existsSync(skillsDir)) return [];
-    return readdirSync(skillsDir, { withFileTypes: true })
-      .filter(entry => entry.isDirectory())
-      .map(entry => {
+    if (existsSync(skillsDir)) {
+      for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
         const skillDir = join(skillsDir, entry.name);
-        const skillFile = join(skillDir, "SKILL.md");
-        const description = extractMarkdownDescription(readTextIfExists(skillFile));
-        if (!description) return null;
-        return {
-          id: `skill:${entry.name}`,
-          kind: "skill" as const,
-          name: entry.name,
-          description,
-          path: skillDir,
-          source: "claude" as const,
-          detail: "SKILL.md"
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => a!.name.localeCompare(b!.name)) as ClaudeResourceItem[];
+        if (!isDirectoryPath(skillDir)) continue;
+        const item = scanSkillDirectory(skillDir, entry.name);
+        if (item) found.set(item.id, item);
+      }
+    }
+
+    const enabledPlugins = readClaudeEnabledPlugins(claudeDir) ?? {};
+    const installedPlugins = readClaudeInstalledPlugins(claudeDir) ?? {};
+    for (const [pluginName, enabled] of Object.entries(enabledPlugins)) {
+      if (enabled !== true) continue;
+      for (const entry of normalizeInstalledPluginEntries(installedPlugins[pluginName])) {
+        const installPath = typeof entry.installPath === "string" ? entry.installPath : typeof entry.path === "string" ? entry.path : "";
+        const pluginSkillsDir = installPath ? join(installPath, "skills") : "";
+        if (!pluginSkillsDir || !isDirectoryPath(pluginSkillsDir)) continue;
+        for (const skillEntry of readdirSync(pluginSkillsDir, { withFileTypes: true })) {
+          const skillDir = join(pluginSkillsDir, skillEntry.name);
+          if (!isDirectoryPath(skillDir)) continue;
+          const item = scanSkillDirectory(skillDir, skillEntry.name, `plugin: ${pluginName}`);
+          if (item && !found.has(item.id)) found.set(item.id, item);
+        }
+      }
+    }
   } catch {
-    return [];
+    // Return whatever was discovered before an unreadable plugin or skill directory.
   }
+
+  return Array.from(found.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function scanClaudePlugins(claudeDir: string): ClaudeResourceItem[] {
   const pluginsDir = join(claudeDir, "plugins");
-  const registry = readJsonObject(join(pluginsDir, "installed_plugins.json"));
-  const registryPlugins = registry?.plugins;
-  if (registryPlugins && typeof registryPlugins === "object" && !Array.isArray(registryPlugins)) {
-    return Object.entries(registryPlugins as Record<string, Record<string, unknown>>)
-      .map(([name, metadata]) => ({
-        id: `plugin:${name}`,
-        kind: "plugin" as const,
-        name,
-        description: typeof metadata?.description === "string" ? metadata.description : undefined,
-        path: typeof metadata?.path === "string" ? metadata.path : pluginsDir,
-        enabled: metadata?.enabled !== false,
-        source: "claude" as const,
-        detail: typeof metadata?.version === "string" ? `version ${metadata.version}` : "installed_plugins.json"
-      }))
+  const registryPlugins = readClaudeInstalledPlugins(claudeDir);
+  if (registryPlugins) {
+    const enabledPlugins = readClaudeEnabledPlugins(claudeDir);
+    return Object.entries(registryPlugins)
+      .map(([name, value]) => {
+        const entries = normalizeInstalledPluginEntries(value);
+        const first = entries[0] ?? {};
+        const version = entries.find(entry => typeof entry.version === "string")?.version;
+        const scopes = Array.from(new Set(entries.map(entry => typeof entry.scope === "string" ? entry.scope : "").filter(Boolean)));
+        const path = typeof first.installPath === "string" ? first.installPath : typeof first.path === "string" ? first.path : pluginsDir;
+        return {
+          id: `plugin:${name}`,
+          kind: "plugin" as const,
+          name,
+          description: typeof first.description === "string" ? first.description : undefined,
+          path,
+          enabled: enabledPlugins ? enabledPlugins[name] === true : entries.every(entry => entry.enabled !== false),
+          source: "claude" as const,
+          detail: [version ? `version ${version}` : "installed_plugins.json", scopes.length ? scopes.join("/") : ""].filter(Boolean).join(" · ")
+        };
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -1488,20 +1548,28 @@ function getClaudeSessionDetail(filePath: string) {
   return { session, messages: messages.slice(-240), totalMessages: messages.length };
 }
 
+function getSessionResumeCwd(projectPath?: string) {
+  const requested = typeof projectPath === "string" ? projectPath.trim() : "";
+  return requested && isDirectoryPath(requested) ? requested : homedir();
+}
+
 function resumeClaudeSession(sessionId: string, projectPath?: string) {
   const safeSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
   if (!/^[a-zA-Z0-9._:-]{6,200}$/.test(safeSessionId)) return { ok: false, command: "", error: "Invalid session id" };
   const command = `claude --resume ${safeSessionId}`;
-  const cwd = typeof projectPath === "string" && projectPath.trim() ? projectPath.trim() : homedir();
+  const cwd = getSessionResumeCwd(projectPath);
 
   if (process.platform === "win32") {
     try {
-      spawn("cmd.exe", ["/c", "start", "Claude Code", "cmd.exe", "/k", `cd /d "${cwd}" && ${command}`], {
+      const comspec = process.env.ComSpec || "cmd.exe";
+      const child = spawn(comspec, ["/K", command], {
+        cwd,
         detached: true,
-        windowsHide: true,
+        windowsHide: false,
         stdio: "ignore"
-      }).unref();
-      return { ok: true, command };
+      });
+      child.unref();
+      return { ok: true, command, cwd };
     } catch (error) {
       return { ok: false, command, error: error instanceof Error ? error.message : String(error) };
     }
@@ -2010,18 +2078,6 @@ function publishPetEvent(event: PetEvent) {
   updateTrayMenu();
 }
 
-function sendTestEvent() {
-  showPetWindow();
-  publishPetEvent({
-    id: `test-${Date.now()}`,
-    event: "running",
-    title: "Test event",
-    message: "Tray connection is working",
-    tool: "Tray",
-    timestamp: Date.now()
-  });
-}
-
 function startEventServer() {
   eventServer = createServer(async (req, res) => {
     if (req.method === "OPTIONS") {
@@ -2062,7 +2118,7 @@ app.whenReady().then(() => {
     if (panelWindow.isMaximized()) panelWindow.unmaximize();
     else panelWindow.maximize();
   });
-  ipcMain.handle("pet:close-panel", () => panelWindow?.hide());
+  ipcMain.handle("pet:close-panel", () => hidePanelWindow());
   ipcMain.handle("companion:get-settings", () => companionSettings);
   ipcMain.handle("companion:save-settings", (_, next: Partial<typeof companionSettings>) => {
     companionSettings = { ...companionSettings, ...next };
@@ -2072,25 +2128,6 @@ app.whenReady().then(() => {
     return companionSettings;
   });
   ipcMain.handle("companion:get-connection-status", () => getConnectionStatus());
-  ipcMain.handle("companion:send-test-event", (_, event?: CompanionEvent | CompanionEventType) => {
-    if (event && typeof event === "object") {
-      publishPetEvent(toPetEvent(event));
-      return;
-    }
-    const eventType = event ?? "prompt_submit";
-    publishPetEvent(toPetEvent({
-      id: `test-${Date.now()}`,
-      source: "manual",
-      event: eventType,
-      sessionId,
-      clientType: "desktop",
-      clientLabel: "Minato Aqua Code Pet",
-      tool: eventType === "tool_start" ? "Bash" : undefined,
-      title: eventType === "done" ? "Completed" : eventType === "permission_wait" ? "Permission needed" : "Test event",
-      message: "Generated from Clawd panel",
-      timestamp: Date.now()
-    }));
-  });
   ipcMain.handle("companion:check-hooks", () => getHooksStatus());
   ipcMain.handle("companion:install-hooks", () => installHooks());
   ipcMain.handle("companion:repair-hooks", () => repairHooks());
@@ -2102,7 +2139,7 @@ app.whenReady().then(() => {
     if (panelWindow.isMaximized()) panelWindow.unmaximize();
     else panelWindow.maximize();
   });
-  ipcMain.handle("companion:close-settings", () => panelWindow?.hide());
+  ipcMain.handle("companion:close-settings", () => hidePanelWindow());
   ipcMain.handle("companion:set-pet-interactive", (_, interactive: boolean) => petWindow?.setIgnoreMouseEvents(!interactive, { forward: true }));
   ipcMain.handle("companion:update-permission-card-rect", () => undefined);
   ipcMain.handle("companion:drag-pet-to", (_, position: { x: number; y: number }) => petWindow?.setPosition(position.x, position.y));
@@ -2128,7 +2165,6 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:get-default-sound-paths", () => ({}));
   ipcMain.handle("companion:preview-sound-file", () => undefined);
   ipcMain.handle("companion:pick-sound-file", () => null);
-  ipcMain.handle("companion:trigger-idle-bubble", () => panelWindow?.webContents.send("companion:trigger-idle-bubble"));
   ipcMain.handle("companion:sync-idle-bubble", (_, payload: unknown) => panelWindow?.webContents.send("companion:idle-bubble-sync", payload));
   ipcMain.handle("companion:get-event-history", () => getCompanionEvents().map(event => ({ id: event.id, event, timestamp: event.timestamp })));
   ipcMain.handle("companion:get-session-history", () => getSessionHistory());
