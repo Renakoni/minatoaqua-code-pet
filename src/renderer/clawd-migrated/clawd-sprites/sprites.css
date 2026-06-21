@@ -1,0 +1,335 @@
+/* Generated from clawd-anims/*.gif. Do not hand-edit frame positions. */
+.clawd-sprite {
+  position: relative;
+  z-index: 4;
+  display: block;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  pointer-events: none;
+}
+
+.clawd-sprite-done {
+  width: 168px;
+  height: 208px;
+  background-image: url("./done.png");
+  background-size: 1344px 624px;
+  animation: clawd-sprite-done 1760ms step-end infinite;
+}
+@keyframes clawd-sprite-done {
+  0.0000% { background-position: 0px 0px; }
+  4.5455% { background-position: -168px 0px; }
+  9.6591% { background-position: -336px 0px; }
+  14.2045% { background-position: -504px 0px; }
+  18.7500% { background-position: -672px 0px; }
+  23.8636% { background-position: -840px 0px; }
+  28.4091% { background-position: -1008px 0px; }
+  32.9545% { background-position: -1176px 0px; }
+  38.0682% { background-position: 0px -208px; }
+  42.6136% { background-position: -168px -208px; }
+  47.1591% { background-position: -336px -208px; }
+  52.2727% { background-position: -504px -208px; }
+  56.8182% { background-position: -672px -208px; }
+  61.3636% { background-position: -840px -208px; }
+  66.4773% { background-position: -1008px -208px; }
+  71.0227% { background-position: -1176px -208px; }
+  75.5682% { background-position: 0px -416px; }
+  80.6818% { background-position: -168px -416px; }
+  85.2273% { background-position: -336px -416px; }
+  89.7727% { background-position: -504px -416px; }
+  94.8864% { background-position: -672px -416px; }
+}
+
+.clawd-sprite-error {
+  width: 168px;
+  height: 182px;
+  background-image: url("./error.png");
+  background-size: 1344px 1092px;
+  animation: clawd-sprite-error 2990ms step-end infinite;
+}
+@keyframes clawd-sprite-error {
+  0.0000% { background-position: 0px 0px; }
+  2.3411% { background-position: -168px 0px; }
+  4.3478% { background-position: -336px 0px; }
+  6.6890% { background-position: -504px 0px; }
+  9.0301% { background-position: -672px 0px; }
+  11.0368% { background-position: -840px 0px; }
+  13.3779% { background-position: -1008px 0px; }
+  15.7191% { background-position: -1176px 0px; }
+  17.7258% { background-position: 0px -182px; }
+  20.0669% { background-position: -168px -182px; }
+  22.4080% { background-position: -336px -182px; }
+  24.4147% { background-position: -504px -182px; }
+  26.7559% { background-position: -672px -182px; }
+  29.0970% { background-position: -840px -182px; }
+  31.1037% { background-position: -1008px -182px; }
+  33.4448% { background-position: -1176px -182px; }
+  35.7860% { background-position: 0px -364px; }
+  37.7926% { background-position: -168px -364px; }
+  40.1338% { background-position: -336px -364px; }
+  42.4749% { background-position: -504px -364px; }
+  44.4816% { background-position: -672px -364px; }
+  46.8227% { background-position: -840px -364px; }
+  49.1639% { background-position: -1008px -364px; }
+  51.1706% { background-position: -1176px -364px; }
+  53.5117% { background-position: 0px -546px; }
+  55.8528% { background-position: -168px -546px; }
+  57.8595% { background-position: -336px -546px; }
+  60.2007% { background-position: -504px -546px; }
+  62.5418% { background-position: -672px -546px; }
+  64.5485% { background-position: -840px -546px; }
+  66.8896% { background-position: -1008px -546px; }
+  69.2308% { background-position: -1176px -546px; }
+  71.2375% { background-position: 0px -728px; }
+  73.5786% { background-position: -168px -728px; }
+  75.9197% { background-position: -336px -728px; }
+  77.9264% { background-position: -504px -728px; }
+  80.2676% { background-position: -672px -728px; }
+  82.6087% { background-position: -840px -728px; }
+  84.6154% { background-position: -1008px -728px; }
+  86.9565% { background-position: -1176px -728px; }
+  89.2977% { background-position: 0px -910px; }
+  91.3043% { background-position: -168px -910px; }
+  93.6455% { background-position: -336px -910px; }
+  95.9866% { background-position: -504px -910px; }
+  97.9933% { background-position: -672px -910px; }
+}
+
+.clawd-sprite-idle {
+  width: 168px;
+  height: 160px;
+  background-image: url("./idle.png");
+  background-size: 1344px 320px;
+  animation: clawd-sprite-idle 2300ms step-end infinite;
+}
+@keyframes clawd-sprite-idle {
+  0.0000% { background-position: 0px 0px; }
+  4.3478% { background-position: -168px 0px; }
+  13.0435% { background-position: -336px 0px; }
+  21.7391% { background-position: -504px 0px; }
+  30.4348% { background-position: -672px 0px; }
+  39.1304% { background-position: -840px 0px; }
+  47.8261% { background-position: -1008px 0px; }
+  56.5217% { background-position: -1176px 0px; }
+  65.2174% { background-position: 0px -160px; }
+  73.9130% { background-position: -168px -160px; }
+  82.6087% { background-position: -336px -160px; }
+  91.3043% { background-position: -504px -160px; }
+}
+
+.clawd-sprite-thinking {
+  width: 168px;
+  height: 209px;
+  background-image: url("./thinking.png");
+  background-size: 1344px 418px;
+  animation: clawd-sprite-thinking 2500ms step-end infinite;
+}
+@keyframes clawd-sprite-thinking {
+  0.0000% { background-position: 0px 0px; }
+  4.0000% { background-position: -168px 0px; }
+  12.0000% { background-position: -336px 0px; }
+  20.0000% { background-position: -504px 0px; }
+  28.0000% { background-position: -672px 0px; }
+  36.0000% { background-position: -840px 0px; }
+  44.0000% { background-position: -1008px 0px; }
+  52.0000% { background-position: -1176px 0px; }
+  60.0000% { background-position: 0px -209px; }
+  68.0000% { background-position: -168px -209px; }
+  76.0000% { background-position: -336px -209px; }
+  84.0000% { background-position: -504px -209px; }
+  92.0000% { background-position: -672px -209px; }
+}
+
+.clawd-sprite-tool_bash {
+  width: 168px;
+  height: 133px;
+  background-image: url("./tool_bash.png");
+  background-size: 672px 133px;
+  animation: clawd-sprite-tool_bash 700ms step-end infinite;
+}
+@keyframes clawd-sprite-tool_bash {
+  0.0000% { background-position: 0px 0px; }
+  14.2857% { background-position: -168px 0px; }
+  42.8571% { background-position: -336px 0px; }
+  71.4286% { background-position: -504px 0px; }
+}
+
+.clawd-sprite-tool_edit {
+  width: 168px;
+  height: 133px;
+  background-image: url("./tool_edit.png");
+  background-size: 672px 133px;
+  animation: clawd-sprite-tool_edit 700ms step-end infinite;
+}
+@keyframes clawd-sprite-tool_edit {
+  0.0000% { background-position: 0px 0px; }
+  14.2857% { background-position: -168px 0px; }
+  42.8571% { background-position: -336px 0px; }
+  71.4286% { background-position: -504px 0px; }
+}
+
+.clawd-sprite-tool_read {
+  width: 168px;
+  height: 145px;
+  background-image: url("./tool_read.png");
+  background-size: 1344px 290px;
+  animation: clawd-sprite-tool_read 1700ms step-end infinite;
+}
+@keyframes clawd-sprite-tool_read {
+  0.0000% { background-position: 0px 0px; }
+  5.8824% { background-position: -168px 0px; }
+  17.6471% { background-position: -336px 0px; }
+  29.4118% { background-position: -504px 0px; }
+  41.1765% { background-position: -672px 0px; }
+  52.9412% { background-position: -840px 0px; }
+  64.7059% { background-position: -1008px 0px; }
+  76.4706% { background-position: -1176px 0px; }
+  88.2353% { background-position: 0px -145px; }
+}
+
+.clawd-sprite-tool_search {
+  width: 168px;
+  height: 209px;
+  background-image: url("./tool_search.png");
+  background-size: 1344px 418px;
+  animation: clawd-sprite-tool_search 2500ms step-end infinite;
+}
+@keyframes clawd-sprite-tool_search {
+  0.0000% { background-position: 0px 0px; }
+  4.0000% { background-position: -168px 0px; }
+  12.0000% { background-position: -336px 0px; }
+  20.0000% { background-position: -504px 0px; }
+  28.0000% { background-position: -672px 0px; }
+  36.0000% { background-position: -840px 0px; }
+  44.0000% { background-position: -1008px 0px; }
+  52.0000% { background-position: -1176px 0px; }
+  60.0000% { background-position: 0px -209px; }
+  68.0000% { background-position: -168px -209px; }
+  76.0000% { background-position: -336px -209px; }
+  84.0000% { background-position: -504px -209px; }
+  92.0000% { background-position: -672px -209px; }
+}
+
+.clawd-sprite-waiting_permission {
+  width: 168px;
+  height: 100px;
+  background-image: url("./waiting_permission.png");
+  background-size: 672px 100px;
+  animation: clawd-sprite-waiting_permission 700ms step-end infinite;
+}
+@keyframes clawd-sprite-waiting_permission {
+  0.0000% { background-position: 0px 0px; }
+  14.2857% { background-position: -168px 0px; }
+  42.8571% { background-position: -336px 0px; }
+  71.4286% { background-position: -504px 0px; }
+}
+
+/* skill: reuse thinking sprite */
+.clawd-sprite-skill {
+  width: 168px;
+  height: 209px;
+  background-image: url("./thinking.png");
+  background-size: 1344px 418px;
+  animation: clawd-sprite-skill 2500ms step-end infinite;
+}
+@keyframes clawd-sprite-skill {
+  0.0000% { background-position: 0px 0px; }
+  4.0000% { background-position: -168px 0px; }
+  12.0000% { background-position: -336px 0px; }
+  20.0000% { background-position: -504px 0px; }
+  28.0000% { background-position: -672px 0px; }
+  36.0000% { background-position: -840px 0px; }
+  44.0000% { background-position: -1008px 0px; }
+  52.0000% { background-position: -1176px 0px; }
+  60.0000% { background-position: 0px -209px; }
+  68.0000% { background-position: -168px -209px; }
+  76.0000% { background-position: -336px -209px; }
+  84.0000% { background-position: -504px -209px; }
+  92.0000% { background-position: -672px -209px; }
+}
+
+/* task: reuse thinking sprite */
+.clawd-sprite-task {
+  width: 168px;
+  height: 209px;
+  background-image: url("./thinking.png");
+  background-size: 1344px 418px;
+  animation: clawd-sprite-task 2500ms step-end infinite;
+}
+@keyframes clawd-sprite-task {
+  0.0000% { background-position: 0px 0px; }
+  4.0000% { background-position: -168px 0px; }
+  12.0000% { background-position: -336px 0px; }
+  20.0000% { background-position: -504px 0px; }
+  28.0000% { background-position: -672px 0px; }
+  36.0000% { background-position: -840px 0px; }
+  44.0000% { background-position: -1008px 0px; }
+  52.0000% { background-position: -1176px 0px; }
+  60.0000% { background-position: 0px -209px; }
+  68.0000% { background-position: -168px -209px; }
+  76.0000% { background-position: -336px -209px; }
+  84.0000% { background-position: -504px -209px; }
+  92.0000% { background-position: -672px -209px; }
+}
+
+/* agent: reuse thinking sprite */
+.clawd-sprite-agent {
+  width: 168px;
+  height: 209px;
+  background-image: url("./thinking.png");
+  background-size: 1344px 418px;
+  animation: clawd-sprite-agent 2500ms step-end infinite;
+}
+@keyframes clawd-sprite-agent {
+  0.0000% { background-position: 0px 0px; }
+  4.0000% { background-position: -168px 0px; }
+  12.0000% { background-position: -336px 0px; }
+  20.0000% { background-position: -504px 0px; }
+  28.0000% { background-position: -672px 0px; }
+  36.0000% { background-position: -840px 0px; }
+  44.0000% { background-position: -1008px 0px; }
+  52.0000% { background-position: -1176px 0px; }
+  60.0000% { background-position: 0px -209px; }
+  68.0000% { background-position: -168px -209px; }
+  76.0000% { background-position: -336px -209px; }
+  84.0000% { background-position: -504px -209px; }
+  92.0000% { background-position: -672px -209px; }
+}
+
+/* idea_bulb: lightbulb moment */
+.clawd-sprite-skill {
+  width: 480px;
+  height: 480px;
+  background-image: url("./idea_bulb.png");
+  background-size: 2880px 480px;
+  animation: clawd-sprite-skill 1500ms step-end infinite;
+}
+@keyframes clawd-sprite-skill {
+  0.0000% { background-position: 0px 0px; }
+  16.6667% { background-position: -480px 0px; }
+  33.3333% { background-position: -960px 0px; }
+  50.0000% { background-position: -1440px 0px; }
+  66.6667% { background-position: -1920px 0px; }
+  83.3333% { background-position: -2400px 0px; }
+}
+
+/* welding_work: welding animation */
+.clawd-sprite-agent {
+  width: 480px;
+  height: 480px;
+  background-image: url("./welding_work.png");
+  background-size: 3840px 480px;
+  animation: clawd-sprite-agent 2000ms step-end infinite;
+}
+@keyframes clawd-sprite-agent {
+  0.0000% { background-position: 0px 0px; }
+  12.5000% { background-position: -480px 0px; }
+  25.0000% { background-position: -960px 0px; }
+  37.5000% { background-position: -1440px 0px; }
+  50.0000% { background-position: -1920px 0px; }
+  62.5000% { background-position: -2400px 0px; }
+  75.0000% { background-position: -2880px 0px; }
+  87.5000% { background-position: -3360px 0px; }
+}
+

@@ -3,6 +3,9 @@ dist/
 dist-electron/
 out/
 .vite/
+.claude/
+sources/
+HANDOFF.md
 *.log
 .DS_Store
 Thumbs.db
