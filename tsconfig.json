@@ -17,5 +17,5 @@
     "jsx": "react-jsx"
   },
   "include": ["src/renderer", "src/shared", "src/vite-env.d.ts"],
-  "exclude": ["src/renderer/clawd-migrated", "src/renderer/shared", "src/clawd-main-migrated"]
+  "exclude": ["src/renderer/clawd-migrated", "src/renderer/shared"]
 }
