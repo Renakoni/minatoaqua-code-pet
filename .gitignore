@@ -30,6 +30,7 @@ pnpm-debug.log*
 *.heapsnapshot
 
 # Temporary files
+temp/
 *.tmp
 *.temp
 *.bak

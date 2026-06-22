@@ -1,0 +1,502 @@
+/* === Light Theme Alignment for Migrated Workbenches === */
+.claude-sessions-page {
+  --session-ink: oklch(23% 0.011 75);
+  --session-muted: oklch(50% 0.011 75);
+  --session-faint: oklch(62% 0.01 75);
+  --session-line: oklch(34% 0.012 75 / 0.16);
+  --session-line-strong: oklch(34% 0.012 75 / 0.28);
+  --session-surface: oklch(98% 0.008 78 / 0.84);
+  --session-surface-raised: oklch(99% 0.006 78 / 0.92);
+  --session-surface-hover: oklch(95% 0.01 78 / 0.9);
+  --session-surface-active: oklch(94% 0.018 82 / 0.82);
+  --session-active-line: oklch(64% 0.065 82 / 0.42);
+  --session-control-bg: oklch(99% 0.006 78 / 0.78);
+  --session-control-hover: oklch(96% 0.012 78 / 0.95);
+  --session-focus: oklch(64% 0.065 82 / 0.42);
+  --session-accent: oklch(73% 0.115 82);
+  --session-accent-hover: oklch(78% 0.12 82);
+  --session-accent-ink: oklch(24% 0.01 75);
+  --session-success: oklch(62% 0.09 154);
+  --session-danger: oklch(60% 0.11 32);
+  --session-info: oklch(54% 0.075 250);
+  --session-tool: oklch(58% 0.08 300);
+  --session-message-text: oklch(34% 0.012 75);
+  --session-scrollbar: oklch(68% 0.01 75 / 0.58);
+  --session-shadow: 0 18px 44px oklch(34% 0.012 75 / 0.1);
+  --session-error-bg: oklch(76% 0.08 32 / 0.1);
+  color: var(--session-ink);
+}
+
+[data-theme=dark] .claude-sessions-page {
+  --session-ink: oklch(91% 0.012 78);
+  --session-muted: oklch(61% 0.009 78);
+  --session-faint: oklch(55% 0.009 78);
+  --session-line: oklch(27% 0.006 75);
+  --session-line-strong: oklch(33% 0.012 75);
+  --session-surface: oklch(17.5% 0.006 75);
+  --session-surface-raised: oklch(20% 0.006 75);
+  --session-surface-hover: oklch(20.5% 0.007 75);
+  --session-surface-active: oklch(22% 0.009 76);
+  --session-active-line: oklch(41% 0.028 76);
+  --session-control-bg: oklch(20% 0.006 75);
+  --session-control-hover: oklch(25% 0.007 75);
+  --session-focus: oklch(58% 0.05 78 / 0.75);
+  --session-accent: oklch(77% 0.105 82);
+  --session-accent-hover: oklch(82% 0.11 82);
+  --session-accent-ink: oklch(18% 0.006 75);
+  --session-success: oklch(72% 0.07 154);
+  --session-danger: oklch(74% 0.08 32);
+  --session-info: oklch(70% 0.045 210);
+  --session-tool: oklch(70% 0.065 300);
+  --session-message-text: oklch(74% 0.011 78);
+  --session-scrollbar: oklch(43% 0.008 78);
+  --session-shadow: 0 18px 44px rgba(0,0,0,.28);
+  --session-error-bg: oklch(23% 0.025 33 / 0.58);
+}
+
+.session-viewer-search,
+.session-viewer-toolbar > button,
+.session-viewer-list,
+.session-viewer-detail,
+.session-viewer-meta,
+.session-message-list {
+  border-color: var(--session-line);
+  background: var(--session-surface);
+}
+
+.session-viewer-search,
+.session-viewer-toolbar > button {
+  background: var(--session-control-bg);
+}
+
+.session-viewer-search:focus-within {
+  border-color: var(--session-focus);
+  background: var(--session-surface-raised);
+}
+
+.session-viewer-search svg,
+.session-viewer-toolbar > button {
+  color: var(--session-faint);
+}
+
+.claude-sessions-page .session-viewer-search input {
+  color: var(--session-ink);
+}
+
+.claude-sessions-page .session-viewer-search input::placeholder,
+.session-viewer-search > span,
+.session-viewer-row footer,
+.session-viewer-meta span,
+.session-viewer-empty {
+  color: var(--session-faint);
+}
+
+.session-viewer-toolbar > button:hover:not(:disabled),
+.session-viewer-actions button:hover:not(:disabled) {
+  color: var(--session-ink);
+  border-color: var(--session-line-strong);
+  background: var(--session-control-hover);
+}
+
+.session-viewer-toolbar > button:focus-visible,
+.session-viewer-actions button:focus-visible {
+  outline-color: var(--session-focus);
+}
+
+.session-viewer-error {
+  color: var(--session-danger);
+  border-color: oklch(57% 0.09 33 / 0.35);
+  background: var(--session-error-bg);
+}
+
+.session-viewer-list,
+.session-viewer-detail {
+  box-shadow: var(--session-shadow);
+}
+
+.session-viewer-list::-webkit-scrollbar-thumb,
+.session-viewer-detail::-webkit-scrollbar-thumb,
+.session-message-list::-webkit-scrollbar-thumb {
+  border-color: var(--session-surface);
+  background: var(--session-scrollbar);
+}
+
+.session-viewer-list::-webkit-scrollbar-corner,
+.session-viewer-detail::-webkit-scrollbar-corner,
+.session-message-list::-webkit-scrollbar-corner {
+  background: var(--session-surface);
+}
+
+.session-viewer-row {
+  color: var(--session-ink);
+  border-bottom-color: var(--session-line);
+}
+
+.session-viewer-row:hover,
+.session-message-row:hover {
+  background: var(--session-surface-hover);
+}
+
+.session-viewer-row.active {
+  background: var(--session-surface-active);
+  box-shadow: inset 0 0 0 1px var(--session-active-line);
+}
+
+.session-viewer-row strong,
+.session-viewer-detail h2,
+.session-viewer-meta strong {
+  color: var(--session-ink);
+}
+
+.session-viewer-row p.session-viewer-project-path,
+.session-viewer-detail p,
+.session-message-row > div time {
+  color: var(--session-muted);
+}
+
+.session-viewer-row em.valid,
+.session-message-row.user > div {
+  color: var(--session-accent);
+}
+
+.session-viewer-row em.empty,
+.session-message-row.system > div {
+  color: var(--session-faint);
+}
+
+.session-viewer-row em.corrupt {
+  color: var(--session-danger);
+}
+
+.session-viewer-actions button {
+  color: var(--session-muted);
+  border-color: var(--session-line);
+  background: var(--session-control-bg);
+}
+
+.session-viewer-actions .session-resume-button {
+  color: var(--session-accent-ink);
+  border-color: var(--session-accent);
+  background: var(--session-accent);
+}
+
+.session-viewer-actions .session-resume-button:hover:not(:disabled) {
+  color: var(--session-accent-ink);
+  border-color: var(--session-accent-hover);
+  background: var(--session-accent-hover);
+}
+
+.session-viewer-meta {
+  background: var(--session-surface-raised);
+}
+
+.session-viewer-meta div,
+.session-message-row {
+  border-color: var(--session-line);
+}
+
+.session-message-list {
+  background: var(--session-surface);
+}
+
+.session-message-row > div {
+  color: var(--session-faint);
+}
+
+.session-message-row.assistant > div {
+  color: var(--session-info);
+}
+
+.session-message-row.tool > div {
+  color: var(--session-tool);
+}
+
+.session-message-row p {
+  color: var(--session-message-text);
+}
+
+.session-toast {
+  color: var(--session-ink);
+  border-color: var(--session-line);
+  background: var(--session-surface-raised);
+  box-shadow: var(--session-shadow);
+}
+
+@media (max-width: 920px) {
+  .session-viewer-meta div {
+    border-bottom-color: var(--session-line);
+  }
+}
+
+@media (max-width: 620px) {
+  .session-viewer-meta div:nth-last-child(-n+2) {
+    border-bottom-color: var(--session-line);
+  }
+}
+
+.claude-resources-page-dark {
+  --resource-ink: oklch(23% 0.011 75);
+  --resource-muted: oklch(50% 0.011 75);
+  --resource-faint: oklch(62% 0.01 75);
+  --resource-line: oklch(34% 0.012 75 / 0.16);
+  --resource-line-strong: oklch(34% 0.012 75 / 0.28);
+  --resource-surface: oklch(98% 0.008 78 / 0.84);
+  --resource-surface-raised: oklch(99% 0.006 78 / 0.92);
+  --resource-surface-hover: oklch(95% 0.01 78 / 0.9);
+  --resource-surface-active: oklch(94% 0.018 82 / 0.82);
+  --resource-control-bg: oklch(99% 0.006 78 / 0.78);
+  --resource-control-hover: oklch(96% 0.012 78 / 0.95);
+  --resource-focus: oklch(64% 0.065 82 / 0.42);
+  --resource-accent: oklch(73% 0.115 82);
+  --resource-success: oklch(62% 0.09 154);
+  --resource-idle: oklch(52% 0.01 75);
+  --resource-scrollbar: oklch(68% 0.01 75 / 0.58);
+  --resource-shadow: 0 18px 44px oklch(34% 0.012 75 / 0.1);
+  color: var(--resource-ink);
+}
+
+[data-theme=dark] .claude-resources-page-dark {
+  --resource-ink: oklch(91% 0.012 78);
+  --resource-muted: oklch(65% 0.009 78);
+  --resource-faint: oklch(58% 0.009 78);
+  --resource-line: oklch(27% 0.006 75);
+  --resource-line-strong: oklch(41% 0.028 76);
+  --resource-surface: oklch(17.5% 0.006 75);
+  --resource-surface-raised: oklch(20% 0.006 75);
+  --resource-surface-hover: oklch(20.5% 0.007 75);
+  --resource-surface-active: oklch(22.5% 0.009 76);
+  --resource-control-bg: oklch(20% 0.006 75);
+  --resource-control-hover: oklch(21% 0.008 75);
+  --resource-focus: oklch(58% 0.05 78 / 0.75);
+  --resource-accent: oklch(74% 0.015 82);
+  --resource-success: oklch(72% 0.07 154);
+  --resource-idle: oklch(60% 0.01 78);
+  --resource-scrollbar: oklch(43% 0.008 78);
+  --resource-shadow: none;
+}
+
+.claude-resource-subtabs.compact {
+  border-color: var(--resource-line);
+  background: var(--resource-surface);
+  box-shadow: none;
+}
+
+.claude-resource-subtabs.compact .claude-resource-subtab {
+  color: var(--resource-muted);
+}
+
+.claude-resource-subtabs.compact .claude-resource-subtab:focus-visible {
+  outline-color: var(--resource-focus);
+}
+
+.claude-resource-subtabs.compact .claude-resource-subtab:hover,
+.claude-resource-subtabs.compact .claude-resource-refresh-tab:hover:not(:disabled) {
+  color: var(--resource-ink);
+  background: var(--resource-control-hover);
+}
+
+.claude-resource-subtabs.compact .claude-resource-subtab.active {
+  color: var(--resource-ink);
+  border-color: var(--resource-line-strong);
+  background: var(--resource-surface-active);
+  box-shadow: none;
+}
+
+.claude-resource-subtabs.compact .claude-resource-subtab em,
+.claude-resource-list-toolbar > span,
+.claude-resource-row-origin span,
+.claude-resource-row code,
+.claude-resource-empty,
+.claude-resource-path-note.dark {
+  color: var(--resource-faint);
+}
+
+.claude-resource-subtabs.compact .claude-resource-subtab small {
+  color: var(--resource-accent);
+}
+
+.claude-resource-search.dark {
+  border-color: var(--resource-line);
+  background: var(--resource-control-bg);
+}
+
+.claude-resource-search.dark:focus-within {
+  border-color: var(--resource-focus);
+  background: var(--resource-surface-raised);
+}
+
+.claude-resource-search.dark svg {
+  color: var(--resource-faint);
+}
+
+.claude-resources-page-dark .claude-resource-search.dark input {
+  color: var(--resource-ink);
+}
+
+.claude-resources-page-dark .claude-resource-search.dark input::placeholder {
+  color: var(--resource-faint);
+}
+
+.claude-resource-table {
+  border-color: var(--resource-line);
+  background: var(--resource-surface);
+  box-shadow: var(--resource-shadow);
+}
+
+.claude-resource-table::-webkit-scrollbar-thumb {
+  border-color: var(--resource-surface);
+  background: var(--resource-scrollbar);
+}
+
+.claude-resource-table-head {
+  color: var(--resource-faint);
+  border-bottom-color: var(--resource-line);
+  background: var(--resource-surface-raised);
+}
+
+.claude-resource-row {
+  border-bottom-color: var(--resource-line);
+}
+
+.claude-resource-row:hover {
+  background: var(--resource-surface-hover);
+}
+
+.claude-resource-name-line strong,
+.claude-resource-row-origin strong {
+  color: var(--resource-ink);
+}
+
+.claude-resource-row p {
+  color: var(--resource-muted);
+}
+
+.claude-resource-status {
+  color: var(--resource-muted);
+}
+
+.claude-resource-status.active {
+  color: var(--resource-success);
+}
+
+.claude-resource-status.idle {
+  color: var(--resource-idle);
+}
+
+.claude-resource-empty {
+  background: var(--resource-surface);
+}
+
+.ccs-fullscreen-panel {
+  --ccs-editor-ink: oklch(23% 0.011 75);
+  --ccs-editor-muted: oklch(50% 0.011 75);
+  --ccs-editor-faint: oklch(62% 0.01 75);
+  --ccs-editor-line: oklch(34% 0.012 75 / 0.16);
+  --ccs-editor-line-strong: oklch(34% 0.012 75 / 0.28);
+  --ccs-editor-bg: oklch(96% 0.008 78);
+  --ccs-editor-surface: oklch(99% 0.006 78 / 0.94);
+  --ccs-editor-raised: oklch(98% 0.008 78 / 0.86);
+  --ccs-editor-hover: oklch(95% 0.01 78 / 0.9);
+  --ccs-editor-focus: oklch(64% 0.065 82 / 0.42);
+  --ccs-editor-primary: oklch(73% 0.115 82);
+  --ccs-editor-primary-hover: oklch(78% 0.12 82);
+  --ccs-editor-primary-ink: oklch(24% 0.01 75);
+  --ccs-editor-shadow: 0 18px 50px oklch(34% 0.012 75 / 0.12);
+  color: var(--ccs-editor-ink);
+  background: var(--ccs-editor-bg);
+}
+
+[data-theme=dark] .ccs-fullscreen-panel {
+  --ccs-editor-ink: #f4efe7;
+  --ccs-editor-muted: rgba(244,239,231,.72);
+  --ccs-editor-faint: rgba(244,239,231,.48);
+  --ccs-editor-line: rgba(255,255,255,.1);
+  --ccs-editor-line-strong: rgba(255,255,255,.14);
+  --ccs-editor-bg: #1c1b1c;
+  --ccs-editor-surface: rgba(28,27,28,.98);
+  --ccs-editor-raised: rgba(255,255,255,.045);
+  --ccs-editor-hover: rgba(255,255,255,.08);
+  --ccs-editor-focus: rgba(59,130,246,.72);
+  --ccs-editor-primary: #3b82f6;
+  --ccs-editor-primary-hover: #2563eb;
+  --ccs-editor-primary-ink: #f4efe7;
+  --ccs-editor-shadow: 0 18px 50px rgba(0,0,0,.22);
+}
+
+.ccs-fullscreen-panel .ccs-fullscreen-header,
+.ccs-fullscreen-panel .ccs-fullscreen-footer {
+  border-color: var(--ccs-editor-line);
+  background: var(--ccs-editor-surface);
+}
+
+.ccs-fullscreen-panel .ccs-fullscreen-title span,
+.ccs-fullscreen-panel .ccs-provider-form label,
+.ccs-fullscreen-panel .ccs-form-section-heading p {
+  color: var(--ccs-editor-muted);
+}
+
+.ccs-fullscreen-panel .ccs-back-button,
+.ccs-fullscreen-panel .ccs-panel-cancel {
+  color: var(--ccs-editor-muted);
+}
+
+.ccs-fullscreen-panel .ccs-back-button:hover,
+.ccs-fullscreen-panel .ccs-panel-cancel:hover {
+  color: var(--ccs-editor-ink);
+  background: var(--ccs-editor-hover);
+}
+
+.ccs-fullscreen-panel .ccs-provider-form {
+  border-color: var(--ccs-editor-line);
+  background: var(--ccs-editor-surface);
+  box-shadow: var(--ccs-editor-shadow);
+}
+
+.ccs-fullscreen-panel .ccs-provider-form label span,
+.ccs-fullscreen-panel .ccs-form-section-heading h3 {
+  color: var(--ccs-editor-ink);
+}
+
+.ccs-fullscreen-panel .ccs-provider-form input,
+.ccs-fullscreen-panel .ccs-provider-form select,
+.ccs-fullscreen-panel .ccs-provider-form textarea {
+  color: var(--ccs-editor-ink);
+  border-color: var(--ccs-editor-line-strong);
+  background: var(--ccs-editor-raised);
+}
+
+.ccs-fullscreen-panel .ccs-provider-form input:focus,
+.ccs-fullscreen-panel .ccs-provider-form select:focus,
+.ccs-fullscreen-panel .ccs-provider-form textarea:focus {
+  border-color: var(--ccs-editor-focus);
+  box-shadow: 0 0 0 3px oklch(64% 0.065 82 / 0.12);
+}
+
+[data-theme=dark] .ccs-fullscreen-panel .ccs-provider-form input:focus,
+[data-theme=dark] .ccs-fullscreen-panel .ccs-provider-form select:focus,
+[data-theme=dark] .ccs-fullscreen-panel .ccs-provider-form textarea:focus {
+  box-shadow: 0 0 0 3px rgba(59,130,246,.16);
+}
+
+.ccs-fullscreen-panel .ccs-provider-form select option {
+  color: var(--ccs-editor-ink);
+  background: var(--ccs-editor-bg);
+}
+
+.ccs-fullscreen-panel .ccs-panel-cancel {
+  border-color: var(--ccs-editor-line-strong);
+  background: transparent;
+}
+
+.ccs-fullscreen-panel .ccs-save-button {
+  color: var(--ccs-editor-primary-ink);
+  background: var(--ccs-editor-primary);
+}
+
+.ccs-fullscreen-panel .ccs-save-button:hover {
+  background: var(--ccs-editor-primary-hover);
+}
+
+.ccs-fullscreen-panel .ccs-form-card {
+  border-bottom-color: var(--ccs-editor-line);
+}

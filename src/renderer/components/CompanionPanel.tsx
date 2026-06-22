@@ -20,7 +20,8 @@ const stateCopy: Record<PetState, { label: string; line: string; tone: string }>
   idle: { label: "待机", line: "Aqua 在桌面边缘小憩", tone: "sand" },
   running: { label: "工作中", line: "正在跟随 Claude / Codex 会话", tone: "blue" },
   "permission-prompt": { label: "等待确认", line: "需要你处理一个权限请求", tone: "honey" },
-  completed: { label: "完成", line: "这一轮已经处理完", tone: "green" }
+  completed: { label: "完成", line: "这一轮已经处理完", tone: "green" },
+  error: { label: "错误", line: "Claude Code 报告了错误", tone: "coral" }
 };
 
 const tabs: Array<{ id: SectionId; icon: string; label: string }> = [

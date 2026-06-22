@@ -9,7 +9,8 @@ const stateLabels: Record<PetState, string> = {
   idle: "Idle",
   running: "Working",
   "permission-prompt": "Permission",
-  completed: "Done"
+  completed: "Done",
+  error: "Error"
 };
 
 export function Panel({ state, event }: PanelProps) {

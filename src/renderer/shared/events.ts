@@ -660,10 +660,10 @@ export const defaultSettings: CompanionSettings = {
   displayMonitorId: "",
   monitorPositions: [],
   notificationRules: [
-    { eventType: "session_start", enabled: true, systemNotification: false, playSound: true, showBubble: true },
-    { eventType: "done", enabled: true, systemNotification: false, playSound: true, showBubble: true },
-    { eventType: "error", enabled: true, systemNotification: false, playSound: true, showBubble: true },
-    { eventType: "permission_wait", enabled: true, systemNotification: false, playSound: true, showBubble: true }
+    { eventType: "done", enabled: true, systemNotification: true, playSound: true, showBubble: true },
+    { eventType: "error", enabled: true, systemNotification: true, playSound: true, showBubble: true },
+    { eventType: "permission_wait", enabled: true, systemNotification: true, playSound: true, showBubble: true },
+    { eventType: "notification", enabled: true, systemNotification: true, playSound: false, showBubble: true }
   ],
   customPlugins: [],
   pomodoroEnabled: false,
@@ -675,7 +675,7 @@ export const defaultSettings: CompanionSettings = {
     onDone: true,
     onError: true,
     onPermission: true,
-    onSessionStart: true,
+    onSessionStart: false,
     fileDone: null,
     fileError: null,
     filePermission: null,

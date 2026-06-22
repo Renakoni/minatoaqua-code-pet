@@ -4,21 +4,17 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
   Bell,
-  BarChart3,
   Bot,
   Check,
   CheckCircle2,
-  ChevronDown,
   Clipboard,
   Code2,
-  DollarSign,
   Eye,
   EyeOff,
   FileText,
   FlaskConical,
   Gauge,
   KeyRound,
-  Layers3,
   MonitorCheck,
   MousePointer2,
   PlugZap,
@@ -31,11 +27,10 @@ import {
   Timer,
   Wand2,
   Wrench,
-  Zap,
   X
 } from "lucide-react";
-import type { CompanionEvent, CompanionSettings, CompanionSession, FeedbackMode, IdleAnimConfig, PetState, PrivacyMode, PermissionRequest, PluginWidgetDescriptor, ToolName, UpdateStatus } from "../shared/events";
-import { defaultSettings, stateFromEvent, type EventHistoryEntry, type NotificationRule, type CustomPlugin, type MonitorPosition } from "../shared/events";
+import type { CompanionEvent, CompanionSettings, CompanionSession, FeedbackMode, PetState, PrivacyMode, PermissionRequest, PluginWidgetDescriptor, ToolName, UpdateStatus } from "../shared/events";
+import { defaultSettings, stateFromEvent, type EventHistoryEntry, type NotificationRule, type CustomPlugin } from "../shared/events";
 import clawdImage from "./clawd.png";
 import "./clawd-sprites/sprites.css";
 import "./styles.css";
@@ -48,12 +43,13 @@ import { PermissionCard } from "./components/PermissionCard";
 import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
 import { PluginsPage } from "./components/plugins/PluginsPage";
 import { SessionsPage } from "./components/sessions/SessionsPage";
-import { ClaudeRoutingPanel } from "./components/claude-routing/ClaudeRoutingPanel";
 import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
-import { NotificationRulesPanel } from "./components/NotificationRulesPanel";
-import { MonitorSettings } from "./components/MonitorSettings";
-import { DoctorPanel } from "./components/DoctorPanel";
-import { StatsPanel } from "./components/StatsPanel";
+import type { HookSetupStage, HookStatus } from "./components/hooks/HooksManager";
+import { OverviewSection } from "./features/overview/OverviewSection";
+import { SettingsSection } from "./features/settings/SettingsSection";
+import { DataSection } from "./features/data/DataSection";
+import { AnimationSection } from "./features/animation/AnimationSection";
+import { idleBubbleGifClass } from "./utils/sprites";
 
 const clawdGifName: Record<PetState, string> = {
   idle: "clawd_png_idle",
@@ -102,6 +98,20 @@ const stateFeedbackMode: Record<PetState, FeedbackMode> = {
   done: "card",
   error: "card"
 };
+const maxSoundMilliseconds = 3000;
+
+function playClippedAudio(dataUrl: string, volume = 1) {
+  const audio = new Audio(dataUrl);
+  audio.volume = volume;
+  const stopTimer = window.setTimeout(() => {
+    audio.pause();
+    audio.currentTime = 0;
+  }, maxSoundMilliseconds);
+  audio.addEventListener("ended", () => window.clearTimeout(stopTimer), { once: true });
+  void audio.play().catch(() => {
+    window.clearTimeout(stopTimer);
+  });
+}
 
 function getFeedbackMode(event: CompanionEvent): FeedbackMode {
   if (event.tool && event.tool !== "Unknown") return "ribbon";
@@ -198,10 +208,10 @@ function PetApp() {
   // HTML5 Audio 播放音效
   useEffect(() => {
     const off = window.companion.onPlaySound((dataUrl) => {
-      try { const a = new Audio(dataUrl); a.volume = settings.sound.volume; a.play(); } catch { /* ignore */ }
+      try { playClippedAudio(dataUrl, settings.sound.volume); } catch { /* ignore */ }
     });
     return () => off();
-  }, []);
+  }, [settings.sound.volume]);
 
   // 同步计算有效待机气泡（渲染时直接计算，避免 useEffect 时序问题）
   const mainIdle = (settings as any).mainClawdIdleAnimation ?? "random";
@@ -756,19 +766,6 @@ function Clawd({ state, settings, forceIdleBubble }: { state: PetState; settings
   );
 }
 
-const idleBubbleGifClass: Record<string, string> = {
-  idle: "idle_bubble",
-  thinking: "thinking_speech",
-  tool_read: "headset_focus",
-  tool_edit: "working_hardhat",
-  waiting_permission: "permission_prompt",
-  done: "celebrate_bunny",
-  error: "error_dead",
-  skill: "idea_bulb",
-  task: "idea_bulb",
-  agent: "welding_work"
-};
-
 const eventSpriteOverride: Partial<Record<CompanionEvent["event"], { sprite: string; gif: string }>> = {
   session_start: { sprite: "tool_read", gif: "headset_focus" },
   prompt_submit: { sprite: "done", gif: "celebrate_bunny" }
@@ -894,9 +891,6 @@ function StateProp({ state }: { state: PetState }) {
   return null;
 }
 
-type HookStatus = { installed: boolean; configExists: boolean; hookCount: number; requiredCount: number; missingEvents: string[]; commandMatches: boolean };
-type HookSetupStage = "idle" | "success" | "hiding";
-
 export function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
   const { settings, updateSettings, connection, events, petState, toolStreams } = useCompanion();
@@ -953,12 +947,12 @@ export function SettingsApp() {
     window.companion.getStats().then(setPersistedStats);
     const offUpdate = window.companion.onUpdateStatus(setUpdateStatus);
     const offPlaySound = window.companion.onPlaySound((dataUrl) => {
-      try { new Audio(dataUrl).play(); } catch { /* ignore */ }
+      try { playClippedAudio(dataUrl, settings.sound.volume); } catch { /* ignore */ }
     });
     // 每秒刷新统计
     const statsInterval = window.setInterval(() => window.companion.getStats().then(setPersistedStats), 1_000);
     return () => { offUpdate(); offPlaySound(); window.clearInterval(statsInterval); };
-  }, []);
+  }, [settings.sound.volume]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1121,269 +1115,48 @@ export function SettingsApp() {
       </nav>
 
       <div className="section-content" ref={sectionContentRef}>
-        {activeSection === "general" && <section className="overview-workbench">
-          {shouldRenderHookSetup && <section className={`onboarding-card overview-steps-card hook-setup-card ${hookSetupShowingSuccess ? "install-success" : ""} ${hookSetupStage === "hiding" && !hookSetupNeedsAttention ? "closing" : ""}`}>
-            <div className="onboarding-content overview-welcome-content">
-              <h3>{hookSetupShowingSuccess ? t("main.hooksInstallSuccess", "连接完成") : t("main.connectTitle", "连接 Claude Code")}</h3>
-              <HooksManager compact success={hookSetupShowingSuccess} onStatusChange={handleOverviewHookStatusChange} onInstallSuccess={handleOverviewHookInstallSuccess} />
-            </div>
-          </section>}
-
-          <ClaudeRoutingPanel settings={settings} updateSettings={updateSettings} connection={connection} />
-          {connection.error ? <section className="connection-error"><Wrench size={18} />{connection.error}</section> : null}
-
-          <section className="overview-status-panel">
-            <header className="workbench-section-head">
-              <div>
-                <span>{t("settings.tabs.general", "总览")}</span>
-                <h2>{t("sections.connectionDetails", "连接详情")}</h2>
-              </div>
-              <span className={`overview-state-badge ${connection.connected ? "good" : connection.serverListening ? "wait" : "bad"}`}>
-                {connection.connected ? t("status.connected", "已连接") : connection.serverListening ? t("status.waiting", "等待会话") : t("status.notListening", "未监听")}
-                {connection.activeClientLabel ? <small>{connection.activeClientLabel}</small> : null}
-              </span>
-            </header>
-            <div className="overview-status-grid">
-              <StatusCard icon={<Radio size={18} />} label={t("status.connection", "连接状态")} value={connection.connected ? t("status.connected", "已连接") : connection.serverListening ? t("status.waiting", "等待会话") : t("status.notListening", "未监听")} meta={connection.activeClientLabel} tone={connection.connected ? "good" : connection.serverListening ? "wait" : "bad"} />
-              <StatusCard icon={<Timer size={18} />} label={t("status.recentEvent", "最近事件")} value={connection.lastEventAt ? timeAgo(connection.lastEventAt, now) : t("status.noEvent", "还没收到")} tone={connection.lastEventAt ? "good" : "wait"} />
-              <StatusCard icon={<Shield size={18} />} label={t("status.session", "会话")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} tone="neutral" />
-              <StatusCard icon={<MonitorCheck size={18} />} label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} tone={connection.serverListening ? "good" : "bad"} />
-            </div>
-          </section>
-        </section>}
+        {activeSection === "general" && (
+          <OverviewSection
+            settings={settings}
+            updateSettings={updateSettings}
+            connection={connection}
+            now={now}
+            shouldRenderHookSetup={shouldRenderHookSetup}
+            hookSetupShowingSuccess={hookSetupShowingSuccess}
+            hookSetupStage={hookSetupStage}
+            hookSetupNeedsAttention={hookSetupNeedsAttention}
+            onHookStatusChange={handleOverviewHookStatusChange}
+            onHookInstallSuccess={handleOverviewHookInstallSuccess}
+          />
+        )}
 
         {activeSection === "settings" && (
-          <section className="settings-page">
-            <header className="settings-page-head">
-              <div>
-                <span>{t("settings.eyebrow", "Settings")}</span>
-                <h2>{t("settings.title", "偏好设置")}</h2>
-              </div>
-              <nav className="settings-subtabs">
-                {[
-                  { id: "general", icon: <Gauge size={14} />, label: t("settings.subtabs.general", "通用") },
-                  { id: "pet", icon: <Bot size={14} />, label: t("settings.subtabs.pet", "桌宠") },
-                  { id: "notifications", icon: <Bell size={14} />, label: t("settings.subtabs.notifications", "通知") },
-                  { id: "privacy", icon: <Shield size={14} />, label: t("settings.subtabs.privacy", "隐私与数据") },
-                  { id: "diagnostics", icon: <MonitorCheck size={14} />, label: t("settings.subtabs.diagnostics", "诊断") },
-                  { id: "about", icon: <Sparkles size={14} />, label: t("settings.subtabs.about", "关于") }
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    className={`settings-subtab ${activeSettingsSubsection === tab.id ? "active" : ""}`}
-                    onClick={() => {
-                      setActiveSettingsSubsection(tab.id);
-                      sectionContentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
-                    }}
-                  >
-                    {tab.icon}
-                    <span>{tab.label}</span>
-                  </button>
-                ))}
-              </nav>
-            </header>
-
-            <div className="settings-subsection-content">
-              {activeSettingsSubsection === "general" && <>
-                <GroupCard icon={<Gauge size={18} />} title={t("sections.basicPreferences", "基础偏好")}>
-                  <section className="settings-group theme-settings-group">
-                    <h3 className="panel-subtitle">{t("sections.theme", "界面主题")}</h3>
-                    <div className="theme-style-row">
-                      <ThemeSegmented value={settings.theme ?? "system"} onChange={theme => updateSettings({ theme })} />
-                      <LanguageSegmented value={settings.language === "auto" ? locale : settings.language ?? locale} onChange={language => {
-                        updateSettings({ language });
-                        setLocale(language);
-                      }} />
-                    </div>
-                  </section>
-                </GroupCard>
-
-                <GroupCard icon={<MousePointer2 size={18} />} title={t("sections.startup", "启动与更新")}>
-                  <Toggle label={t("behavior.launchAtLogin", "开机自启")} checked={settings.launchAtLogin} onChange={launchAtLogin => updateSettings({ launchAtLogin })} />
-                  <Toggle label={t("behavior.autoStartWithCli", "Claude Code 启动时自动启动")} checked={settings.autoStartWithCli} onChange={autoStartWithCli => updateSettings({ autoStartWithCli })} />
-                  <Toggle label={t("behavior.autoUpdate", "启动时自动检查更新")} checked={settings.autoUpdateEnabled} onChange={autoUpdateEnabled => updateSettings({ autoUpdateEnabled })} />
-                  <Toggle label={t("behavior.openSettingsOnStart", "启动时打开配置面板")} checked={settings.openSettingsOnStart} onChange={openSettingsOnStart => updateSettings({ openSettingsOnStart })} />
-                </GroupCard>
-              </>}
-
-              {activeSettingsSubsection === "diagnostics" && <>
-                <GroupCard icon={<Radio size={18} />} title={t("sections.connectionDetails", "连接详情")}>
-                  <div className="connection-detail-grid">
-                    <ConnectionDetail label={t("fields.status", "状态")} value={connection.connected ? t("status.connected", "已连接") : connection.serverListening ? t("status.waiting", "等待 Claude 会话") : t("status.notListening", "本地服务未监听")} />
-                    <ConnectionDetail label={t("fields.client", "客户端")} value={connection.activeClientLabel ?? t("pet.unknownClient", "未知客户端")} />
-                    <ConnectionDetail label={t("fields.sessionId", "会话 ID")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} />
-                    <ConnectionDetail label={t("fields.lastActive", "最后活动")} value={connection.lastEventAt ? timeAgo(connection.lastEventAt, now) : t("common.none", "暂无")} />
-                  </div>
-                </GroupCard>
-                <DoctorPanel />
-              </>}
-
-              {activeSettingsSubsection === "pet" && <>
-                <GroupCard icon={<Bot size={18} />} title={t("sections.petDisplay", "桌宠显示")}>
-                  <Toggle label={t("appearance.enablePet", "启用桌宠")} checked={settings.petEnabled} onChange={petEnabled => updateSettings({ petEnabled })} />
-                  <Toggle label={t("appearance.alwaysOnTop", "始终置顶")} checked={settings.alwaysOnTop} onChange={alwaysOnTop => updateSettings({ alwaysOnTop })} />
-                  <Toggle label={t("appearance.clickThrough", "完全点击穿透")} checked={settings.clickThrough} onChange={clickThrough => updateSettings({ clickThrough })} />
-                  <Toggle label={t("appearance.showBubbles", "显示气泡")} checked={settings.showBubbles} onChange={showBubbles => updateSettings({ showBubbles })} />
-                  <Toggle label={t("appearance.showStatusProp", "显示状态图标")} checked={settings.showStatusProp} onChange={showStatusProp => updateSettings({ showStatusProp })} />
-                  <Toggle label={t("appearance.showSessionTitle", "显示会话标题")} checked={settings.showSessionTitle} onChange={showSessionTitle => updateSettings({ showSessionTitle })} />
-                  <Toggle label={t("appearance.editPosition", "编辑桌宠位置")} checked={settings.editPosition} onChange={editPosition => updateSettings({ editPosition })} />
-                  {settings.editPosition ? <button className="inline-action" onClick={() => updateSettings({ positionOffsets: defaultSettings.positionOffsets, zoneSizes: defaultSettings.zoneSizes, clawdScale: defaultSettings.clawdScale, thoughtScale: defaultSettings.thoughtScale, bubbleScale: defaultSettings.bubbleScale, cardScale: defaultSettings.cardScale, petScale: defaultSettings.petScale, viewScale: defaultSettings.viewScale })}>{t("appearance.resetAll", "重置全部")}</button> : null}
-                </GroupCard>
-
-                <MonitorSettings settings={settings} updateSettings={updateSettings} />
-
-                <div className="section-grid-2col">
-                  <GroupCard title={t("appearance.overallScale", "整体缩放")}>
-                    <Slider label={t("appearance.viewScale", "视图缩放")} min={0.7} max={1.45} step={0.05} value={settings.petScale} format={v => `${Math.round(v * 100)}%`} onChange={petScale => updateSettings({ petScale })} />
-                    <Slider label={t("appearance.viewportScale", "视窗缩放")} min={0.7} max={2.5} step={0.05} value={settings.viewScale ?? settings.petScale} format={v => `${Math.round(v * 100)}%`} onChange={viewScale => updateSettings({ viewScale })} />
-                    <Slider label={t("appearance.opacity", "整体透明")} min={0.45} max={1} step={0.05} value={settings.petOpacity} format={v => `${Math.round(v * 100)}%`} onChange={petOpacity => updateSettings({ petOpacity })} />
-                  </GroupCard>
-
-                  <GroupCard title="Clawd">
-                    <Slider label={t("appearance.size", "尺寸")} min={0.7} max={1.35} step={0.05} value={settings.clawdScale} format={v => `${Math.round(v * 100)}%`} onChange={clawdScale => updateSettings({ clawdScale })} />
-                    <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.clawdOpacity} format={v => `${Math.round(v * 100)}%`} onChange={clawdOpacity => updateSettings({ clawdOpacity })} />
-                  </GroupCard>
-
-                  <GroupCard title={t("appearance.thoughtBubble", "思维泡")}>
-                    <Slider label={t("appearance.size", "尺寸")} min={0.75} max={1.35} step={0.05} value={settings.thoughtScale} format={v => `${Math.round(v * 100)}%`} onChange={thoughtScale => updateSettings({ thoughtScale })} />
-                    <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.thoughtOpacity} format={v => `${Math.round(v * 100)}%`} onChange={thoughtOpacity => updateSettings({ thoughtOpacity })} />
-                  </GroupCard>
-
-                  <GroupCard title={t("appearance.card", "卡片")}>
-                    <Slider label={t("appearance.size", "尺寸")} min={0.75} max={1.25} step={0.05} value={settings.cardScale} format={v => `${Math.round(v * 100)}%`} onChange={cardScale => updateSettings({ cardScale })} />
-                    <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.cardOpacity} format={v => `${Math.round(v * 100)}%`} onChange={cardOpacity => updateSettings({ cardOpacity })} />
-                  </GroupCard>
-
-                  <GroupCard title={t("appearance.bubbleToolStream", "气泡 / 工具流")}>
-                    <Slider label={t("appearance.size", "尺寸")} min={0.6} max={2} step={0.05} value={settings.bubbleScale} format={v => `${Math.round(v * 100)}%`} onChange={bubbleScale => updateSettings({ bubbleScale })} />
-                    <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.bubbleOpacity} format={v => `${Math.round(v * 100)}%`} onChange={bubbleOpacity => updateSettings({ bubbleOpacity })} />
-                  </GroupCard>
-
-                  <GroupCard title={t("appearance.permissionPopup", "权限弹窗")}>
-                    <Slider label={t("appearance.size", "尺寸")} min={0.4} max={2} step={0.05} value={settings.permissionScale} format={v => `${Math.round(v * 100)}%`} onChange={permissionScale => updateSettings({ permissionScale })} />
-                    <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.permissionOpacity} format={v => `${Math.round(v * 100)}%`} onChange={permissionOpacity => updateSettings({ permissionOpacity })} />
-                  </GroupCard>
-                </div>
-
-                <GroupCard title={t("sections.multiSession", "多会话模式")}>
-                  <Toggle label={<span className="toggle-label-with-badge">{t("behavior.enableMultiSession", "启用多会话")}<sup className="beta-badge">{t("behavior.testing", "测试中")}</sup></span>} checked={settings.multiSessionEnabled} onChange={multiSessionEnabled => updateSettings({ multiSessionEnabled })} />
-                  {settings.multiSessionEnabled && (
-                    <Slider label={t("behavior.companionScale", "小 Clawd 缩放")} min={0.3} max={0.8} step={0.05} value={settings.companionScale} format={v => `${Math.round(v * 100)}%`} onChange={companionScale => updateSettings({ companionScale })} />
-                  )}
-                </GroupCard>
-              </>}
-
-              {activeSettingsSubsection === "notifications" && <>
-                <GroupCard icon={<Bell size={18} />} title={t("sections.sound", "通知和音效")}>
-                  <NotificationRulesPanel settings={settings} updateSettings={updateSettings} />
-                </GroupCard>
-
-                <GroupCard icon={<Timer size={18} />} title={t("sections.time", "时间与提示")}>
-                  <Toggle label={t("behavior.permissionDialog", "权限申请卡片")} checked={settings.permissionDialogEnabled} onChange={permissionDialogEnabled => updateSettings({ permissionDialogEnabled })} />
-                  <Slider label={t("behavior.bubbleStay", "气泡停留")} min={3} max={18} step={1} value={settings.bubbleDuration} format={v => `${v} ${t("common.seconds", "秒")}`} onChange={bubbleDuration => updateSettings({ bubbleDuration })} />
-                  <Slider label={t("behavior.toolStreamStay", "工具流停留")} min={0.3} max={3} step={0.1} value={settings.toolStreamMinDuration} format={v => `${v.toFixed(1)} ${t("common.seconds", "秒")}`} onChange={toolStreamMinDuration => updateSettings({ toolStreamMinDuration })} />
-                </GroupCard>
-              </>}
-
-              {activeSettingsSubsection === "privacy" && <>
-                <GroupCard icon={<Shield size={18} />} title={t("sections.privacyData", "隐私与数据")}>
-                  <div className="settings-columns compact">
-                    <section className="settings-group">
-                      <h3 className="panel-subtitle">{t("sections.privacyMode", "隐私模式")}</h3>
-                      <Segmented value={settings.privacyMode} onChange={privacyMode => updateSettings({ privacyMode })} />
-                      <p className="note">{t("settings.privacyModeNote", "Safe mode only shows tool types; standard mode shows file names and search patterns; detailed mode can show truncated command summaries.")}</p>
-                    </section>
-                    <section className="settings-group">
-                      <h3 className="panel-subtitle">{t("sections.localData", "本地数据")}</h3>
-                      <Slider label={t("behavior.eventHistory", "事件历史")} min={12} max={100} step={4} value={settings.eventHistoryLimit} format={v => `${v} ${t("common.items", "条")}`} onChange={eventHistoryLimit => updateSettings({ eventHistoryLimit })} />
-                    </section>
-                  </div>
-                </GroupCard>
-
-                <GroupCard icon={<KeyRound size={18} />} title={t("sections.localAccess", "本地事件接入")}>
-                  <div className="settings-columns compact">
-                    <section className="settings-group">
-                      <Field label={t("fields.eventPort", "事件端口")}>
-                        <input value={settings.port} onChange={event => updateSettings({ port: Number(event.target.value) || defaultSettings.port })} />
-                      </Field>
-                      <Field label={t("fields.localToken", "本地 token")}>
-                        <input value={settings.token} onChange={event => updateSettings({ token: event.target.value })} />
-                      </Field>
-                    </section>
-                    <section className="settings-group">
-                      <SettingsInfoRow label={t("fields.status", "状态")} value={connection.serverListening ? t("status.listening", "正在监听") : t("status.notListening", "未监听")} />
-                      <SettingsInfoRow label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} />
-                      <p className="note">{t("settings.localAccessNote", "端口和 token 修改后需要重启应用才会影响本地事件入口。")}</p>
-                    </section>
-                  </div>
-                </GroupCard>
-              </>}
-
-              {activeSettingsSubsection === "about" && <>
-                <GroupCard icon={<Sparkles size={18} />} title={t("settings.about.title", "关于 Clawd Companion")}>
-                  <div className="settings-about-panel">
-                    <div className="settings-about-mark">Clawd</div>
-                    <div className="settings-about-copy">
-                      <strong>Clawd Companion</strong>
-                      <span>{t("settings.about.description", "面向 Claude Code 的本地桌宠和工作台。")}</span>
-                    </div>
-                    <div className="settings-about-actions">
-                      <button className="inline-action" onClick={() => window.companion.openExternal("https://github.com/Doulor/Clawd-Companion")}>GitHub</button>
-                      <button className="inline-action" onClick={handleCheckUpdate} disabled={checkingUpdate || updateStatus.checking || updateStatus.downloading}>
-                        {checkingUpdate || updateStatus.checking ? t("update.checkShort", "检查中...") : t("update.check", "检查更新")}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="settings-info-list">
-                    <SettingsInfoRow label={t("settings.about.version", "版本")} value={`v${appVersion}`} />
-                    <SettingsInfoRow label={t("settings.about.product", "产品定位")} value={t("settings.about.productValue", "Claude Code 桌宠与本地控制面板")} />
-                    <SettingsInfoRow label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} />
-                    <SettingsInfoRow label={t("fields.sessionId", "会话 ID")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} />
-                    <SettingsInfoRow label={t("update.status", "更新状态")} value={updateStatus.downloaded ? t("update.ready", "已下载") : updateStatus.available ? t("update.availableShort", "发现新版本") : updateStatus.upToDate ? t("update.upToDate", "已是最新版本") : updateStatus.error ? t("update.errorShort", "检查失败") : t("common.idle", "待机")} />
-                  </div>
-                </GroupCard>
-              </>}
-            </div>
-          </section>
+          <SettingsSection
+            settings={settings}
+            updateSettings={updateSettings}
+            connection={connection}
+            activeSettingsSubsection={activeSettingsSubsection}
+            setActiveSettingsSubsection={setActiveSettingsSubsection}
+            sectionContentRef={sectionContentRef}
+            locale={locale}
+            setLocale={setLocale}
+            now={now}
+            appVersion={appVersion}
+            updateStatus={updateStatus}
+            checkingUpdate={checkingUpdate}
+            handleCheckUpdate={handleCheckUpdate}
+          />
         )}
 
         {activeSection === "sessions" && <SessionsPage />}
 
         {activeSection === "plugins" && <PluginsPage settings={settings} updateSettings={updateSettings} />}
 
-        {activeSection === "animation" && <>
-          <GroupCard icon={<Sparkles size={18} />} title={t("sections.idleAnimation", "待机动画")}>
-            <IdleAnimSettings config={settings.idleAnim ?? defaultSettings.idleAnim!} onChange={cfg => updateSettings({ idleAnim: cfg })} settings={settings} updateSettings={updateSettings} />
-          </GroupCard>
+        {activeSection === "animation" && <AnimationSection settings={settings} updateSettings={updateSettings} />}
 
-          <GroupCard icon={<Wand2 size={18} />} title={t("sections.actionMapping", "动作映射")}>
-            <StateAnimSettings stateAnimations={settings.stateAnimations ?? {}} onChange={sa => updateSettings({ stateAnimations: sa })} />
-          </GroupCard>
-        </>}
-
-        {activeSection === "data" && <section className="data-workbench">
-          <section className="workbench-section data-runtime-section">
-            <header className="workbench-section-head">
-              <div>
-                <span>Runtime</span>
-                <h2>{t("sections.runtimeStats", "运行统计")}</h2>
-              </div>
-              <Gauge size={18} />
-            </header>
-            {persistedStats ? <StatsPanel stats={persistedStats} /> : <p className="note">{t("common.loading", "加载中...")}</p>}
-          </section>
-
-          <section className="workbench-section data-token-section">
-            <header className="workbench-section-head">
-              <div>
-                <span>Claude Code</span>
-                <h2>{t("sections.tokenUsage", "Token 用量")}</h2>
-              </div>
-              <Code2 size={18} />
-            </header>
-            <TokenPanel />
-          </section>
-        </section>}
+        {activeSection === "data" && (
+          <DataSection persistedStats={persistedStats} />
+        )}
       </div>
 
       <footer className="version-bar">
@@ -1437,118 +1210,9 @@ function Panel({ id, title, icon, wide, children }: { id?: string; title: string
   return <section id={id} className={`panel ${wide ? "wide" : ""}`}><header>{icon}<h2>{title}</h2></header>{children}</section>;
 }
 
-function GroupCard({ icon, title, children }: { icon?: React.ReactNode; title: string; children: React.ReactNode }) {
-  return (
-    <div className="group-card">
-      <header className="group-card-header">{icon}<h3>{title}</h3></header>
-      {children}
-    </div>
-  );
-}
-
-function HooksManager({ compact = false, success = false, onStatusChange, onInstallSuccess }: { compact?: boolean; success?: boolean; onStatusChange?: (status: HookStatus) => void; onInstallSuccess?: (status: HookStatus) => void } = {}) {
-  const { t } = useI18n();
-  const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
-  const [status, setStatus] = useState<HookStatus | null>(null);
-  const [action, setAction] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
-
-  function updateHookStatus(next: HookStatus) {
-    setStatus(next);
-    onStatusChange?.(next);
-  }
-
-  useEffect(() => {
-    window.companion.checkHooks().then(updateHookStatus);
-  }, []);
-
-  async function handleInstall() {
-    setAction("installing");
-    try {
-      const res = await window.companion.installHooks();
-      const nextStatus = await window.companion.checkHooks();
-      const installed = !!res.success && nextStatus.installed && nextStatus.commandMatches && nextStatus.missingEvents.length === 0;
-      setResult(installed ? t("doctor.installDone", "安装成功！重启 Claude Code 会话后生效。") : res.success ? t("doctor.installIncomplete", "安装完成，但仍有 hooks 未配置完整。") : formatText(t("doctor.installFailed", "安装失败: {error}"), { error: res.error ?? "" }));
-      updateHookStatus(nextStatus);
-      if (installed) onInstallSuccess?.(nextStatus);
-    } catch (error) {
-      setResult(formatText(t("doctor.installFailed", "安装失败: {error}"), { error: error instanceof Error ? error.message : String(error) }));
-    } finally {
-      setAction(null);
-    }
-  }
-
-  async function handleRepair() {
-    setAction("repairing");
-    const res = await window.companion.repairHooks();
-    setResult(res.success ? formatText(t("doctor.repairDone", "修复完成，修复了 {count} 项配置。"), { count: res.fixed.length }) : formatText(t("doctor.repairFailed", "修复失败: {error}"), { error: res.error ?? "" }));
-    updateHookStatus(await window.companion.checkHooks());
-    setAction(null);
-  }
-
-  async function handleRemove() {
-    setAction("removing");
-    const res = await window.companion.removeHooks();
-    setResult(res.success ? t("doctor.removeDone", "已移除所有 Clawd hooks。") : formatText(t("doctor.removeFailed", "移除失败: {error}"), { error: res.error ?? "" }));
-    updateHookStatus(await window.companion.checkHooks());
-    setAction(null);
-  }
-
-  const configuredLabel = formatText(t("doctor.configuredCount", "已配置 {count} / {total} 个事件"), { count: status?.hookCount ?? 0, total: status?.requiredCount ?? 6 });
-  const missingLabel = status?.missingEvents && status.missingEvents.length > 0 ? formatText(t("doctor.missingPrefix", "缺少: {events}"), { events: status.missingEvents.join(", ") }) : undefined;
-  const mismatchLabel = status && !status.commandMatches && status.configExists ? t("doctor.mismatchHint", "命令路径不匹配，建议修复") : undefined;
-  const hookMeta = [missingLabel, mismatchLabel].filter(Boolean).join(" · ");
-
-  return (
-    <div className={`hooks-manager ${compact ? "compact" : ""} ${success ? "install-success" : ""}`}>
-      <StatusCard
-        icon={success ? <CheckCircle2 size={18} /> : <Wrench size={18} />}
-        label={success ? t("doctor.hooksReady", "Hooks 已就绪") : t("doctor.status", "Hooks 状态")}
-        value={success ? t("doctor.installSuccessValue", "安装成功") : compact ? configuredLabel : status?.installed ? t("hooks.installed", "已安装") : status?.configExists ? t("doctor.partial", "部分安装") : t("hooks.notInstalled", "未安装")}
-        meta={success ? undefined : compact && hookMeta ? hookMeta : undefined}
-        tone={success ? "good" : status?.installed ? "good" : status?.configExists ? "wait" : "bad"}
-      />
-
-      {!compact && <div className="hooks-detail">
-        <span>{configuredLabel}</span>
-        {missingLabel && <span className="hooks-missing">{missingLabel}</span>}
-        {mismatchLabel && <span className="hooks-mismatch">{mismatchLabel}</span>}
-      </div>}
-
-      <div className="hooks-actions">
-        <button onClick={handleInstall} disabled={!!action || success}>
-          {success ? <><CheckCircle2 size={16} />{t("doctor.installed", "已安装")}</> : action === "installing" ? t("doctor.installing", "安装中...") : t("doctor.oneClickInstall", "一键安装")}
-        </button>
-        {!compact && <button onClick={handleRepair} disabled={!!action}>
-          {action === "repairing" ? t("doctor.repairing", "修复中...") : t("doctor.repairConfig", "修复配置")}
-        </button>}
-        {!compact && <button className="danger" onClick={handleRemove} disabled={!!action}>
-          {action === "removing" ? t("doctor.removing", "移除中...") : t("doctor.removeHooks", "移除 Hooks")}
-        </button>}
-      </div>
-
-      {result && <p className="hooks-result">{result}</p>}
-
-      {!compact && <p className="note">{t("doctor.note", "安装 hooks 后，Claude Code 会自动将事件发送到 Clawd Companion。备份文件保存在 ~/.claude/settings.clawd-backup.json")}</p>}
-    </div>
-  );
-}
-
-function StatusCard({ icon, label, value, meta, tone }: { icon: React.ReactNode; label: string; value: string; meta?: string; tone: "good" | "bad" | "wait" | "neutral" }) {
-  return <article className={`status-card ${tone}`}>{icon}<span>{label}</span><strong>{value}</strong>{meta ? <small>{meta}</small> : null}</article>;
-}
-
 function ConnectionPill({ connected, label }: { connected: boolean; label?: string }) {
   const { t } = useI18n();
   return <span className={`connection-pill ${connected ? "connected" : "waiting"}`}><i />{connected ? t("status.connected", "已连接") : t("status.waiting", "等待连接")}{label ? <small>{label}</small> : null}</span>;
-}
-
-function ConnectionDetail({ label, value }: { label: string; value: string }) {
-  return <article className="connection-detail"><span>{label}</span><strong>{value}</strong></article>;
-}
-
-function SettingsInfoRow({ label, value }: { label: string; value: string }) {
-  return <div className="settings-info-row"><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function Step({ number, title, text }: { number: string; title: string; text: string }) {
@@ -1566,123 +1230,10 @@ function MappingRow({ row }: { row: { source: string; tool?: string; state: PetS
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="field"><span>{label}</span>{children}</label>;
-}
-
-function Toggle({ label, checked, onChange }: { label: React.ReactNode; checked: boolean; onChange: (value: boolean) => void }) {
-  return (
-    <button className={`toggle ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}>
-      {checked ? <Eye size={17} /> : <EyeOff size={17} />}
-      <span>{label}</span>
-      <i />
-    </button>
-  );
-}
-
-function Slider({ label, min, max, step, value, format, onChange }: { label: string; min: number; max: number; step: number; value: number; format: (value: number) => string; onChange: (value: number) => void }) {
-  const fillPercent = ((value - min) / (max - min)) * 100;
-  return (
-    <label className="slider-row">
-      <span>{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        style={{ "--slider-fill": `${fillPercent}%` } as React.CSSProperties}
-        onChange={event => onChange(Number(event.target.value))}
-      />
-      <b>{format(value)}</b>
-    </label>
-  );
-}
-
-function Segmented({ value, onChange }: { value: PrivacyMode; onChange: (value: PrivacyMode) => void }) {
-  const { t } = useI18n();
-  const items: Array<{ value: PrivacyMode; label: string }> = [
-    { value: "safe", label: t("connection.privacySafe", "安全") },
-    { value: "standard", label: t("connection.privacyStandard", "标准") },
-    { value: "detailed", label: t("connection.privacyDetailed", "详细") }
-  ];
-  return <div className="segmented">{items.map(item => <button key={item.value} className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
-}
-
-function ThemeSegmented({ value, onChange }: { value: CompanionSettings["theme"]; onChange: (value: CompanionSettings["theme"]) => void }) {
-  const { t } = useI18n();
-  const items: Array<{ value: CompanionSettings["theme"]; label: string; icon: string }> = [
-    { value: "light", label: t("settings.themeLight", "浅色"), icon: "☀" },
-    { value: "system", label: t("settings.themeSystem", "跟随"), icon: "◐" },
-    { value: "dark", label: t("settings.themeDark", "夜间"), icon: "☾" }
-  ];
-  const activeIndex = Math.max(0, items.findIndex(item => item.value === value));
-
-  return (
-    <div className={`theme-switch theme-switch-${value}`} style={{ "--theme-index": activeIndex } as React.CSSProperties}>
-      <div className="theme-switch-liquid" />
-      {items.map(item => (
-        <button
-          key={item.value}
-          className={`theme-switch-option ${value === item.value ? "active" : ""}`}
-          onClick={() => onChange(item.value)}
-          type="button"
-        >
-          <span className="theme-switch-icon">{item.icon}</span>
-          <span>{item.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function LanguageSegmented({ value, onChange }: { value: CompanionSettings["language"]; onChange: (value: CompanionSettings["language"]) => void }) {
-  const items: Array<{ value: CompanionSettings["language"]; label: string; icon: string }> = [
-    { value: "zh", label: "中文", icon: "中" },
-    { value: "en", label: "English", icon: "EN" }
-  ];
-  const activeIndex = Math.max(0, items.findIndex(item => item.value === value));
-  return (
-    <div className={`theme-switch language-switch language-switch-${value}`} style={{ "--theme-index": activeIndex } as React.CSSProperties}>
-      <div className="theme-switch-liquid" />
-      {items.map(item => (
-        <button key={item.value} className={`theme-switch-option ${value === item.value ? "active" : ""}`} type="button" onClick={() => onChange(item.value)}>
-          <span className="theme-switch-icon">{item.icon}</span>
-          <span>{item.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function privacyLabel(mode: PrivacyMode) {
   if (mode === "safe") return "安全";
   if (mode === "standard") return "标准";
   return "详细";
-}
-
-function shortSession(sessionId?: string, fallback = "No session") {
-  if (!sessionId) return fallback;
-  return sessionId.length > 12 ? `${sessionId.slice(0, 6)}...${sessionId.slice(-4)}` : sessionId;
-}
-
-function localDateKey(timestamp = Date.now()) {
-  const date = new Date(timestamp);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function timeAgo(timestamp: number | undefined, now = Date.now()) {
-  const isZh = document.documentElement.lang.startsWith("zh");
-  if (!timestamp) return isZh ? "暂无" : "None";
-  const seconds = Math.max(1, Math.round((now - timestamp) / 1000));
-  if (seconds < 60) return isZh ? `${seconds} 秒前` : `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return isZh ? `${minutes} 分钟前` : `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  return isZh ? `${hours} 小时前` : `${hours}h ago`;
 }
 
 function buildHookSnippet(command: string) {
@@ -1697,647 +1248,6 @@ function buildHookSnippet(command: string) {
       Stop: [hook]
     }
   }, null, 2);
-}
-
-const idleSpriteOptions: Array<{ key: string; label: string; w: number; h: number }> = [
-  { key: "idle", label: "idle_bubble", w: 168, h: 160 },
-  { key: "thinking", label: "thinking_speech", w: 168, h: 209 },
-  { key: "tool_read", label: "headset_focus", w: 168, h: 145 },
-  { key: "tool_edit", label: "working_hardhat", w: 168, h: 133 },
-  { key: "waiting_permission", label: "permission_prompt", w: 168, h: 100 },
-  { key: "done", label: "celebrate_bunny", w: 168, h: 208 },
-  { key: "error", label: "error_dead", w: 168, h: 182 },
-  { key: "skill", label: "idea_bulb", w: 480, h: 480 },
-  { key: "agent", label: "welding_work", w: 480, h: 480 }
-];
-
-function IdleAnimSettings({ config, onChange, settings, updateSettings }: { config: IdleAnimConfig; onChange: (cfg: IdleAnimConfig) => void; settings: CompanionSettings; updateSettings: (s: Partial<CompanionSettings>) => void }) {
-  const { t } = useI18n();
-  const [openPicker, setOpenPicker] = useState<number | null>(null);
-
-  function toggleSprite(key: string) {
-    const next = config.selectedSprites.includes(key)
-      ? config.selectedSprites.filter(s => s !== key)
-      : [...config.selectedSprites, key];
-    onChange({ ...config, selectedSprites: next });
-  }
-
-  const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
-  const companionLabels = [
-    t("data.mainClawd", "主 Clawd"),
-    formatText(t("data.smallClawd", "小 Clawd {index}"), { index: 1 }),
-    formatText(t("data.smallClawd", "小 Clawd {index}"), { index: 2 }),
-    formatText(t("data.smallClawd", "小 Clawd {index}"), { index: 3 })
-  ];
-  const companionAnimValues = [
-    (settings as any).mainClawdIdleAnimation ?? "random",
-    settings.companionIdleAnimations?.[0] ?? "thinking",
-    settings.companionIdleAnimations?.[1] ?? "thinking",
-    settings.companionIdleAnimations?.[2] ?? "thinking"
-  ];
-
-  function setCompanionAnim(index: number, value: string) {
-    if (index === 0) {
-      updateSettings({ mainClawdIdleAnimation: value } as any);
-    } else {
-      const next = [...(settings.companionIdleAnimations ?? ["thinking", "thinking", "thinking"])];
-      next[index - 1] = value;
-      updateSettings({ companionIdleAnimations: next });
-    }
-  }
-
-  function getAnimLabel(value: string) {
-    if (value === "random") return t("common.random", "随机");
-    const opt = idleSpriteOptions.find(o => o.key === value);
-    return opt?.label ?? value;
-  }
-
-  return (
-    <div className="idle-anim-settings">
-      <Toggle label={t("data.enableIdleRandom", "启用待机随机动画")} checked={config.enabled} onChange={enabled => onChange({ ...config, enabled })} />
-      <div className="panel-divider" />
-      <h3 className="panel-subtitle">{t("data.optionalPool", "可选动画池")}</h3>
-      <div className="idle-sprite-grid">
-        {idleSpriteOptions.map(opt => (
-          <button
-            key={opt.key}
-            className={`idle-sprite-preview ${config.selectedSprites.includes(opt.key) ? "checked" : ""}`}
-            onClick={() => toggleSprite(opt.key)}
-          >
-            <div className="sprite-preview-box">
-              <span
-                className={`clawd-sprite clawd-sprite-${opt.key} clawd-gif-${idleBubbleGifClass[opt.key] ?? opt.key}`}
-                style={{ transform: `scale(${72 / Math.max(opt.w, opt.h)})` }}
-              />
-            </div>
-            <span className="idle-sprite-label">{opt.label}</span>
-          </button>
-        ))}
-      </div>
-      <div className="panel-divider" />
-      <RangeSlider
-        label={t("data.playInterval", "播放间隔")}
-        min={5}
-        max={120}
-        step={5}
-        low={config.intervalMin}
-        high={config.intervalMax}
-        format={v => `${v} ${t("common.seconds", "秒")}`}
-        onChange={(low, high) => onChange({ ...config, intervalMin: low, intervalMax: high })}
-      />
-      <div className="panel-divider" />
-      <RangeSlider
-        label={t("data.repeatCount", "每次播放次数")}
-        min={1}
-        max={5}
-        step={1}
-        low={config.repeatMin}
-        high={config.repeatMax}
-        format={v => `${v} ${t("common.times", "次")}`}
-        onChange={(low, high) => onChange({ ...config, repeatMin: low, repeatMax: high })}
-      />
-      <div className="panel-divider" />
-      <h3 className="panel-subtitle">{t("data.clawdIdleAnimations", "各 Clawd 待机动画")}</h3>
-      <p className="note">{t("data.idleAnimationNote", "选择「随机」时使用上方动画池配置循环播放；选择固定动画则始终重复播放该 GIF，替代默认的静态 PNG。")}</p>
-      <div className="state-anim-grid">
-        {companionLabels.map((label, i) => {
-          const currentValue = companionAnimValues[i];
-          const isOpen = openPicker === i;
-          return (
-            <div key={i} className="state-anim-col">
-              <span className="state-anim-col-label">{label}</span>
-              <button
-                className={`idle-sprite-preview ${isOpen ? "checked" : ""}`}
-                onClick={() => setOpenPicker(isOpen ? null : i)}
-              >
-                <div className="sprite-preview-box">
-                  {currentValue === "random" ? (
-                    <span style={{ fontSize: 18, fontWeight: 800, color: "var(--muted)" }}>?</span>
-                  ) : (
-                    <span
-                      className={`clawd-sprite clawd-sprite-${currentValue} clawd-gif-${idleBubbleGifClass[currentValue] ?? currentValue}`}
-                      style={{ transform: `scale(${72 / Math.max(168, 168)})` }}
-                    />
-                  )}
-                </div>
-              </button>
-            </div>
-          );
-        })}
-      </div>
-      {openPicker !== null && (
-        <div className="state-anim-picker">
-          <span className="state-anim-picker-title">
-            {formatText(t("data.chooseIdleAnimation", "选择「{name}」的待机动画"), { name: companionLabels[openPicker] })}
-            <button className="state-anim-picker-close" onClick={() => setOpenPicker(null)}>×</button>
-          </span>
-          <div className="state-anim-picker-grid">
-            <button
-              className={`idle-sprite-preview ${companionAnimValues[openPicker] === "random" ? "checked" : ""}`}
-              onClick={() => { setCompanionAnim(openPicker, "random"); setOpenPicker(null); }}
-            >
-              <div className="sprite-preview-box">
-                <span style={{ fontSize: 22, fontWeight: 800, color: "var(--muted)" }}>?</span>
-              </div>
-              <span className="idle-sprite-label">{t("common.random", "随机")}</span>
-            </button>
-            {idleSpriteOptions.map(opt => (
-              <button
-                key={opt.key}
-                className={`idle-sprite-preview ${companionAnimValues[openPicker] === opt.key ? "checked" : ""}`}
-                onClick={() => { setCompanionAnim(openPicker, opt.key); setOpenPicker(null); }}
-              >
-                <div className="sprite-preview-box">
-                  <span
-                    className={`clawd-sprite clawd-sprite-${opt.key} clawd-gif-${idleBubbleGifClass[opt.key] ?? opt.key}`}
-                    style={{ transform: `scale(${72 / Math.max(opt.w, opt.h)})` }}
-                  />
-                </div>
-                <span className="idle-sprite-label">{opt.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-const stateAnimEntries: Array<{ state: PetState; labelKey: string; fallback: string; defaultSprite: string }> = [
-  { state: "thinking", labelKey: "data.thinkingMessage", fallback: "思考 / 新消息", defaultSprite: "thinking" },
-  { state: "tool_read", labelKey: "data.readFile", fallback: "读取文件", defaultSprite: "thinking" },
-  { state: "tool_edit", labelKey: "data.editFile", fallback: "编辑文件", defaultSprite: "tool_edit" },
-  { state: "tool_bash", labelKey: "data.runCommand", fallback: "执行命令", defaultSprite: "tool_read" },
-  { state: "tool_search", labelKey: "data.searchDocs", fallback: "搜索资料", defaultSprite: "thinking" },
-  { state: "tool_mcp", labelKey: "data.mcpTool", fallback: "MCP 工具", defaultSprite: "thinking" },
-  { state: "skill", labelKey: "pet.skill", fallback: "技能", defaultSprite: "skill" },
-  { state: "task", labelKey: "pet.task", fallback: "任务", defaultSprite: "task" },
-  { state: "agent", labelKey: "data.subAgent", fallback: "子代理", defaultSprite: "agent" },
-  { state: "waiting_permission", labelKey: "data.waitingConfirm", fallback: "等待确认", defaultSprite: "waiting_permission" },
-  { state: "done", labelKey: "data.processDone", fallback: "处理完成", defaultSprite: "done" },
-  { state: "error", labelKey: "pet.error", fallback: "错误", defaultSprite: "error" }
-];
-
-function StateAnimSettings({ stateAnimations, onChange }: { stateAnimations: Record<string, string>; onChange: (sa: Record<string, string>) => void }) {
-  const { t } = useI18n();
-  const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
-  const [openKey, setOpenKey] = useState<string | null>(null);
-
-  function selectSprite(state: string, sprite: string) {
-    onChange({ ...stateAnimations, [state]: sprite });
-    setOpenKey(null);
-  }
-
-  function resetState(state: string) {
-    const next = { ...stateAnimations };
-    delete next[state];
-    onChange(next);
-    setOpenKey(null);
-  }
-
-  return (
-    <div className="state-anim-settings">
-      <p className="note" style={{ marginTop: 0 }}>{t("data.actionPickerHint", "点击预览框展开选择器，再次点击其他动作自动收起。")}</p>
-      <div className="state-anim-grid">
-        {stateAnimEntries.map(entry => {
-          const currentSprite = stateAnimations[entry.state] ?? entry.defaultSprite;
-          const isOpen = openKey === entry.state;
-          const opt = idleSpriteOptions.find(o => o.key === currentSprite);
-          const spriteW = opt?.w ?? 168;
-          const spriteH = opt?.h ?? 168;
-          return (
-            <div key={entry.state} className="state-anim-col">
-              <span className="state-anim-col-label">{t(entry.labelKey, entry.fallback)}</span>
-              <button
-                className={`idle-sprite-preview ${isOpen ? "checked" : ""}`}
-                onClick={() => setOpenKey(isOpen ? null : entry.state)}
-              >
-                <div className="sprite-preview-box">
-                  <span
-                    className={`clawd-sprite clawd-sprite-${currentSprite} clawd-gif-${idleBubbleGifClass[currentSprite] ?? currentSprite}`}
-                    style={{ transform: `scale(${72 / Math.max(spriteW, spriteH)})` }}
-                  />
-                </div>
-              </button>
-            </div>
-          );
-        })}
-      </div>
-      {openKey && (
-        <div className="state-anim-picker">
-          <span className="state-anim-picker-title">
-            {formatText(t("data.chooseActionAnimation", "选择「{name}」的动画"), { name: (() => { const entry = stateAnimEntries.find(e => e.state === openKey); return entry ? t(entry.labelKey, entry.fallback) : ""; })() })}
-            <button className="state-anim-picker-close" onClick={() => setOpenKey(null)}>×</button>
-          </span>
-          <div className="state-anim-picker-grid">
-            {idleSpriteOptions.map(opt => {
-              const currentSprite = stateAnimations[openKey!] ?? stateAnimEntries.find(e => e.state === openKey!)!.defaultSprite;
-              return (
-                <button
-                  key={opt.key}
-                  className={`idle-sprite-preview ${currentSprite === opt.key ? "checked" : ""}`}
-                  onClick={() => selectSprite(openKey!, opt.key)}
-                >
-                  <div className="sprite-preview-box">
-                    <span
-                      className={`clawd-sprite clawd-sprite-${opt.key} clawd-gif-${idleBubbleGifClass[opt.key] ?? opt.key}`}
-                      style={{ transform: `scale(${72 / Math.max(opt.w, opt.h)})` }}
-                    />
-                  </div>
-                  <span className="idle-sprite-label">{opt.label}</span>
-                </button>
-              );
-            })}
-            <button className="idle-sprite-preview reset" onClick={() => resetState(openKey!)}>
-              <span className="idle-sprite-label">{t("common.resetDefault", "重置默认")}</span>
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function RangeSlider({ label, min, max, step, low, high, format, onChange }: {
-  label: string; min: number; max: number; step: number;
-  low: number; high: number; format: (v: number) => string;
-  onChange: (low: number, high: number) => void;
-}) {
-  const range = max - min;
-  const leftPercent = ((low - min) / range) * 100;
-  const rightPercent = ((high - min) / range) * 100;
-
-  return (
-    <label className="range-slider-row">
-      <span>{label}</span>
-      <div className="range-track">
-        <div className="range-fill" style={{ left: `${leftPercent}%`, width: `${rightPercent - leftPercent}%` }} />
-        <input
-          type="range" min={min} max={max} step={step} value={low}
-          onChange={e => { const v = Number(e.target.value); if (v <= high) onChange(v, high); }}
-        />
-        <input
-          type="range" min={min} max={max} step={step} value={high}
-          onChange={e => { const v = Number(e.target.value); if (v >= low) onChange(low, v); }}
-        />
-      </div>
-      <b>{format(low)} — {format(high)}</b>
-    </label>
-  );
-}
-
-function TokenKpi({ icon, value, label, tone }: { icon: React.ReactNode; value: string; label: string; tone: "mint" | "honey" | "steel" | "coral" }) {
-  return (
-    <div className={`token-kpi-card ${tone}`}>
-      <span className="token-kpi-icon">{icon}</span>
-      <strong>{value}</strong>
-      <small>{label}</small>
-    </div>
-  );
-}
-
-function TokenDisclosure({ title, summary, defaultOpen = false, children }: { title: string; summary?: string; defaultOpen?: boolean; children: React.ReactNode }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <section className={`token-disclosure ${open ? "open" : ""}`}>
-      <button className="token-disclosure-trigger" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>
-        <ChevronDown size={15} className="token-disclosure-chevron" />
-        <span>
-          <strong>{title}</strong>
-          {summary ? <small>{summary}</small> : null}
-        </span>
-      </button>
-      {open ? <div className="token-disclosure-body">{children}</div> : null}
-    </section>
-  );
-}
-
-type TokenHeatmapDaily = {
-  date: string;
-  requestCount?: number;
-  totalTokens?: number;
-  costUsd?: number;
-};
-
-type TokenHeatmapCell = {
-  date: string;
-  week: number;
-  day: number;
-  future: boolean;
-  requests: number;
-  tokens: number;
-  costUsd: number;
-};
-
-function dateKeyToLocalDate(key: string) {
-  const [year, month, day] = key.split("-").map(Number);
-  return new Date(year, (month || 1) - 1, day || 1);
-}
-
-function shiftLocalDate(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function tokenHeatLevel(value: number, maxValue: number): 0 | 1 | 2 | 3 | 4 {
-  if (value <= 0 || maxValue <= 0) return 0;
-  const ratio = value / maxValue;
-  if (ratio >= 0.75) return 4;
-  if (ratio >= 0.5) return 3;
-  if (ratio >= 0.25) return 2;
-  return 1;
-}
-
-function buildTokenHeatmap(dailyTotals: TokenHeatmapDaily[], zh: boolean) {
-  const weekCount = 53;
-  const today = dateKeyToLocalDate(localDateKey());
-  const start = shiftLocalDate(today, -((weekCount - 1) * 7 + today.getDay()));
-  const dailyMap = new Map<string, TokenHeatmapDaily>((dailyTotals ?? []).map(entry => [entry.date, entry]));
-  const cells: TokenHeatmapCell[] = Array.from({ length: weekCount * 7 }, (_, index) => {
-    const date = shiftLocalDate(start, index);
-    const dateKey = localDateKey(date.getTime());
-    const future = date.getTime() > today.getTime();
-    const entry = dailyMap.get(dateKey);
-    return {
-      date: dateKey,
-      week: Math.floor(index / 7),
-      day: date.getDay(),
-      future,
-      requests: future ? 0 : entry?.requestCount ?? 0,
-      tokens: future ? 0 : entry?.totalTokens ?? 0,
-      costUsd: future ? 0 : entry?.costUsd ?? 0
-    };
-  });
-  const maxRequests = Math.max(0, ...cells.map(cell => cell.requests));
-  const activeCells = cells.filter(cell => !cell.future && cell.requests > 0);
-  const monthLabels: Array<{ week: number; label: string }> = [];
-  const seenMonths = new Set<string>();
-  for (let week = 0; week < weekCount; week++) {
-    const weekCells = cells.slice(week * 7, week * 7 + 7).filter(cell => !cell.future);
-    const firstOfMonth = weekCells.find(cell => dateKeyToLocalDate(cell.date).getDate() === 1);
-    if (!firstOfMonth) continue;
-    const date = dateKeyToLocalDate(firstOfMonth.date);
-    const monthId = `${date.getFullYear()}-${date.getMonth()}`;
-    if (seenMonths.has(monthId)) continue;
-    seenMonths.add(monthId);
-    monthLabels.push({ week, label: zh ? `${date.getMonth() + 1}月` : date.toLocaleString("en-US", { month: "short" }) });
-  }
-  const bestDay = activeCells.reduce((best, cell) => {
-    if (!best || cell.requests > best.requests || (cell.requests === best.requests && cell.tokens > best.tokens)) return cell;
-    return best;
-  }, null as null | (typeof cells)[number]);
-  return {
-    cells: cells.map(cell => ({ ...cell, level: tokenHeatLevel(cell.requests, maxRequests) })),
-    monthLabels,
-    activeDays: activeCells.length,
-    totalRequests: activeCells.reduce((sum, cell) => sum + cell.requests, 0),
-    bestDay
-  };
-}
-
-const TOKEN_STATS_CACHE_KEY = "clawd-token-stats-cache-v1";
-
-function readCachedTokenStats() {
-  try {
-    const raw = localStorage.getItem(TOKEN_STATS_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { data?: unknown };
-    return parsed && typeof parsed.data === "object" && parsed.data ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedTokenStats(data: unknown) {
-  try {
-    localStorage.setItem(TOKEN_STATS_CACHE_KEY, JSON.stringify({ cachedAt: Date.now(), data }));
-  } catch {
-    // Best-effort cache only. Token scans still work without localStorage.
-  }
-}
-
-function TokenPanel() {
-  const { t, locale } = useI18n();
-  const zh = locale === "zh";
-  const [stats, setStats] = useState<any | null>(() => readCachedTokenStats());
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showAllModels, setShowAllModels] = useState(false);
-  const [showAllProjects, setShowAllProjects] = useState(false);
-  const load = async (force = false) => {
-    setError(null);
-    setLoading(true);
-    if (force) setRefreshing(true);
-    try {
-      const result = await window.companion.getTokenStats(force);
-      setStats(result);
-      writeCachedTokenStats(result);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  useEffect(() => { void load(false); }, []);
-
-  const fmtTok = (n: number) => n >= 1_000_000_000 ? (n / 1_000_000_000).toFixed(2) + "B" : n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + "M" : n >= 1_000 ? (n / 1_000).toFixed(1) + "K" : String(Math.round(n || 0));
-  const fmtUsd = (n: number) => n > 0 ? `$${n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2)}` : "—";
-  const fmtPct = (n: number) => `${Math.round((n || 0) * 100)}%`;
-  const fmtCount = (n: number) => Math.round(n || 0).toLocaleString(zh ? "zh-CN" : "en-US");
-
-  if (error && !stats) return <div className="note" style={{ color: "var(--coral)" }}>{t("stats.scanFailed", "加载失败")}: {error}</div>;
-  if (!stats) {
-    return (
-      <div className="token-panel token-panel-rich token-panel-loading">
-        <div className="token-header">
-          <div>
-            <h3 className="panel-subtitle">{t("stats.tokenUsageFull", "Claude Code Token usage")}</h3>
-            <p className="note">{t("stats.scanning", "扫描中…")} {t("stats.scanningClaudeUsage", "Reading Claude Code usage from ~/.claude/projects")}</p>
-          </div>
-        </div>
-        <div className="stats-grid token-kpi-grid">
-          <TokenKpi icon={<Zap size={17} />} value="0" label={t("stats.tokenToday", "今日")} tone="mint" />
-          <TokenKpi icon={<BarChart3 size={17} />} value="0" label={t("stats.token30d", "30天")} tone="honey" />
-          <TokenKpi icon={<Layers3 size={17} />} value="0" label={t("stats.tokenTotal", "累计")} tone="steel" />
-          <TokenKpi icon={<DollarSign size={17} />} value="$0" label={t("stats.estimatedCost", "Est. cost")} tone="coral" />
-          <TokenKpi icon={<Gauge size={17} />} value="0%" label="Cache hit" tone="mint" />
-          <TokenKpi icon={<Terminal size={17} />} value="0" label={t("stats.requests", "Requests")} tone="steel" />
-        </div>
-        <p className="note">{t("stats.cacheSnapshotHint", "After the first scan, a snapshot is kept so this page can show the last result immediately.")}</p>
-      </div>
-    );
-  }
-
-  const todayStr = localDateKey();
-  const todayEntry = stats.dailyTotals?.find((d: any) => d.date === todayStr);
-  const todayTokens = todayEntry?.totalTokens ?? 0;
-  const thirtyDaysAgo = localDateKey(shiftLocalDate(dateKeyToLocalDate(todayStr), -29).getTime());
-  const last30Entries = (stats.dailyTotals ?? []).filter((d: any) => d.date >= thirtyDaysAgo).sort((a: any, b: any) => b.date.localeCompare(a.date));
-  const last30 = last30Entries.reduce((s: number, d: any) => s + (d.totalTokens ?? 0), 0);
-  const last30Cost = last30Entries.reduce((s: number, d: any) => s + (d.costUsd ?? 0), 0);
-  const maxDailyTokens = Math.max(1, ...last30Entries.map((d: any) => d.totalTokens ?? 0));
-  const modelRows = showAllModels ? stats.modelTotals ?? [] : (stats.modelTotals ?? []).slice(0, 8);
-  const projectRows = showAllProjects ? stats.projectTotals ?? [] : (stats.projectTotals ?? []).slice(0, 8);
-  const highRequestRows = (stats.recentRequests ?? []).slice(0, 10);
-  const heatmap = buildTokenHeatmap(stats.dailyTotals ?? [], zh);
-  const trendSummary = last30Entries.length > 0
-    ? `${last30Entries.length} ${zh ? "天" : "days"} · ${fmtTok(last30)} · ${fmtUsd(last30Cost)}`
-    : t("stats.noData", "无数据");
-  const projectSummary = (stats.projectTotals ?? []).length > 0
-    ? `${stats.projectTotals.length} ${zh ? "个项目" : "projects"} · ${fmtTok((stats.projectTotals ?? []).reduce((sum: number, project: any) => sum + (project.totalTokens ?? 0), 0))}`
-    : t("stats.noData", "无数据");
-  const highRequestSummary = highRequestRows.length > 0
-    ? `${highRequestRows.length} ${zh ? "条请求" : "requests"} · ${fmtTok(highRequestRows.reduce((sum: number, request: any) => sum + (request.totalTokens ?? 0), 0))} · ${fmtUsd(highRequestRows.reduce((sum: number, request: any) => sum + (request.costUsd ?? 0), 0))}`
-    : t("stats.noData", "无数据");
-  const scannedAt = Number.isFinite(Number(stats.lastScannedAt)) ? Number(stats.lastScannedAt) : Date.now();
-  const scanSummary = Object.entries({ sessions: stats.totalSessions ?? 0, requests: stats.totalRequests ?? 0, time: new Date(scannedAt).toLocaleString(zh ? "zh-CN" : "en-US") }).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), t("stats.scanSummary", "Scanned {sessions} sessions · {requests} requests · {time}"));
-  const scanNote = `${loading ? `${t("stats.scanning", "扫描中…")} · ` : ""}${scanSummary}${error ? ` · ${t("stats.scanFailed", "加载失败")}: ${error}` : ""}`;
-
-  return (
-    <div className="token-panel token-panel-rich">
-      <div className="token-header">
-        <div>
-          <h3 className="panel-subtitle">{t("stats.tokenUsageFull", "Claude Code Token usage")}</h3>
-          <p className="note">{scanNote}</p>
-        </div>
-        <button className="ghost-btn" onClick={() => load(true)} disabled={loading || refreshing}>{loading || refreshing ? t("stats.scanning", "扫描中…") : t("common.refresh", "刷新")}</button>
-      </div>
-
-      <div className="stats-grid token-kpi-grid">
-        <TokenKpi icon={<Zap size={17} />} value={fmtTok(todayTokens)} label={t("stats.tokenToday", "今日")} tone="mint" />
-        <TokenKpi icon={<BarChart3 size={17} />} value={fmtTok(last30)} label={t("stats.token30d", "30天")} tone="honey" />
-        <TokenKpi icon={<Layers3 size={17} />} value={fmtTok(stats.totalTokens ?? 0)} label={t("stats.tokenTotal", "累计")} tone="steel" />
-        <TokenKpi icon={<DollarSign size={17} />} value={fmtUsd(stats.totalCostUsd ?? 0)} label={t("stats.estimatedCost", "Est. cost")} tone="coral" />
-        <TokenKpi icon={<Gauge size={17} />} value={fmtPct(stats.cacheHitRatio ?? 0)} label="Cache hit" tone="mint" />
-        <TokenKpi icon={<Terminal size={17} />} value={String(stats.totalRequests ?? 0)} label={t("stats.requests", "Requests")} tone="steel" />
-      </div>
-
-      <div className="token-breakdown-strip">
-        <span><b>{fmtTok((stats.dailyTotals ?? []).reduce((s: number, d: any) => s + (d.inputTokens ?? 0), 0))}</b>{t("stats.inputTokens", "input")}</span>
-        <span><b>{fmtTok((stats.dailyTotals ?? []).reduce((s: number, d: any) => s + (d.outputTokens ?? 0), 0))}</b>{t("stats.outputTokens", "output")}</span>
-        <span><b>{fmtTok((stats.dailyTotals ?? []).reduce((s: number, d: any) => s + (d.cacheReadTokens ?? 0), 0))}</b>cache read</span>
-        <span><b>{fmtTok((stats.dailyTotals ?? []).reduce((s: number, d: any) => s + (d.cacheCreationTokens ?? 0), 0))}</b>cache write</span>
-        <span><b>{fmtUsd(last30Cost)}</b>{t("stats.cost30d", "30d cost")}</span>
-      </div>
-
-      <section className="token-heatmap-panel">
-        <div className="token-heatmap-head">
-          <div>
-            <h3 className="panel-subtitle">{t("stats.requestHeatmap", "Request heatmap")}</h3>
-            <p className="note">{t("stats.requestHeatmapSubtitle", "Last 12 months · request heatmap")}</p>
-          </div>
-          <div className="token-heatmap-summary">
-            <span><small>{t("stats.activeDaysShort", "active days")}</small><b>{fmtCount(heatmap.activeDays)}</b></span>
-            <span><small>{t("stats.requests", "requests")}</small><b>{fmtCount(heatmap.totalRequests)}</b></span>
-            <span><small>{t("stats.peak", "peak")}</small><b>{heatmap.bestDay ? heatmap.bestDay.date.slice(5) : "—"}</b></span>
-          </div>
-        </div>
-        <div className="token-heatmap-scroll" aria-label={t("stats.requestHeatmapAria", "Request heatmap for the last 12 months")}>
-          <div className="token-heatmap">
-            <div className="token-heatmap-months">
-              {heatmap.monthLabels.map(label => <span key={`${label.week}-${label.label}`} style={{ gridColumn: `${label.week + 1}` }}>{label.label}</span>)}
-            </div>
-            <div className="token-heatmap-body">
-              <div className="token-heatmap-weekdays" aria-hidden="true">
-                <span style={{ gridRow: "2" }}>{zh ? "一" : "Mon"}</span>
-                <span style={{ gridRow: "4" }}>{zh ? "三" : "Wed"}</span>
-                <span style={{ gridRow: "6" }}>{zh ? "五" : "Fri"}</span>
-              </div>
-              <div className="token-heatmap-cells">
-                {heatmap.cells.map(cell => (
-                  <span
-                    key={cell.date}
-                    className={`token-heat-cell level-${cell.level}${cell.future ? " future" : ""}`}
-                    style={{ gridColumn: `${cell.week + 1}`, gridRow: `${cell.day + 1}` }}
-                    title={cell.future ? undefined : `${cell.date}: ${cell.requests} ${zh ? "次请求" : "requests"} · ${fmtTok(cell.tokens)} · ${fmtUsd(cell.costUsd)}`}
-                    aria-label={cell.future ? undefined : `${cell.date}: ${cell.requests} ${zh ? "次请求" : "requests"}`}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="token-heatmap-legend">
-          <span>{zh ? "少" : "Less"}</span>
-          {[0, 1, 2, 3, 4].map(level => <i key={level} className={`token-heat-cell level-${level}`} />)}
-          <span>{zh ? "多" : "More"}</span>
-        </div>
-      </section>
-
-      <TokenDisclosure title={t("stats.last30Trend", "Last 30 days")} summary={trendSummary}>
-        {last30Entries.length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
-          <div className="token-daily-bars">
-            {last30Entries.slice(0, 30).map((d: any) => (
-              <div key={d.date} className="token-daily-bar-row" title={`${d.date}: ${fmtTok(d.totalTokens)} · ${fmtUsd(d.costUsd ?? 0)}`}>
-                <time>{d.date.slice(5)}</time>
-                <div><span style={{ width: `${Math.max(3, ((d.totalTokens ?? 0) / maxDailyTokens) * 100)}%` }} /></div>
-                <b>{fmtTok(d.totalTokens ?? 0)}</b>
-                <em>{fmtUsd(d.costUsd ?? 0)}</em>
-              </div>
-            ))}
-          </div>
-        )}
-      </TokenDisclosure>
-
-      <section className="token-flat-section">
-        <header className="token-section-head">
-          <h3 className="panel-subtitle">{t("stats.byModel", "按模型拆分")}</h3>
-          <span>{fmtCount((stats.modelTotals ?? []).length)}</span>
-        </header>
-        {(stats.modelTotals ?? []).length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
-          <div className="token-table token-table-wide">
-            <div className="token-table-header"><span>{t("stats.model", "模型")}</span><span>{t("stats.tokens", "Tokens")}</span><span>{t("stats.cost", "Cost")}</span><span>{t("stats.req", "Req")}</span><span>Cache</span></div>
-            {modelRows.map((m: any) => (
-              <div key={m.model} className="token-table-row">
-                <span className="token-model-name">{m.model}</span>
-                <span>{fmtTok(m.totalTokens)}</span>
-                <span>{m.priced ? fmtUsd(m.costUsd) : "—"}</span>
-                <span>{m.requestCount}</span>
-                <span>{fmtPct(m.cacheHitRatio)}</span>
-              </div>
-            ))}
-            {(stats.modelTotals ?? []).length > 8 && <button className="ghost-btn token-more-btn" onClick={() => setShowAllModels(v => !v)}>{showAllModels ? t("stats.collapse", "收起") : `${t("stats.showMore", "查看更多")} (${stats.modelTotals.length - 8})`}</button>}
-          </div>
-        )}
-      </section>
-
-      <TokenDisclosure title={t("stats.projectRanking", "Projects")} summary={projectSummary}>
-        {(stats.projectTotals ?? []).length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
-          <div className="token-project-list">
-            {projectRows.map((p: any) => (
-              <article key={p.projectPath} className="token-project-row">
-                <div><strong>{p.projectName}</strong><p>{p.projectPath}</p></div>
-                <span>{fmtTok(p.totalTokens)}</span>
-                <span>{fmtUsd(p.costUsd)}</span>
-                <time>{p.lastActivity ? new Date(p.lastActivity).toLocaleDateString() : "—"}</time>
-              </article>
-            ))}
-            {(stats.projectTotals ?? []).length > 8 && <button className="ghost-btn token-more-btn" onClick={() => setShowAllProjects(v => !v)}>{showAllProjects ? t("stats.collapse", "收起") : `${t("stats.showMore", "查看更多")} (${stats.projectTotals.length - 8})`}</button>}
-          </div>
-        )}
-      </TokenDisclosure>
-
-      <TokenDisclosure title={t("stats.largestRequests", "Largest requests")} summary={highRequestSummary}>
-        {highRequestRows.length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
-          <div className="token-table token-table-requests">
-            <div className="token-table-header"><span>{t("stats.timeProject", "Time / Project")}</span><span>{t("stats.model", "Model")}</span><span>{t("stats.tokens", "Tokens")}</span><span>{t("stats.cost", "Cost")}</span></div>
-            {highRequestRows.map((r: any) => (
-              <div key={r.id} className="token-table-row">
-                <span><b>{new Date(r.timestamp).toLocaleString()}</b><small>{r.projectName}</small></span>
-                <span className="token-model-name">{r.model}</span>
-                <span>{fmtTok(r.totalTokens)}</span>
-                <span>{r.priced ? fmtUsd(r.costUsd) : "—"}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </TokenDisclosure>
-    </div>
-  );
 }
 
 export function ClawdSettingsRoot() {

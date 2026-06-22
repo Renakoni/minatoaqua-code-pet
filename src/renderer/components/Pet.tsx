@@ -8,7 +8,8 @@ const petImages: Record<PetState, string> = {
   idle: idleImage,
   running: runningImage,
   "permission-prompt": permissionPromptImage,
-  completed: completedImage
+  completed: completedImage,
+  error: runningImage
 };
 
 interface PetProps {

@@ -1,4 +1,4 @@
-export type PetState = "idle" | "running" | "permission-prompt" | "completed";
+export type PetState = "idle" | "running" | "permission-prompt" | "completed" | "error";
 
 export type PetEventType = PetState;
 
@@ -16,7 +16,8 @@ const eventTypes = new Set<PetEventType>([
   "idle",
   "running",
   "permission-prompt",
-  "completed"
+  "completed",
+  "error"
 ]);
 
 function optionalString(value: unknown, maxLength: number): value is string | undefined {

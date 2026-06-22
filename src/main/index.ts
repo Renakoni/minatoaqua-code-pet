@@ -1,10 +1,11 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell, Tray } from "electron";
+import { autoUpdater } from "electron-updater";
 import { spawn } from "node:child_process";
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, PetEvent, PetState } from "../shared/events";
 
@@ -23,8 +24,21 @@ type RuntimeStats = {
   lastEventTime: number;
 };
 
+type UpdateStatus = {
+  checking: boolean;
+  available: boolean;
+  upToDate: boolean;
+  version?: string;
+  downloaded: boolean;
+  downloading: boolean;
+  progress?: number;
+  error?: string;
+  lastCheckedAt?: number;
+};
+
 const eventPort = 17321;
 const appStartedAt = Date.now();
+const singleInstanceLock = app.requestSingleInstanceLock();
 let petWindow: BrowserWindow | null = null;
 let panelWindow: BrowserWindow | null = null;
 let eventServer: ReturnType<typeof createServer> | null = null;
@@ -34,6 +48,14 @@ let eventHistory: PetEvent[] = [];
 let runtimeStats: RuntimeStats | null = null;
 let runtimeStatsDirty = false;
 const activePermissionIds = new Set<string>();
+let autoUpdaterConfigured = false;
+let updateStatus: UpdateStatus = {
+  checking: false,
+  available: false,
+  upToDate: false,
+  downloaded: false,
+  downloading: false
+};
 let companionSettings: Record<string, any> = {
   port: eventPort,
   token: "minato-aqua-local",
@@ -79,13 +101,18 @@ let companionSettings: Record<string, any> = {
   autoStartMinimized: false,
   displayMonitorId: "primary",
   monitorPositions: [],
-  notificationRules: [],
+  notificationRules: [
+    { eventType: "done", enabled: true, systemNotification: true, playSound: true, showBubble: true },
+    { eventType: "error", enabled: true, systemNotification: true, playSound: true, showBubble: true },
+    { eventType: "permission_wait", enabled: true, systemNotification: true, playSound: true, showBubble: true },
+    { eventType: "notification", enabled: true, systemNotification: true, playSound: false, showBubble: true }
+  ],
   customPlugins: [],
   pomodoroEnabled: false,
   pomodoroWorkMinutes: 25,
   pomodoroBreakMinutes: 5,
   sound: {
-    enabled: false,
+    enabled: true,
     volume: 0.6,
     onDone: true,
     onError: true,
@@ -118,6 +145,15 @@ let companionSettings: Record<string, any> = {
   },
   stateAnimations: {}
 };
+
+if (!singleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    showPetWindow();
+    if (companionSettings.openSettingsOnStart) showPanelWindow();
+  });
+}
 
 function getPetWindowBounds() {
   const width = 260;
@@ -161,14 +197,39 @@ function getAppIcon() {
   return image.isEmpty() ? createTrayIcon() : image;
 }
 
+function isPetEnabled() {
+  return companionSettings.petEnabled !== false;
+}
+
+function isPetAlwaysOnTop() {
+  return companionSettings.alwaysOnTop === true;
+}
+
+function applyPetAlwaysOnTopSetting() {
+  if (!petWindow || petWindow.isDestroyed()) return;
+
+  if (isPetAlwaysOnTop()) {
+    petWindow.setAlwaysOnTop(true, "screen-saver");
+    petWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    return;
+  }
+
+  petWindow.setAlwaysOnTop(false);
+  petWindow.setVisibleOnAllWorkspaces(false);
+}
+
 function createPetWindow() {
+  if (!isPetEnabled()) return;
+  if (petWindow && !petWindow.isDestroyed()) return;
+
   const bounds = getPetWindowBounds();
+  const alwaysOnTop = isPetAlwaysOnTop();
 
   petWindow = new BrowserWindow({
     ...bounds,
     transparent: true,
     frame: false,
-    alwaysOnTop: true,
+    alwaysOnTop,
     resizable: false,
     backgroundColor: "#00000000",
     hasShadow: false,
@@ -182,7 +243,7 @@ function createPetWindow() {
   });
 
   petWindow.setBackgroundColor("#00000000");
-  petWindow.setAlwaysOnTop(true, "screen-saver");
+  applyPetAlwaysOnTopSetting();
   loadRenderer(petWindow);
 
   petWindow.on("show", updateTrayMenu);
@@ -270,6 +331,11 @@ function createTrayIcon() {
 }
 
 function showPetWindow() {
+  if (!isPetEnabled()) {
+    hidePetWindow();
+    return;
+  }
+
   if (!petWindow) createPetWindow();
   if (!petWindow) return;
 
@@ -279,9 +345,8 @@ function showPetWindow() {
   if (petWindow.isMinimized()) petWindow.restore();
   petWindow.show();
   petWindow.focus();
-  petWindow.setAlwaysOnTop(true, "screen-saver");
-  petWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  petWindow.moveTop();
+  applyPetAlwaysOnTopSetting();
+  if (isPetAlwaysOnTop()) petWindow.moveTop();
   updateTrayMenu();
 }
 
@@ -291,6 +356,8 @@ function hidePetWindow() {
 }
 
 function togglePetWindow() {
+  if (!isPetEnabled()) return;
+
   if (petWindow?.isVisible()) {
     hidePetWindow();
   } else {
@@ -300,6 +367,7 @@ function togglePetWindow() {
 
 function updateTrayMenu() {
   if (!tray) return;
+  const petEnabled = isPetEnabled();
   const isPetVisible = Boolean(petWindow && !petWindow.isDestroyed() && petWindow.isVisible());
   const isPanelVisible = Boolean(panelWindow && !panelWindow.isDestroyed() && panelWindow.isVisible());
 
@@ -307,6 +375,7 @@ function updateTrayMenu() {
     Menu.buildFromTemplate([
       {
         label: isPetVisible ? "隐藏桌宠" : "显示桌宠",
+        enabled: petEnabled,
         click: isPetVisible ? hidePetWindow : showPetWindow
       },
       {
@@ -331,6 +400,167 @@ function createTray() {
 
   tray.on("click", showPetWindow);
 }
+
+function broadcastUpdateStatus() {
+  petWindow?.webContents.send("companion:update-status", updateStatus);
+  panelWindow?.webContents.send("companion:update-status", updateStatus);
+}
+
+function setUpdateStatus(next: UpdateStatus) {
+  updateStatus = next;
+  broadcastUpdateStatus();
+}
+
+function configureAutoUpdater() {
+  if (autoUpdaterConfigured) return;
+  autoUpdaterConfigured = true;
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: "Doulor",
+    repo: "Clawd-Companion",
+    releaseType: "release"
+  });
+
+  autoUpdater.on("checking-for-update", () => {
+    setUpdateStatus({
+      ...updateStatus,
+      checking: true,
+      error: undefined,
+      lastCheckedAt: Date.now()
+    });
+  });
+
+  autoUpdater.on("update-available", info => {
+    setUpdateStatus({
+      ...updateStatus,
+      checking: false,
+      available: true,
+      upToDate: false,
+      version: info.version
+    });
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    setUpdateStatus({
+      checking: false,
+      available: false,
+      upToDate: true,
+      downloaded: false,
+      downloading: false,
+      progress: undefined,
+      version: undefined,
+      error: undefined,
+      lastCheckedAt: Date.now()
+    });
+  });
+
+  autoUpdater.on("download-progress", progress => {
+    setUpdateStatus({
+      ...updateStatus,
+      checking: false,
+      downloading: true,
+      progress: progress.percent
+    });
+  });
+
+  autoUpdater.on("update-downloaded", info => {
+    setUpdateStatus({
+      checking: false,
+      available: true,
+      upToDate: false,
+      version: info.version,
+      downloaded: true,
+      downloading: false,
+      progress: 100,
+      error: undefined,
+      lastCheckedAt: Date.now()
+    });
+  });
+
+  autoUpdater.on("error", error => {
+    setUpdateStatus({
+      ...updateStatus,
+      checking: false,
+      downloading: false,
+      error: error.message,
+      lastCheckedAt: Date.now()
+    });
+  });
+}
+
+async function checkForUpdates() {
+  if (!app.isPackaged) {
+    const error = "Update checks are only available in packaged builds.";
+    setUpdateStatus({
+      ...updateStatus,
+      checking: false,
+      downloading: false,
+      error,
+      lastCheckedAt: Date.now()
+    });
+    return { ok: false, error };
+  }
+
+  configureAutoUpdater();
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return result ? { ok: true } : { ok: false, error: "No update metadata was returned." };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setUpdateStatus({
+      ...updateStatus,
+      checking: false,
+      downloading: false,
+      error: message,
+      lastCheckedAt: Date.now()
+    });
+    return { ok: false, error: message };
+  }
+}
+
+function installUpdate() {
+  if (!app.isPackaged) {
+    return { ok: false, error: "Update installation is only available in packaged builds." };
+  }
+  if (!updateStatus.downloaded) {
+    return { ok: false, error: "No downloaded update is ready to install." };
+  }
+
+  try {
+    autoUpdater.quitAndInstall();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function applyLaunchAtLoginSetting() {
+  const openAtLogin = companionSettings.launchAtLogin === true;
+  const options = app.isPackaged
+    ? { openAtLogin, path: process.execPath }
+    : { openAtLogin, path: process.execPath, args: [app.getAppPath()] };
+
+  try {
+    app.setLoginItemSettings(options);
+  } catch {
+    // Login item support is platform and build dependent.
+  }
+}
+
+function runStartupBehaviors() {
+  if (process.platform === "win32") {
+    app.setAppUserModelId("ClaudeCodexPet.ClawdCompanion");
+  }
+  applyLaunchAtLoginSetting();
+  if (companionSettings.openSettingsOnStart) showPanelWindow();
+  if (companionSettings.autoUpdateEnabled && app.isPackaged) {
+    setTimeout(() => void checkForUpdates(), 1500);
+  }
+}
+
 function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -393,6 +623,18 @@ type CompanionEvent = {
   timestamp: number;
 };
 
+type ManagedNotificationEventType = "done" | "error" | "permission_wait" | "notification";
+type SoundNotificationEventType = Exclude<ManagedNotificationEventType, "notification">;
+type BuiltInSound = "done" | "error" | "permission";
+
+type NotificationRule = {
+  eventType: CompanionEventType;
+  enabled: boolean;
+  systemNotification: boolean;
+  playSound: boolean;
+  showBubble: boolean;
+};
+
 function normalizeTool(tool?: string) {
   if (!tool) return "Unknown";
   const normalized = tool.toLowerCase();
@@ -419,11 +661,13 @@ function toCompanionEvent(event: PetEvent): CompanionEvent {
       ? "permission_wait"
       : event.event === "completed"
         ? "done"
-        : event.title === "Tool completed"
-          ? "tool_end"
-          : event.tool
-            ? "tool_start"
-            : "prompt_submit";
+        : event.event === "error"
+          ? "error"
+          : event.title === "Tool completed"
+            ? "tool_end"
+            : event.tool
+              ? "tool_start"
+              : "prompt_submit";
 
   return {
     id: event.id,
@@ -438,6 +682,159 @@ function toCompanionEvent(event: PetEvent): CompanionEvent {
     detail: event.detail,
     timestamp: event.timestamp
   };
+}
+
+const managedNotificationEventTypes: ManagedNotificationEventType[] = ["done", "error", "permission_wait", "notification"];
+const soundNotificationEventTypes: SoundNotificationEventType[] = ["done", "error", "permission_wait"];
+const defaultWindowsSoundNames: Record<BuiltInSound, string[]> = {
+  done: ["Windows Notify Calendar.wav", "notify.wav"],
+  error: ["Windows Error.wav", "Windows Critical Stop.wav"],
+  permission: ["Windows Notify System Generic.wav", "Windows Exclamation.wav"]
+};
+const soundDataUrlCache = new Map<string, string>();
+
+function isManagedNotificationEvent(eventType: CompanionEventType): eventType is ManagedNotificationEventType {
+  return managedNotificationEventTypes.includes(eventType as ManagedNotificationEventType);
+}
+
+function isSoundNotificationEvent(eventType: CompanionEventType): eventType is SoundNotificationEventType {
+  return soundNotificationEventTypes.includes(eventType as SoundNotificationEventType);
+}
+
+function defaultNotificationRule(eventType: ManagedNotificationEventType): NotificationRule {
+  return {
+    eventType,
+    enabled: true,
+    systemNotification: true,
+    playSound: isSoundNotificationEvent(eventType),
+    showBubble: true
+  };
+}
+
+function getNotificationRule(eventType: ManagedNotificationEventType): NotificationRule {
+  const rules = Array.isArray(companionSettings.notificationRules) ? companionSettings.notificationRules as NotificationRule[] : [];
+  const rule = rules.find(item => item?.eventType === eventType);
+  return rule ? { ...defaultNotificationRule(eventType), ...rule, eventType } : defaultNotificationRule(eventType);
+}
+
+function builtInSoundNameForEvent(eventType: SoundNotificationEventType): BuiltInSound {
+  if (eventType === "permission_wait") return "permission";
+  return eventType;
+}
+
+function isBuiltInSound(value: unknown): value is BuiltInSound {
+  return value === "done" || value === "error" || value === "permission";
+}
+
+function windowsMediaSoundPath(name: BuiltInSound): string | null {
+  if (process.platform !== "win32") return null;
+  for (const fileName of defaultWindowsSoundNames[name]) {
+    const candidate = join("C:\\Windows\\Media", fileName);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function isAudioPath(filePath: string): boolean {
+  return /\.(wav|mp3)$/i.test(filePath);
+}
+
+function resolveSoundFile(override: string | null | undefined, name: BuiltInSound): string | null {
+  if (override) {
+    const candidate = isAbsolute(override) ? override : resolve(app.getAppPath(), override);
+    return existsSync(candidate) && isAudioPath(candidate) ? candidate : null;
+  }
+  return windowsMediaSoundPath(name);
+}
+
+function fileToDataUrl(filePath: string): string | null {
+  if (!isAudioPath(filePath) || !existsSync(filePath)) return null;
+  const cached = soundDataUrlCache.get(filePath);
+  if (cached) {
+    soundDataUrlCache.delete(filePath);
+    soundDataUrlCache.set(filePath, cached);
+    return cached;
+  }
+
+  try {
+    const buffer = readFileSync(filePath);
+    const ext = extname(filePath).toLowerCase();
+    const mime = ext === ".mp3" ? "audio/mpeg" : "audio/wav";
+    const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+    if (soundDataUrlCache.size >= 8) {
+      const oldest = soundDataUrlCache.keys().next().value;
+      if (oldest) soundDataUrlCache.delete(oldest);
+    }
+    soundDataUrlCache.set(filePath, dataUrl);
+    return dataUrl;
+  } catch {
+    return null;
+  }
+}
+
+function soundOverrideForEvent(eventType: SoundNotificationEventType): string | null {
+  const sound = companionSettings.sound ?? {};
+  const eventOverride = sound.eventFiles?.[eventType];
+  if (typeof eventOverride === "string" && eventOverride.trim()) return eventOverride;
+  if (eventType === "done") return sound.fileDone ?? null;
+  if (eventType === "error") return sound.fileError ?? null;
+  if (eventType === "permission_wait") return sound.filePermission ?? null;
+  return null;
+}
+
+function soundDataUrlForEvent(eventType: SoundNotificationEventType): string | null {
+  const sound = companionSettings.sound ?? {};
+  if (sound.enabled !== true) return null;
+  const file = resolveSoundFile(soundOverrideForEvent(eventType), builtInSoundNameForEvent(eventType));
+  return file ? fileToDataUrl(file) : null;
+}
+
+function previewSoundDataUrl(name: BuiltInSound) {
+  const file = resolveSoundFile(null, name);
+  const dataUrl = file ? fileToDataUrl(file) : null;
+  return dataUrl ? { ok: true, dataUrl } : { ok: false, error: "Sound file not found." };
+}
+
+function previewSoundFile(filePath: string) {
+  const dataUrl = fileToDataUrl(filePath);
+  return dataUrl ? { ok: true, dataUrl } : { ok: false, error: "Unable to read audio file." };
+}
+
+function playSoundDataUrl(dataUrl: string) {
+  const targetWindow = petWindow && !petWindow.isDestroyed() ? petWindow : panelWindow;
+  targetWindow?.webContents.send("companion:play-sound", dataUrl);
+}
+
+function notificationBody(event: CompanionEvent): string {
+  const lines = [event.message];
+  if (event.tool) lines.push(`Tool: ${event.tool}`);
+  if (event.detail && event.detail !== event.message) lines.push(event.detail);
+  return lines.filter(Boolean).join("\n").slice(0, 300);
+}
+
+function showWindowsNotification(event: CompanionEvent) {
+  if (process.platform !== "win32" || !Notification.isSupported()) return;
+  new Notification({
+    title: event.title || "Clawd Companion",
+    body: notificationBody(event),
+    icon: getAppIcon(),
+    silent: true
+  }).show();
+}
+
+function handleCompanionAlerts(event: CompanionEvent) {
+  if (!isManagedNotificationEvent(event.event)) return;
+
+  const rule = getNotificationRule(event.event);
+
+  if (companionSettings.notificationsEnabled !== false) {
+    showWindowsNotification(event);
+  }
+
+  if (isSoundNotificationEvent(event.event) && rule.enabled !== false && rule.playSound !== false) {
+    const dataUrl = soundDataUrlForEvent(event.event);
+    if (dataUrl) playSoundDataUrl(dataUrl);
+  }
 }
 
 type ClaudeResourceKind = "skill" | "plugin" | "mcp";
@@ -1893,7 +2290,19 @@ function getHookForwarderPath() {
 }
 
 function getHookCommand(eventName: string) {
-  return `node ${JSON.stringify(getHookForwarderPath())} ${eventName}`;
+  return [
+    "node",
+    JSON.stringify(getHookForwarderPath()),
+    eventName,
+    "--settings",
+    JSON.stringify(settingsPath()),
+    "--app-path",
+    JSON.stringify(process.execPath),
+    "--app-root",
+    JSON.stringify(app.getAppPath()),
+    "--port",
+    String(eventPort)
+  ].join(" ");
 }
 
 function isClawdHookCommand(command: unknown, eventName?: string) {
@@ -1992,14 +2401,7 @@ function removeHooks() {
 }
 
 function getUpdateStatus() {
-  return {
-    checking: false,
-    available: false,
-    upToDate: true,
-    downloaded: false,
-    downloading: false,
-    lastCheckedAt: Date.now()
-  };
+  return updateStatus;
 }
 
 function getDoctorReport() {
@@ -2022,8 +2424,8 @@ function getDoctorReport() {
     forwarder: {
       expectedPath: join(app.getAppPath(), "scripts", "hook-forwarder.js"),
       exists: true,
-      autoStartMarkerPath: "",
-      autoStartMarkerExists: false
+      autoStartMarkerPath: settingsPath(),
+      autoStartMarkerExists: companionSettings.autoStartWithCli === true
     },
     update: {
       ...getUpdateStatus(),
@@ -2075,6 +2477,7 @@ function publishPetEvent(event: PetEvent) {
   panelWindow?.webContents.send("pet-event", event);
   panelWindow?.webContents.send("pet-snapshot", getSnapshot());
   broadcastCompanionEvent(companionEvent);
+  handleCompanionAlerts(companionEvent);
   updateTrayMenu();
 }
 
@@ -2107,6 +2510,7 @@ function startEventServer() {
   eventServer.listen(eventPort, "127.0.0.1");
 }
 
+if (singleInstanceLock) {
 app.whenReady().then(() => {
   loadCompanionSettings();
   loadRuntimeStats();
@@ -2121,8 +2525,21 @@ app.whenReady().then(() => {
   ipcMain.handle("pet:close-panel", () => hidePanelWindow());
   ipcMain.handle("companion:get-settings", () => companionSettings);
   ipcMain.handle("companion:save-settings", (_, next: Partial<typeof companionSettings>) => {
+    const previousLaunchAtLogin = companionSettings.launchAtLogin;
+    const previousPetEnabled = companionSettings.petEnabled;
+    const previousAlwaysOnTop = companionSettings.alwaysOnTop;
     companionSettings = { ...companionSettings, ...next };
     saveCompanionSettings();
+    if (previousLaunchAtLogin !== companionSettings.launchAtLogin) {
+      applyLaunchAtLoginSetting();
+    }
+    if (previousPetEnabled !== companionSettings.petEnabled) {
+      if (isPetEnabled()) showPetWindow();
+      else hidePetWindow();
+    } else if (previousAlwaysOnTop !== companionSettings.alwaysOnTop) {
+      applyPetAlwaysOnTopSetting();
+      updateTrayMenu();
+    }
     panelWindow?.webContents.send("companion:settings", companionSettings);
     panelWindow?.webContents.send("companion:connection", getConnectionStatus());
     return companionSettings;
@@ -2157,14 +2574,28 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:test-claude-route", (_, routeId: string) => testClaudeRoute(routeId));
   ipcMain.handle("companion:open-claude-route-terminal", (_, routeId: string) => openClaudeRouteTerminal(routeId));
   ipcMain.handle("companion:get-update-status", () => getUpdateStatus());
-  ipcMain.handle("companion:check-for-updates", () => getUpdateStatus());
-  ipcMain.handle("companion:install-update", () => undefined);
+  ipcMain.handle("companion:check-for-updates", () => checkForUpdates());
+  ipcMain.handle("companion:install-update", () => installUpdate());
   ipcMain.handle("companion:get-app-version", () => app.getVersion());
   ipcMain.handle("companion:get-token-stats", (_, force?: boolean) => getClaudeTokenStats(Boolean(force)));
-  ipcMain.handle("companion:preview-sound", () => undefined);
-  ipcMain.handle("companion:get-default-sound-paths", () => ({}));
-  ipcMain.handle("companion:preview-sound-file", () => undefined);
-  ipcMain.handle("companion:pick-sound-file", () => null);
+  ipcMain.handle("companion:preview-sound", (_, name: unknown) => isBuiltInSound(name) ? previewSoundDataUrl(name) : { ok: false, error: "Unknown sound type." });
+  ipcMain.handle("companion:get-default-sound-paths", () => ({
+    done: windowsMediaSoundPath("done"),
+    error: windowsMediaSoundPath("error"),
+    permission: windowsMediaSoundPath("permission")
+  }));
+  ipcMain.handle("companion:preview-sound-file", (_, filePath: string) => previewSoundFile(filePath));
+  ipcMain.handle("companion:pick-sound-file", async () => {
+    const options: Electron.OpenDialogOptions = {
+      properties: ["openFile"],
+      filters: [{ name: "Audio", extensions: ["wav", "mp3"] }]
+    };
+    const result = panelWindow && !panelWindow.isDestroyed()
+      ? await dialog.showOpenDialog(panelWindow, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
   ipcMain.handle("companion:sync-idle-bubble", (_, payload: unknown) => panelWindow?.webContents.send("companion:idle-bubble-sync", payload));
   ipcMain.handle("companion:get-event-history", () => getCompanionEvents().map(event => ({ id: event.id, event, timestamp: event.timestamp })));
   ipcMain.handle("companion:get-session-history", () => getSessionHistory());
@@ -2210,14 +2641,16 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:export-stats-file", () => undefined);
   ipcMain.handle("companion:import-stats-file", () => null);
   ipcMain.handle("companion:get-doctor-report", () => getDoctorReport());
-  createPetWindow();
+  if (isPetEnabled()) createPetWindow();
   createTray();
   startEventServer();
+  runStartupBehaviors();
 
   app.on("activate", () => {
-    if (!petWindow) createPetWindow();
+    if (isPetEnabled() && !petWindow) createPetWindow();
   });
 });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
