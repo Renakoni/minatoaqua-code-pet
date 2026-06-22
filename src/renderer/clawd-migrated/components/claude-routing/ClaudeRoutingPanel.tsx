@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { Plus } from "lucide-react";
 import type { CompanionSettings } from "../../../shared/events";
+import { useI18n } from "../../useI18n";
 import { SortableClaudeProviderCard } from "./ProviderCard";
 import { ProviderEditPanel } from "./ProviderEditPanel";
 import type { ClaudeProvider, LegacyRoute } from "./types";
@@ -12,6 +14,10 @@ type ClaudeRouteCompanionApi = typeof window.companion & {
   openClaudeRouteTerminal?: (routeId: string) => Promise<unknown>;
 };
 
+function formatI18n(template: string, values: Record<string, string | number>) {
+  return Object.entries(values).reduce((text, [key, value]) => text.split(`{${key}}`).join(String(value)), template);
+}
+
 export function ClaudeRoutingPanel({
   settings,
   updateSettings
@@ -20,6 +26,7 @@ export function ClaudeRoutingPanel({
   updateSettings: (next: Partial<CompanionSettings>) => void;
   connection?: unknown;
 }) {
+  const { t, locale } = useI18n();
   const legacyRoutes = ((settings.claudeRoutes ?? []) as LegacyRoute[]);
   const storedProviders = (settings.claudeProviders ?? null) as Record<string, ClaudeProvider> | null;
   const currentProviderId = (settings.currentClaudeProviderId ?? settings.activeClaudeRouteId ?? "") as string;
@@ -62,9 +69,13 @@ export function ClaudeRoutingPanel({
     const timeA = a.createdAt ?? 0;
     const timeB = b.createdAt ?? 0;
     if (timeA && timeB && timeA !== timeB) return timeA - timeB;
-    return a.name.localeCompare(b.name, "zh-CN");
-  }), [providers]);
+    return a.name.localeCompare(b.name, locale === "zh" ? "zh-CN" : "en-US");
+  }), [providers, locale]);
   const effectiveCurrentId = currentProviderId || sortedProviders[0]?.id || "";
+  const currentProvider = providers[effectiveCurrentId] ?? sortedProviders[0];
+  const providerSummary = currentProvider
+    ? formatI18n(t("routing.providerCountCurrent", "{count} providers · Current {name}"), { count: sortedProviders.length, name: currentProvider.name })
+    : formatI18n(t("routing.providerCount", "{count} providers"), { count: sortedProviders.length });
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -91,14 +102,14 @@ export function ClaudeRoutingPanel({
       next[provider.id] = { ...next[provider.id], sortIndex: index };
     });
     saveProviders(next);
-    setStatus("排序已更新");
+    setStatus(t("routing.orderUpdated", "Order updated"));
   }
 
   function createEmptyProvider(): ClaudeProvider {
     const now = Date.now();
     return {
       id: `provider-${now.toString(36)}`,
-      name: "新供应商",
+      name: t("routing.newProvider", "New provider"),
       category: "custom",
       createdAt: now,
       sortIndex: sortedProviders.length,
@@ -131,28 +142,31 @@ export function ClaudeRoutingPanel({
   async function handleSwitch(provider: ClaudeProvider) {
     const result = await companion.applyClaudeRoute?.(provider.id);
     if ((result as any)?.liveApply?.ok === false) {
-      setStatus((result as any).liveApply.error ?? "应用失败");
+      setStatus((result as any).liveApply.error ?? t("routing.applyFailed", "Apply failed"));
       return;
     }
     saveProviders(providers, provider.id);
-    setStatus((result as any)?.liveApply?.path ? "已写入 Claude Code 全局设置" : (result as any)?.activeRoute ? "已切换" : "已设为当前供应商");
+    setStatus((result as any)?.liveApply?.path ? t("routing.wroteGlobalSettings", "Wrote Claude Code global settings") : (result as any)?.activeRoute ? t("routing.switched", "Switched") : t("routing.setCurrent", "Set as current provider"));
   }
 
   async function handleTest(provider: ClaudeProvider) {
     const result = await companion.testClaudeRoute?.(provider.id);
-    setStatus((result as any)?.message ?? ((result as any)?.ok ? "检测完成" : "检测失败"));
+    setStatus((result as any)?.message ?? ((result as any)?.ok ? t("routing.testComplete", "Test complete") : t("routing.testFailed", "Test failed")));
   }
 
   async function handleTerminal(provider: ClaudeProvider) {
     const result = await companion.openClaudeRouteTerminal?.(provider.id);
-    setStatus((result as any)?.ok ? "终端已打开" : (result as any)?.error ?? "打开终端失败");
+    setStatus((result as any)?.ok ? t("routing.terminalOpened", "Terminal opened") : (result as any)?.error ?? t("routing.terminalFailed", "Failed to open terminal"));
   }
 
   return (
     <section className="ccs-provider-board">
       <header className="ccs-provider-board-header">
-        <div><h3>Claude Code 路由</h3></div>
-        <button className="cc-switch-add" onClick={() => { setCreating(true); setEditingProvider(null); }} title="添加供应商">+</button>
+        <div className="ccs-provider-board-title">
+          <h3>{t("routing.title", "Claude Code routing")}</h3>
+          <p>{providerSummary}</p>
+        </div>
+        <button className="cc-switch-add" onClick={() => { setCreating(true); setEditingProvider(null); }} title={t("routing.addProvider", "Add provider")} aria-label={t("routing.addProvider", "Add provider")}><Plus size={18} /></button>
       </header>
 
       {status ? <div className="ccs-provider-status">{status}</div> : null}

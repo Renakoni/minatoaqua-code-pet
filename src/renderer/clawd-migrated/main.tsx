@@ -54,7 +54,6 @@ import { NotificationRulesPanel } from "./components/NotificationRulesPanel";
 import { MonitorSettings } from "./components/MonitorSettings";
 import { DoctorPanel } from "./components/DoctorPanel";
 import { StatsPanel } from "./components/StatsPanel";
-import { SourcesPanel } from "./components/SourcesPanel";
 
 const clawdGifName: Record<PetState, string> = {
   idle: "clawd_png_idle",
@@ -171,6 +170,7 @@ function getPluginWidgetOffset(settings: CompanionSettings, plugin: CustomPlugin
 }
 
 function PetApp() {
+  const { t } = useI18n();
   const { settings, updateSettings, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, mainSessionId, companionSlotRef, connection, respondToPermission } = useCompanion({ keepEventList: false });
   const editMode = settings.editPosition;
   const dragging = useRef<string | null>(null);
@@ -392,16 +392,16 @@ function PetApp() {
   }, [activePermissions[0]?.id, activePermissions[0]?.toolDetail, activePermissions.length, offsets.permission?.x, offsets.permission?.y, settings.permissionScale]);
 
   const editPreviewEvent = useMemo(
-    () => makeEvent("tool_start", "manual", "编辑模式预览", "这是桌宠实际显示的卡片 / 气泡位置。", "Edit"),
-    []
+    () => makeEvent("tool_start", "manual", t("pet.editPreviewTitle", "Edit mode preview"), t("pet.editPreviewMessage", "This is where the pet card or bubble is displayed."), "Edit"),
+    [t]
   );
   const editPreviewStreams = useMemo(
-    () => [{ event: makeEvent("tool_start", "manual", "工具指示器预览", "Edit 工具指示器位置预览。", "Edit"), exiting: false, slot: 0 }],
-    []
+    () => [{ event: makeEvent("tool_start", "manual", t("pet.toolIndicatorPreviewTitle", "Tool indicator preview"), t("pet.toolIndicatorPreviewMessage", "Preview position for the Edit tool indicator."), "Edit"), exiting: false, slot: 0 }],
+    [t]
   );
   const editPreviewPermission = useMemo(
-    () => ({ id: "preview", toolName: "Bash" as ToolName, toolDetail: "预览权限卡片位置", timestamp: Date.now(), rawPayload: {} }),
-    []
+    () => ({ id: "preview", toolName: "Bash" as ToolName, toolDetail: t("pet.permissionPreviewDetail", "Preview permission card position"), timestamp: Date.now(), rawPayload: {} }),
+    [t]
   );
 
   if (!settings.petEnabled) return <main className="pet-stage pet-disabled" />;
@@ -537,7 +537,7 @@ function PetApp() {
               width: bw, height: bh
             }}
             onMouseDown={e => begin("bubble", e)}>
-            <span className="edit-zone-label">气泡 / 卡片</span>
+            <span className="edit-zone-label">{t("pet.editZoneBubble", "Bubble / card")}</span>
             <span className="zone-resize" onMouseDown={e => beginResize("bubble", e)} />
           </div>
           <div className="edit-zone edit-zone-ribbon"
@@ -546,7 +546,7 @@ function PetApp() {
               width: rw, height: rh
             }}
             onMouseDown={e => begin("ribbon", e)}>
-            <span className="edit-zone-label">工具条</span>
+            <span className="edit-zone-label">{t("pet.editZoneRibbon", "Tool ribbon")}</span>
             <span className="zone-resize" onMouseDown={e => beginResize("ribbon", e)} />
           </div>
           <div className="edit-zone edit-zone-permission"
@@ -557,7 +557,7 @@ function PetApp() {
               width: pw, height: ph
             }}
             onMouseDown={e => begin("permission", e)}>
-            <span className="edit-zone-label">权限卡片</span>
+            <span className="edit-zone-label">{t("pet.editZonePermission", "Permission card")}</span>
             <span className="zone-resize" onMouseDown={e => beginResize("permission", e)} />
           </div>
           <div className="edit-zone edit-zone-git-toast"
@@ -569,7 +569,7 @@ function PetApp() {
               height: 36
             }}
             onMouseDown={e => begin("gitToast", e)}>
-            <span className="edit-zone-label">Git 胶囊</span>
+            <span className="edit-zone-label">{t("pet.editZoneGitToast", "Git capsule")}</span>
             <span className="zone-resize" onMouseDown={e => beginResize("gitToast", e)} />
           </div>
           {settings.multiSessionEnabled && [0, 1, 2].map(i => {
@@ -585,7 +585,7 @@ function PetApp() {
                   height: 160
                 }}
                 onMouseDown={e => begin(`companion${i}`, e)}>
-                <span className="edit-zone-label">小 Clawd {i + 1}</span>
+                <span className="edit-zone-label">{t("pet.editZoneCompanion", "Mini Clawd")} {i + 1}</span>
               </div>
             );
           })}
@@ -738,6 +738,7 @@ function ToolStreams({ streams, offset }: { streams: ToolStream[]; offset?: { x:
 }
 
 function Clawd({ state, settings, forceIdleBubble }: { state: PetState; settings: CompanionSettings; forceIdleBubble?: string | null }) {
+  const { t } = useI18n();
   const [syncedSprite, setSyncedSprite] = useState<string | null>(null);
 
   useEffect(() => {
@@ -748,7 +749,7 @@ function Clawd({ state, settings, forceIdleBubble }: { state: PetState; settings
   const effectiveBubble = forceIdleBubble ?? syncedSprite;
 
   return (
-    <section className={`clawd clawd-${state}`} style={{ transform: `scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }} aria-label={`Clawd ${stateCopy[state].label}`}>
+    <section className={`clawd clawd-${state}`} style={{ transform: `scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }} aria-label={`Clawd ${t(`pet.${state}`, stateCopy[state].label)}`}>
       <ClawdSprite state={state} idleBubble={effectiveBubble} stateAnimations={settings.stateAnimations} />
       {settings.showStatusProp && state !== "idle" ? <StateProp state={state} /> : null}
     </section>
@@ -1128,6 +1129,9 @@ export function SettingsApp() {
             </div>
           </section>}
 
+          <ClaudeRoutingPanel settings={settings} updateSettings={updateSettings} connection={connection} />
+          {connection.error ? <section className="connection-error"><Wrench size={18} />{connection.error}</section> : null}
+
           <section className="overview-status-panel">
             <header className="workbench-section-head">
               <div>
@@ -1146,177 +1150,198 @@ export function SettingsApp() {
               <StatusCard icon={<MonitorCheck size={18} />} label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} tone={connection.serverListening ? "good" : "bad"} />
             </div>
           </section>
-
-          {connection.error ? <section className="connection-error"><Wrench size={18} />{connection.error}</section> : null}
-          <ClaudeRoutingPanel settings={settings} updateSettings={updateSettings} connection={connection} />
         </section>}
 
         {activeSection === "settings" && (
           <section className="settings-page">
-            <nav className="settings-subtabs">
-              {[
-                { id: "general", label: t("settings.subtabs.general", "通用") },
-                { id: "connection", label: t("settings.subtabs.connection", "连接") },
-                { id: "diagnostics", label: t("settings.subtabs.diagnostics", "诊断") },
-                { id: "appearance", label: t("settings.subtabs.appearance", "外观") },
-                { id: "behavior", label: t("settings.subtabs.behavior", "行为") }
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  className={`settings-subtab ${activeSettingsSubsection === tab.id ? "active" : ""}`}
-                  onClick={() => {
-                    setActiveSettingsSubsection(tab.id);
-                    sectionContentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </nav>
+            <header className="settings-page-head">
+              <div>
+                <span>{t("settings.eyebrow", "Settings")}</span>
+                <h2>{t("settings.title", "偏好设置")}</h2>
+              </div>
+              <nav className="settings-subtabs">
+                {[
+                  { id: "general", icon: <Gauge size={14} />, label: t("settings.subtabs.general", "通用") },
+                  { id: "pet", icon: <Bot size={14} />, label: t("settings.subtabs.pet", "桌宠") },
+                  { id: "notifications", icon: <Bell size={14} />, label: t("settings.subtabs.notifications", "通知") },
+                  { id: "privacy", icon: <Shield size={14} />, label: t("settings.subtabs.privacy", "隐私与数据") },
+                  { id: "diagnostics", icon: <MonitorCheck size={14} />, label: t("settings.subtabs.diagnostics", "诊断") },
+                  { id: "about", icon: <Sparkles size={14} />, label: t("settings.subtabs.about", "关于") }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    className={`settings-subtab ${activeSettingsSubsection === tab.id ? "active" : ""}`}
+                    onClick={() => {
+                      setActiveSettingsSubsection(tab.id);
+                      sectionContentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+                    }}
+                  >
+                    {tab.icon}
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </nav>
+            </header>
 
             <div className="settings-subsection-content">
               {activeSettingsSubsection === "general" && <>
-                <GroupCard icon={<Eye size={18} />} title={t("settings.subtabs.general", "通用")}>
+                <GroupCard icon={<Gauge size={18} />} title={t("sections.basicPreferences", "基础偏好")}>
                   <section className="settings-group theme-settings-group">
                     <h3 className="panel-subtitle">{t("sections.theme", "界面主题")}</h3>
                     <div className="theme-style-row">
                       <ThemeSegmented value={settings.theme ?? "system"} onChange={theme => updateSettings({ theme })} />
-                      <UiStyleToggle value={settings.uiStyle ?? "classic"} onChange={uiStyle => updateSettings({ uiStyle })} />
-                      <LanguageSegmented value={settings.language ?? "auto"} onChange={language => {
+                      <LanguageSegmented value={settings.language === "auto" ? locale : settings.language ?? locale} onChange={language => {
                         updateSettings({ language });
-                        setLocale(language === "auto" ? detectLocale() : language);
+                        setLocale(language);
                       }} />
                     </div>
                   </section>
-                  <div className="panel-divider" />
-                  <Toggle label={t("appearance.enablePet", "启用桌宠")} checked={settings.petEnabled} onChange={petEnabled => updateSettings({ petEnabled })} />
-                  <Toggle label={t("appearance.alwaysOnTop", "始终置顶")} checked={settings.alwaysOnTop} onChange={alwaysOnTop => updateSettings({ alwaysOnTop })} />
-                  <Toggle label={t("appearance.showBubbles", "显示气泡")} checked={settings.showBubbles} onChange={showBubbles => updateSettings({ showBubbles })} />
+                </GroupCard>
+
+                <GroupCard icon={<MousePointer2 size={18} />} title={t("sections.startup", "启动与更新")}>
+                  <Toggle label={t("behavior.launchAtLogin", "开机自启")} checked={settings.launchAtLogin} onChange={launchAtLogin => updateSettings({ launchAtLogin })} />
+                  <Toggle label={t("behavior.autoStartWithCli", "Claude Code 启动时自动启动")} checked={settings.autoStartWithCli} onChange={autoStartWithCli => updateSettings({ autoStartWithCli })} />
+                  <Toggle label={t("behavior.autoUpdate", "启动时自动检查更新")} checked={settings.autoUpdateEnabled} onChange={autoUpdateEnabled => updateSettings({ autoUpdateEnabled })} />
                   <Toggle label={t("behavior.openSettingsOnStart", "启动时打开配置面板")} checked={settings.openSettingsOnStart} onChange={openSettingsOnStart => updateSettings({ openSettingsOnStart })} />
                 </GroupCard>
               </>}
 
-              {activeSettingsSubsection === "connection" && <>
-          <GroupCard icon={<PlugZap size={18} />} title={t("sections.sources", "数据源（Sources）")}>
-            <SourcesPanel />
-          </GroupCard>
-          <GroupCard icon={<Radio size={18} />} title={t("sections.connectionDetails", "连接详情")}>
-            <div className="connection-detail-grid">
-              <ConnectionDetail label={t("fields.status", "状态")} value={connection.connected ? t("status.connected", "已连接") : connection.serverListening ? t("status.waiting", "等待 Claude 会话") : t("status.notListening", "本地服务未监听")} />
-              <ConnectionDetail label={t("fields.client", "客户端")} value={connection.activeClientLabel ?? t("pet.unknownClient", "未知客户端")} />
-              <ConnectionDetail label={t("fields.sessionId", "会话 ID")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} />
-              <ConnectionDetail label={t("fields.lastActive", "最后活动")} value={connection.lastEventAt ? timeAgo(connection.lastEventAt, now) : t("common.none", "暂无")} />
-            </div>
-          </GroupCard>
-
-          <GroupCard icon={<Shield size={18} />} title={t("sections.privacySecurity", "隐私与安全")}>
-            <div className="settings-columns compact">
-              <section className="settings-group">
-                <Field label={t("fields.eventPort", "事件端口")}>
-                  <input value={settings.port} onChange={event => updateSettings({ port: Number(event.target.value) || defaultSettings.port })} />
-                </Field>
-                <Field label={t("fields.localToken", "本地 token")}>
-                  <input value={settings.token} onChange={event => updateSettings({ token: event.target.value })} />
-                </Field>
-              </section>
-              <section className="settings-group">
-                <Segmented value={settings.privacyMode} onChange={privacyMode => updateSettings({ privacyMode })} />
-                <p className="note">安全模式只显示工具类型；标准模式显示文件名和搜索模式；详细模式可显示被截断的命令摘要。</p>
-              </section>
-            </div>
-          </GroupCard>
-              </>}
-
               {activeSettingsSubsection === "diagnostics" && <>
+                <GroupCard icon={<Radio size={18} />} title={t("sections.connectionDetails", "连接详情")}>
+                  <div className="connection-detail-grid">
+                    <ConnectionDetail label={t("fields.status", "状态")} value={connection.connected ? t("status.connected", "已连接") : connection.serverListening ? t("status.waiting", "等待 Claude 会话") : t("status.notListening", "本地服务未监听")} />
+                    <ConnectionDetail label={t("fields.client", "客户端")} value={connection.activeClientLabel ?? t("pet.unknownClient", "未知客户端")} />
+                    <ConnectionDetail label={t("fields.sessionId", "会话 ID")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} />
+                    <ConnectionDetail label={t("fields.lastActive", "最后活动")} value={connection.lastEventAt ? timeAgo(connection.lastEventAt, now) : t("common.none", "暂无")} />
+                  </div>
+                </GroupCard>
                 <DoctorPanel />
               </>}
 
-              {activeSettingsSubsection === "appearance" && <>
-                <GroupCard icon={<Eye size={18} />} title={t("sections.display", "显示")}>
-            <section className="settings-group theme-settings-group">
-              <h3 className="panel-subtitle">{t("sections.theme", "界面主题")}</h3>
-              <div className="theme-style-row">
-                <ThemeSegmented value={settings.theme ?? "system"} onChange={theme => updateSettings({ theme })} />
-                <UiStyleToggle value={settings.uiStyle ?? "classic"} onChange={uiStyle => updateSettings({ uiStyle })} />
-                <LanguageSegmented value={settings.language ?? "auto"} onChange={language => {
-                  updateSettings({ language });
-                  setLocale(language === "auto" ? detectLocale() : language);
-                }} />
-              </div>
-              <p className="note">{t("appearance.themeNote", "选择日间、夜间或跟随系统；右侧可切换经典 / 液态玻璃界面风格。")}</p>
-            </section>
-            <div className="panel-divider" />
-            <Toggle label={t("appearance.enablePet", "启用桌宠")} checked={settings.petEnabled} onChange={petEnabled => updateSettings({ petEnabled })} />
-            <Toggle label={t("appearance.alwaysOnTop", "始终置顶")} checked={settings.alwaysOnTop} onChange={alwaysOnTop => updateSettings({ alwaysOnTop })} />
-            <Toggle label={t("appearance.clickThrough", "完全点击穿透")} checked={settings.clickThrough} onChange={clickThrough => updateSettings({ clickThrough })} />
-            <Toggle label={t("appearance.showBubbles", "显示气泡")} checked={settings.showBubbles} onChange={showBubbles => updateSettings({ showBubbles })} />
-            <Toggle label={t("appearance.showStatusProp", "显示状态图标")} checked={settings.showStatusProp} onChange={showStatusProp => updateSettings({ showStatusProp })} />
-            <Toggle label={t("appearance.showSessionTitle", "显示会话标题")} checked={settings.showSessionTitle} onChange={showSessionTitle => updateSettings({ showSessionTitle })} />
-            <Toggle label={t("appearance.editPosition", "编辑桌宠位置")} checked={settings.editPosition} onChange={editPosition => updateSettings({ editPosition })} />
-            {settings.editPosition ? <button className="inline-action" onClick={() => updateSettings({ positionOffsets: defaultSettings.positionOffsets, zoneSizes: defaultSettings.zoneSizes, clawdScale: defaultSettings.clawdScale, thoughtScale: defaultSettings.thoughtScale, bubbleScale: defaultSettings.bubbleScale, cardScale: defaultSettings.cardScale, petScale: defaultSettings.petScale, viewScale: defaultSettings.viewScale })}>{t("appearance.resetAll", "重置全部")}</button> : null}
-          </GroupCard>
+              {activeSettingsSubsection === "pet" && <>
+                <GroupCard icon={<Bot size={18} />} title={t("sections.petDisplay", "桌宠显示")}>
+                  <Toggle label={t("appearance.enablePet", "启用桌宠")} checked={settings.petEnabled} onChange={petEnabled => updateSettings({ petEnabled })} />
+                  <Toggle label={t("appearance.alwaysOnTop", "始终置顶")} checked={settings.alwaysOnTop} onChange={alwaysOnTop => updateSettings({ alwaysOnTop })} />
+                  <Toggle label={t("appearance.clickThrough", "完全点击穿透")} checked={settings.clickThrough} onChange={clickThrough => updateSettings({ clickThrough })} />
+                  <Toggle label={t("appearance.showBubbles", "显示气泡")} checked={settings.showBubbles} onChange={showBubbles => updateSettings({ showBubbles })} />
+                  <Toggle label={t("appearance.showStatusProp", "显示状态图标")} checked={settings.showStatusProp} onChange={showStatusProp => updateSettings({ showStatusProp })} />
+                  <Toggle label={t("appearance.showSessionTitle", "显示会话标题")} checked={settings.showSessionTitle} onChange={showSessionTitle => updateSettings({ showSessionTitle })} />
+                  <Toggle label={t("appearance.editPosition", "编辑桌宠位置")} checked={settings.editPosition} onChange={editPosition => updateSettings({ editPosition })} />
+                  {settings.editPosition ? <button className="inline-action" onClick={() => updateSettings({ positionOffsets: defaultSettings.positionOffsets, zoneSizes: defaultSettings.zoneSizes, clawdScale: defaultSettings.clawdScale, thoughtScale: defaultSettings.thoughtScale, bubbleScale: defaultSettings.bubbleScale, cardScale: defaultSettings.cardScale, petScale: defaultSettings.petScale, viewScale: defaultSettings.viewScale })}>{t("appearance.resetAll", "重置全部")}</button> : null}
+                </GroupCard>
 
-          <MonitorSettings settings={settings} updateSettings={updateSettings} />
+                <MonitorSettings settings={settings} updateSettings={updateSettings} />
 
-          <div className="section-grid-2col">
-            <GroupCard title={t("appearance.overallScale", "整体缩放")}>
-              <Slider label={t("appearance.viewScale", "视图缩放")} min={0.7} max={1.45} step={0.05} value={settings.petScale} format={v => `${Math.round(v * 100)}%`} onChange={petScale => updateSettings({ petScale })} />
-              <Slider label={t("appearance.viewportScale", "视窗缩放")} min={0.7} max={2.5} step={0.05} value={settings.viewScale ?? settings.petScale} format={v => `${Math.round(v * 100)}%`} onChange={viewScale => updateSettings({ viewScale })} />
-              <Slider label={t("appearance.opacity", "整体透明")} min={0.45} max={1} step={0.05} value={settings.petOpacity} format={v => `${Math.round(v * 100)}%`} onChange={petOpacity => updateSettings({ petOpacity })} />
-            </GroupCard>
+                <div className="section-grid-2col">
+                  <GroupCard title={t("appearance.overallScale", "整体缩放")}>
+                    <Slider label={t("appearance.viewScale", "视图缩放")} min={0.7} max={1.45} step={0.05} value={settings.petScale} format={v => `${Math.round(v * 100)}%`} onChange={petScale => updateSettings({ petScale })} />
+                    <Slider label={t("appearance.viewportScale", "视窗缩放")} min={0.7} max={2.5} step={0.05} value={settings.viewScale ?? settings.petScale} format={v => `${Math.round(v * 100)}%`} onChange={viewScale => updateSettings({ viewScale })} />
+                    <Slider label={t("appearance.opacity", "整体透明")} min={0.45} max={1} step={0.05} value={settings.petOpacity} format={v => `${Math.round(v * 100)}%`} onChange={petOpacity => updateSettings({ petOpacity })} />
+                  </GroupCard>
 
-            <GroupCard title="Clawd">
-              <Slider label={t("appearance.size", "尺寸")} min={0.7} max={1.35} step={0.05} value={settings.clawdScale} format={v => `${Math.round(v * 100)}%`} onChange={clawdScale => updateSettings({ clawdScale })} />
-              <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.clawdOpacity} format={v => `${Math.round(v * 100)}%`} onChange={clawdOpacity => updateSettings({ clawdOpacity })} />
-            </GroupCard>
+                  <GroupCard title="Clawd">
+                    <Slider label={t("appearance.size", "尺寸")} min={0.7} max={1.35} step={0.05} value={settings.clawdScale} format={v => `${Math.round(v * 100)}%`} onChange={clawdScale => updateSettings({ clawdScale })} />
+                    <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.clawdOpacity} format={v => `${Math.round(v * 100)}%`} onChange={clawdOpacity => updateSettings({ clawdOpacity })} />
+                  </GroupCard>
 
-            <GroupCard title={t("appearance.thoughtBubble", "思维泡")}>
-              <Slider label={t("appearance.size", "尺寸")} min={0.75} max={1.35} step={0.05} value={settings.thoughtScale} format={v => `${Math.round(v * 100)}%`} onChange={thoughtScale => updateSettings({ thoughtScale })} />
-              <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.thoughtOpacity} format={v => `${Math.round(v * 100)}%`} onChange={thoughtOpacity => updateSettings({ thoughtOpacity })} />
-            </GroupCard>
+                  <GroupCard title={t("appearance.thoughtBubble", "思维泡")}>
+                    <Slider label={t("appearance.size", "尺寸")} min={0.75} max={1.35} step={0.05} value={settings.thoughtScale} format={v => `${Math.round(v * 100)}%`} onChange={thoughtScale => updateSettings({ thoughtScale })} />
+                    <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.thoughtOpacity} format={v => `${Math.round(v * 100)}%`} onChange={thoughtOpacity => updateSettings({ thoughtOpacity })} />
+                  </GroupCard>
 
-            <GroupCard title={t("appearance.card", "卡片")}>
-              <Slider label={t("appearance.size", "尺寸")} min={0.75} max={1.25} step={0.05} value={settings.cardScale} format={v => `${Math.round(v * 100)}%`} onChange={cardScale => updateSettings({ cardScale })} />
-              <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.cardOpacity} format={v => `${Math.round(v * 100)}%`} onChange={cardOpacity => updateSettings({ cardOpacity })} />
-            </GroupCard>
+                  <GroupCard title={t("appearance.card", "卡片")}>
+                    <Slider label={t("appearance.size", "尺寸")} min={0.75} max={1.25} step={0.05} value={settings.cardScale} format={v => `${Math.round(v * 100)}%`} onChange={cardScale => updateSettings({ cardScale })} />
+                    <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.cardOpacity} format={v => `${Math.round(v * 100)}%`} onChange={cardOpacity => updateSettings({ cardOpacity })} />
+                  </GroupCard>
 
-            <GroupCard title={t("appearance.bubbleToolStream", "气泡 / 工具流")}>
-              <Slider label={t("appearance.size", "尺寸")} min={0.6} max={2} step={0.05} value={settings.bubbleScale} format={v => `${Math.round(v * 100)}%`} onChange={bubbleScale => updateSettings({ bubbleScale })} />
-              <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.bubbleOpacity} format={v => `${Math.round(v * 100)}%`} onChange={bubbleOpacity => updateSettings({ bubbleOpacity })} />
-            </GroupCard>
+                  <GroupCard title={t("appearance.bubbleToolStream", "气泡 / 工具流")}>
+                    <Slider label={t("appearance.size", "尺寸")} min={0.6} max={2} step={0.05} value={settings.bubbleScale} format={v => `${Math.round(v * 100)}%`} onChange={bubbleScale => updateSettings({ bubbleScale })} />
+                    <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.bubbleOpacity} format={v => `${Math.round(v * 100)}%`} onChange={bubbleOpacity => updateSettings({ bubbleOpacity })} />
+                  </GroupCard>
 
-            <GroupCard title={t("appearance.permissionPopup", "权限弹窗")}>
-              <Slider label={t("appearance.size", "尺寸")} min={0.4} max={2} step={0.05} value={settings.permissionScale} format={v => `${Math.round(v * 100)}%`} onChange={permissionScale => updateSettings({ permissionScale })} />
-              <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.permissionOpacity} format={v => `${Math.round(v * 100)}%`} onChange={permissionOpacity => updateSettings({ permissionOpacity })} />
-            </GroupCard>
-          </div>
+                  <GroupCard title={t("appearance.permissionPopup", "权限弹窗")}>
+                    <Slider label={t("appearance.size", "尺寸")} min={0.4} max={2} step={0.05} value={settings.permissionScale} format={v => `${Math.round(v * 100)}%`} onChange={permissionScale => updateSettings({ permissionScale })} />
+                    <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.permissionOpacity} format={v => `${Math.round(v * 100)}%`} onChange={permissionOpacity => updateSettings({ permissionOpacity })} />
+                  </GroupCard>
+                </div>
+
+                <GroupCard title={t("sections.multiSession", "多会话模式")}>
+                  <Toggle label={<span className="toggle-label-with-badge">{t("behavior.enableMultiSession", "启用多会话")}<sup className="beta-badge">{t("behavior.testing", "测试中")}</sup></span>} checked={settings.multiSessionEnabled} onChange={multiSessionEnabled => updateSettings({ multiSessionEnabled })} />
+                  {settings.multiSessionEnabled && (
+                    <Slider label={t("behavior.companionScale", "小 Clawd 缩放")} min={0.3} max={0.8} step={0.05} value={settings.companionScale} format={v => `${Math.round(v * 100)}%`} onChange={companionScale => updateSettings({ companionScale })} />
+                  )}
+                </GroupCard>
               </>}
 
-              {activeSettingsSubsection === "behavior" && <>
-                <GroupCard icon={<MousePointer2 size={18} />} title={t("sections.startup", "启动")}>
-            <Toggle label={t("behavior.launchAtLogin", "开机自启")} checked={settings.launchAtLogin} onChange={launchAtLogin => updateSettings({ launchAtLogin })} />
-            <Toggle label={t("behavior.autoStartWithCli", "Claude Code 启动时自动启动")} checked={settings.autoStartWithCli} onChange={autoStartWithCli => updateSettings({ autoStartWithCli })} />
-            <Toggle label={t("behavior.autoUpdate", "启动时自动检查更新")} checked={settings.autoUpdateEnabled} onChange={autoUpdateEnabled => updateSettings({ autoUpdateEnabled })} />
-            <Toggle label={t("behavior.openSettingsOnStart", "启动时打开配置面板")} checked={settings.openSettingsOnStart} onChange={openSettingsOnStart => updateSettings({ openSettingsOnStart })} />
-            <Toggle label={t("behavior.permissionDialog", "权限申请卡片")} checked={settings.permissionDialogEnabled} onChange={permissionDialogEnabled => updateSettings({ permissionDialogEnabled })} />
-          </GroupCard>
+              {activeSettingsSubsection === "notifications" && <>
+                <GroupCard icon={<Bell size={18} />} title={t("sections.sound", "通知和音效")}>
+                  <NotificationRulesPanel settings={settings} updateSettings={updateSettings} />
+                </GroupCard>
 
-          <GroupCard icon={<Bell size={18} />} title={t("sections.sound", "通知和音效")}>
-            <NotificationRulesPanel settings={settings} updateSettings={updateSettings} />
-          </GroupCard>
+                <GroupCard icon={<Timer size={18} />} title={t("sections.time", "时间与提示")}>
+                  <Toggle label={t("behavior.permissionDialog", "权限申请卡片")} checked={settings.permissionDialogEnabled} onChange={permissionDialogEnabled => updateSettings({ permissionDialogEnabled })} />
+                  <Slider label={t("behavior.bubbleStay", "气泡停留")} min={3} max={18} step={1} value={settings.bubbleDuration} format={v => `${v} ${t("common.seconds", "秒")}`} onChange={bubbleDuration => updateSettings({ bubbleDuration })} />
+                  <Slider label={t("behavior.toolStreamStay", "工具流停留")} min={0.3} max={3} step={0.1} value={settings.toolStreamMinDuration} format={v => `${v.toFixed(1)} ${t("common.seconds", "秒")}`} onChange={toolStreamMinDuration => updateSettings({ toolStreamMinDuration })} />
+                </GroupCard>
+              </>}
 
-          <GroupCard icon={<Timer size={18} />} title={t("sections.time", "时间")}>
-            <Slider label={t("behavior.bubbleStay", "气泡停留")} min={3} max={18} step={1} value={settings.bubbleDuration} format={v => `${v} ${t("common.seconds", "秒")}`} onChange={bubbleDuration => updateSettings({ bubbleDuration })} />
-            <Slider label={t("behavior.toolStreamStay", "工具流停留")} min={0.3} max={3} step={0.1} value={settings.toolStreamMinDuration} format={v => `${v.toFixed(1)} ${t("common.seconds", "秒")}`} onChange={toolStreamMinDuration => updateSettings({ toolStreamMinDuration })} />
-            <Slider label={t("behavior.eventHistory", "事件历史")} min={12} max={100} step={4} value={settings.eventHistoryLimit} format={v => `${v} ${t("common.items", "条")}`} onChange={eventHistoryLimit => updateSettings({ eventHistoryLimit })} />
-          </GroupCard>
+              {activeSettingsSubsection === "privacy" && <>
+                <GroupCard icon={<Shield size={18} />} title={t("sections.privacyData", "隐私与数据")}>
+                  <div className="settings-columns compact">
+                    <section className="settings-group">
+                      <h3 className="panel-subtitle">{t("sections.privacyMode", "隐私模式")}</h3>
+                      <Segmented value={settings.privacyMode} onChange={privacyMode => updateSettings({ privacyMode })} />
+                      <p className="note">{t("settings.privacyModeNote", "Safe mode only shows tool types; standard mode shows file names and search patterns; detailed mode can show truncated command summaries.")}</p>
+                    </section>
+                    <section className="settings-group">
+                      <h3 className="panel-subtitle">{t("sections.localData", "本地数据")}</h3>
+                      <Slider label={t("behavior.eventHistory", "事件历史")} min={12} max={100} step={4} value={settings.eventHistoryLimit} format={v => `${v} ${t("common.items", "条")}`} onChange={eventHistoryLimit => updateSettings({ eventHistoryLimit })} />
+                    </section>
+                  </div>
+                </GroupCard>
 
-          <GroupCard title={t("sections.multiSession", "多会话模式")}>
-            <Toggle label={<span className="toggle-label-with-badge">{t("behavior.enableMultiSession", "启用多会话")}<sup className="beta-badge">{t("behavior.testing", "测试中")}</sup></span>} checked={settings.multiSessionEnabled} onChange={multiSessionEnabled => updateSettings({ multiSessionEnabled })} />
-            {settings.multiSessionEnabled && (
-              <Slider label={t("behavior.companionScale", "小 Clawd 缩放")} min={0.3} max={0.8} step={0.05} value={settings.companionScale} format={v => `${Math.round(v * 100)}%`} onChange={companionScale => updateSettings({ companionScale })} />
-            )}
-          </GroupCard>
+                <GroupCard icon={<KeyRound size={18} />} title={t("sections.localAccess", "本地事件接入")}>
+                  <div className="settings-columns compact">
+                    <section className="settings-group">
+                      <Field label={t("fields.eventPort", "事件端口")}>
+                        <input value={settings.port} onChange={event => updateSettings({ port: Number(event.target.value) || defaultSettings.port })} />
+                      </Field>
+                      <Field label={t("fields.localToken", "本地 token")}>
+                        <input value={settings.token} onChange={event => updateSettings({ token: event.target.value })} />
+                      </Field>
+                    </section>
+                    <section className="settings-group">
+                      <SettingsInfoRow label={t("fields.status", "状态")} value={connection.serverListening ? t("status.listening", "正在监听") : t("status.notListening", "未监听")} />
+                      <SettingsInfoRow label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} />
+                      <p className="note">{t("settings.localAccessNote", "端口和 token 修改后需要重启应用才会影响本地事件入口。")}</p>
+                    </section>
+                  </div>
+                </GroupCard>
+              </>}
+
+              {activeSettingsSubsection === "about" && <>
+                <GroupCard icon={<Sparkles size={18} />} title={t("settings.about.title", "关于 Clawd Companion")}>
+                  <div className="settings-about-panel">
+                    <div className="settings-about-mark">Clawd</div>
+                    <div className="settings-about-copy">
+                      <strong>Clawd Companion</strong>
+                      <span>{t("settings.about.description", "面向 Claude Code 的本地桌宠和工作台。")}</span>
+                    </div>
+                    <div className="settings-about-actions">
+                      <button className="inline-action" onClick={() => window.companion.openExternal("https://github.com/Doulor/Clawd-Companion")}>GitHub</button>
+                      <button className="inline-action" onClick={handleCheckUpdate} disabled={checkingUpdate || updateStatus.checking || updateStatus.downloading}>
+                        {checkingUpdate || updateStatus.checking ? t("update.checkShort", "检查中...") : t("update.check", "检查更新")}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="settings-info-list">
+                    <SettingsInfoRow label={t("settings.about.version", "版本")} value={`v${appVersion}`} />
+                    <SettingsInfoRow label={t("settings.about.product", "产品定位")} value={t("settings.about.productValue", "Claude Code 桌宠与本地控制面板")} />
+                    <SettingsInfoRow label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} />
+                    <SettingsInfoRow label={t("fields.sessionId", "会话 ID")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} />
+                    <SettingsInfoRow label={t("update.status", "更新状态")} value={updateStatus.downloaded ? t("update.ready", "已下载") : updateStatus.available ? t("update.availableShort", "发现新版本") : updateStatus.upToDate ? t("update.upToDate", "已是最新版本") : updateStatus.error ? t("update.errorShort", "检查失败") : t("common.idle", "待机")} />
+                  </div>
+                </GroupCard>
               </>}
             </div>
           </section>
@@ -1522,16 +1547,21 @@ function ConnectionDetail({ label, value }: { label: string; value: string }) {
   return <article className="connection-detail"><span>{label}</span><strong>{value}</strong></article>;
 }
 
+function SettingsInfoRow({ label, value }: { label: string; value: string }) {
+  return <div className="settings-info-row"><span>{label}</span><strong>{value}</strong></div>;
+}
+
 function Step({ number, title, text }: { number: string; title: string; text: string }) {
   return <article className="step"><b>{number}</b><div><strong>{title}</strong><p>{text}</p></div></article>;
 }
 
 function MappingRow({ row }: { row: { source: string; tool?: string; state: PetState; title: string } }) {
+  const { t } = useI18n();
   return (
     <article className="mapping-row">
       <div><strong>{row.source}</strong><span>{row.tool ?? row.title}</span></div>
       <i />
-      <em className={`tone-${stateCopy[row.state].tone}`}>{stateCopy[row.state].label}</em>
+      <em className={`tone-${stateCopy[row.state].tone}`}>{t(`pet.${row.state}`, stateCopy[row.state].label)}</em>
     </article>
   );
 }
@@ -1607,10 +1637,8 @@ function ThemeSegmented({ value, onChange }: { value: CompanionSettings["theme"]
 }
 
 function LanguageSegmented({ value, onChange }: { value: CompanionSettings["language"]; onChange: (value: CompanionSettings["language"]) => void }) {
-  const { t } = useI18n();
   const items: Array<{ value: CompanionSettings["language"]; label: string; icon: string }> = [
     { value: "zh", label: "中文", icon: "中" },
-    { value: "auto", label: t("common.auto", "自动"), icon: "◐" },
     { value: "en", label: "English", icon: "EN" }
   ];
   const activeIndex = Math.max(0, items.findIndex(item => item.value === value));
@@ -1624,20 +1652,6 @@ function LanguageSegmented({ value, onChange }: { value: CompanionSettings["lang
         </button>
       ))}
     </div>
-  );
-}
-
-function UiStyleToggle({ value, onChange }: { value: CompanionSettings["uiStyle"]; onChange: (value: CompanionSettings["uiStyle"]) => void }) {
-  const { t } = useI18n();
-  const next = value === "liquid" ? "classic" : "liquid";
-  return (
-    <button className={`ui-style-toggle ui-style-toggle-${value}`} type="button" onClick={() => onChange(next)}>
-      <span className="ui-style-orb" />
-      <span className="ui-style-copy">
-        <strong>{value === "liquid" ? t("behavior.uiLiquid", "液态玻璃") : t("behavior.uiClassic", "经典风格")}</strong>
-        <small>{value === "liquid" ? t("behavior.uiBackClassic", "点击返回经典") : t("behavior.uiSwitchNew", "点击切换新界面")}</small>
-      </span>
-    </button>
   );
 }
 
@@ -2082,23 +2096,48 @@ function buildTokenHeatmap(dailyTotals: TokenHeatmapDaily[], zh: boolean) {
   };
 }
 
+const TOKEN_STATS_CACHE_KEY = "clawd-token-stats-cache-v1";
+
+function readCachedTokenStats() {
+  try {
+    const raw = localStorage.getItem(TOKEN_STATS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { data?: unknown };
+    return parsed && typeof parsed.data === "object" && parsed.data ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedTokenStats(data: unknown) {
+  try {
+    localStorage.setItem(TOKEN_STATS_CACHE_KEY, JSON.stringify({ cachedAt: Date.now(), data }));
+  } catch {
+    // Best-effort cache only. Token scans still work without localStorage.
+  }
+}
+
 function TokenPanel() {
   const { t, locale } = useI18n();
   const zh = locale === "zh";
-  const [stats, setStats] = useState<any | null>(null);
+  const [stats, setStats] = useState<any | null>(() => readCachedTokenStats());
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAllModels, setShowAllModels] = useState(false);
   const [showAllProjects, setShowAllProjects] = useState(false);
   const load = async (force = false) => {
     setError(null);
+    setLoading(true);
     if (force) setRefreshing(true);
     try {
       const result = await window.companion.getTokenStats(force);
       setStats(result);
+      writeCachedTokenStats(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      setLoading(false);
       setRefreshing(false);
     }
   };
@@ -2110,8 +2149,28 @@ function TokenPanel() {
   const fmtPct = (n: number) => `${Math.round((n || 0) * 100)}%`;
   const fmtCount = (n: number) => Math.round(n || 0).toLocaleString(zh ? "zh-CN" : "en-US");
 
-  if (error) return <div className="note" style={{ color: "var(--coral)" }}>{t("stats.scanFailed", "加载失败")}: {error}</div>;
-  if (!stats) return <div className="note">{t("stats.scanning", "扫描中…")} {zh ? "正在读取 ~/.claude/projects 的 Claude Code 用量" : "Reading Claude Code usage from ~/.claude/projects"}</div>;
+  if (error && !stats) return <div className="note" style={{ color: "var(--coral)" }}>{t("stats.scanFailed", "加载失败")}: {error}</div>;
+  if (!stats) {
+    return (
+      <div className="token-panel token-panel-rich token-panel-loading">
+        <div className="token-header">
+          <div>
+            <h3 className="panel-subtitle">{t("stats.tokenUsageFull", "Claude Code Token usage")}</h3>
+            <p className="note">{t("stats.scanning", "扫描中…")} {t("stats.scanningClaudeUsage", "Reading Claude Code usage from ~/.claude/projects")}</p>
+          </div>
+        </div>
+        <div className="stats-grid token-kpi-grid">
+          <TokenKpi icon={<Zap size={17} />} value="0" label={t("stats.tokenToday", "今日")} tone="mint" />
+          <TokenKpi icon={<BarChart3 size={17} />} value="0" label={t("stats.token30d", "30天")} tone="honey" />
+          <TokenKpi icon={<Layers3 size={17} />} value="0" label={t("stats.tokenTotal", "累计")} tone="steel" />
+          <TokenKpi icon={<DollarSign size={17} />} value="$0" label={t("stats.estimatedCost", "Est. cost")} tone="coral" />
+          <TokenKpi icon={<Gauge size={17} />} value="0%" label="Cache hit" tone="mint" />
+          <TokenKpi icon={<Terminal size={17} />} value="0" label={t("stats.requests", "Requests")} tone="steel" />
+        </div>
+        <p className="note">{t("stats.cacheSnapshotHint", "After the first scan, a snapshot is kept so this page can show the last result immediately.")}</p>
+      </div>
+    );
+  }
 
   const todayStr = localDateKey();
   const todayEntry = stats.dailyTotals?.find((d: any) => d.date === todayStr);
@@ -2134,47 +2193,50 @@ function TokenPanel() {
   const highRequestSummary = highRequestRows.length > 0
     ? `${highRequestRows.length} ${zh ? "条请求" : "requests"} · ${fmtTok(highRequestRows.reduce((sum: number, request: any) => sum + (request.totalTokens ?? 0), 0))} · ${fmtUsd(highRequestRows.reduce((sum: number, request: any) => sum + (request.costUsd ?? 0), 0))}`
     : t("stats.noData", "无数据");
+  const scannedAt = Number.isFinite(Number(stats.lastScannedAt)) ? Number(stats.lastScannedAt) : Date.now();
+  const scanSummary = Object.entries({ sessions: stats.totalSessions ?? 0, requests: stats.totalRequests ?? 0, time: new Date(scannedAt).toLocaleString(zh ? "zh-CN" : "en-US") }).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), t("stats.scanSummary", "Scanned {sessions} sessions · {requests} requests · {time}"));
+  const scanNote = `${loading ? `${t("stats.scanning", "扫描中…")} · ` : ""}${scanSummary}${error ? ` · ${t("stats.scanFailed", "加载失败")}: ${error}` : ""}`;
 
   return (
     <div className="token-panel token-panel-rich">
       <div className="token-header">
         <div>
-          <h3 className="panel-subtitle">Claude Code Token 用量</h3>
-          <p className="note">{Object.entries({ sessions: stats.totalSessions ?? 0, requests: stats.totalRequests ?? 0, time: new Date(stats.lastScannedAt).toLocaleString() }).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), zh ? "扫描 {sessions} 个会话 · {requests} 个请求 · {time}" : "Scanned {sessions} sessions · {requests} requests · {time}")}</p>
+          <h3 className="panel-subtitle">{t("stats.tokenUsageFull", "Claude Code Token usage")}</h3>
+          <p className="note">{scanNote}</p>
         </div>
-        <button className="ghost-btn" onClick={() => load(true)} disabled={refreshing}>{refreshing ? t("stats.scanning", "扫描中…") : t("common.refresh", "刷新")}</button>
+        <button className="ghost-btn" onClick={() => load(true)} disabled={loading || refreshing}>{loading || refreshing ? t("stats.scanning", "扫描中…") : t("common.refresh", "刷新")}</button>
       </div>
 
       <div className="stats-grid token-kpi-grid">
         <TokenKpi icon={<Zap size={17} />} value={fmtTok(todayTokens)} label={t("stats.tokenToday", "今日")} tone="mint" />
         <TokenKpi icon={<BarChart3 size={17} />} value={fmtTok(last30)} label={t("stats.token30d", "30天")} tone="honey" />
         <TokenKpi icon={<Layers3 size={17} />} value={fmtTok(stats.totalTokens ?? 0)} label={t("stats.tokenTotal", "累计")} tone="steel" />
-        <TokenKpi icon={<DollarSign size={17} />} value={fmtUsd(stats.totalCostUsd ?? 0)} label={zh ? "估算花费" : "Est. cost"} tone="coral" />
+        <TokenKpi icon={<DollarSign size={17} />} value={fmtUsd(stats.totalCostUsd ?? 0)} label={t("stats.estimatedCost", "Est. cost")} tone="coral" />
         <TokenKpi icon={<Gauge size={17} />} value={fmtPct(stats.cacheHitRatio ?? 0)} label="Cache hit" tone="mint" />
-        <TokenKpi icon={<Terminal size={17} />} value={String(stats.totalRequests ?? 0)} label={zh ? "请求" : "Requests"} tone="steel" />
+        <TokenKpi icon={<Terminal size={17} />} value={String(stats.totalRequests ?? 0)} label={t("stats.requests", "Requests")} tone="steel" />
       </div>
 
       <div className="token-breakdown-strip">
-        <span><b>{fmtTok((stats.dailyTotals ?? []).reduce((s: number, d: any) => s + (d.inputTokens ?? 0), 0))}</b>{zh ? "输入" : "input"}</span>
-        <span><b>{fmtTok((stats.dailyTotals ?? []).reduce((s: number, d: any) => s + (d.outputTokens ?? 0), 0))}</b>{zh ? "输出" : "output"}</span>
+        <span><b>{fmtTok((stats.dailyTotals ?? []).reduce((s: number, d: any) => s + (d.inputTokens ?? 0), 0))}</b>{t("stats.inputTokens", "input")}</span>
+        <span><b>{fmtTok((stats.dailyTotals ?? []).reduce((s: number, d: any) => s + (d.outputTokens ?? 0), 0))}</b>{t("stats.outputTokens", "output")}</span>
         <span><b>{fmtTok((stats.dailyTotals ?? []).reduce((s: number, d: any) => s + (d.cacheReadTokens ?? 0), 0))}</b>cache read</span>
         <span><b>{fmtTok((stats.dailyTotals ?? []).reduce((s: number, d: any) => s + (d.cacheCreationTokens ?? 0), 0))}</b>cache write</span>
-        <span><b>{fmtUsd(last30Cost)}</b>{zh ? "近30天" : "30d cost"}</span>
+        <span><b>{fmtUsd(last30Cost)}</b>{t("stats.cost30d", "30d cost")}</span>
       </div>
 
       <section className="token-heatmap-panel">
         <div className="token-heatmap-head">
           <div>
-            <h3 className="panel-subtitle">{zh ? "调用热力" : "Request heatmap"}</h3>
-            <p className="note">{zh ? "近 12 个月 · 调用热力图" : "Last 12 months · request heatmap"}</p>
+            <h3 className="panel-subtitle">{t("stats.requestHeatmap", "Request heatmap")}</h3>
+            <p className="note">{t("stats.requestHeatmapSubtitle", "Last 12 months · request heatmap")}</p>
           </div>
           <div className="token-heatmap-summary">
-            <span><small>{zh ? "活跃日" : "active days"}</small><b>{fmtCount(heatmap.activeDays)}</b></span>
-            <span><small>{zh ? "请求" : "requests"}</small><b>{fmtCount(heatmap.totalRequests)}</b></span>
-            <span><small>{zh ? "最高峰" : "peak"}</small><b>{heatmap.bestDay ? heatmap.bestDay.date.slice(5) : "—"}</b></span>
+            <span><small>{t("stats.activeDaysShort", "active days")}</small><b>{fmtCount(heatmap.activeDays)}</b></span>
+            <span><small>{t("stats.requests", "requests")}</small><b>{fmtCount(heatmap.totalRequests)}</b></span>
+            <span><small>{t("stats.peak", "peak")}</small><b>{heatmap.bestDay ? heatmap.bestDay.date.slice(5) : "—"}</b></span>
           </div>
         </div>
-        <div className="token-heatmap-scroll" aria-label={zh ? "近 12 个月调用热力图" : "Request heatmap for the last 12 months"}>
+        <div className="token-heatmap-scroll" aria-label={t("stats.requestHeatmapAria", "Request heatmap for the last 12 months")}>
           <div className="token-heatmap">
             <div className="token-heatmap-months">
               {heatmap.monthLabels.map(label => <span key={`${label.week}-${label.label}`} style={{ gridColumn: `${label.week + 1}` }}>{label.label}</span>)}
@@ -2206,7 +2268,7 @@ function TokenPanel() {
         </div>
       </section>
 
-      <TokenDisclosure title={zh ? "近 30 天趋势" : "Last 30 days"} summary={trendSummary}>
+      <TokenDisclosure title={t("stats.last30Trend", "Last 30 days")} summary={trendSummary}>
         {last30Entries.length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
           <div className="token-daily-bars">
             {last30Entries.slice(0, 30).map((d: any) => (
@@ -2228,7 +2290,7 @@ function TokenPanel() {
         </header>
         {(stats.modelTotals ?? []).length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
           <div className="token-table token-table-wide">
-            <div className="token-table-header"><span>{t("stats.model", "模型")}</span><span>Tokens</span><span>Cost</span><span>Req</span><span>Cache</span></div>
+            <div className="token-table-header"><span>{t("stats.model", "模型")}</span><span>{t("stats.tokens", "Tokens")}</span><span>{t("stats.cost", "Cost")}</span><span>{t("stats.req", "Req")}</span><span>Cache</span></div>
             {modelRows.map((m: any) => (
               <div key={m.model} className="token-table-row">
                 <span className="token-model-name">{m.model}</span>
@@ -2243,7 +2305,7 @@ function TokenPanel() {
         )}
       </section>
 
-      <TokenDisclosure title={zh ? "项目排行" : "Projects"} summary={projectSummary}>
+      <TokenDisclosure title={t("stats.projectRanking", "Projects")} summary={projectSummary}>
         {(stats.projectTotals ?? []).length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
           <div className="token-project-list">
             {projectRows.map((p: any) => (
@@ -2259,10 +2321,10 @@ function TokenPanel() {
         )}
       </TokenDisclosure>
 
-      <TokenDisclosure title={zh ? "高消耗请求" : "Largest requests"} summary={highRequestSummary}>
+      <TokenDisclosure title={t("stats.largestRequests", "Largest requests")} summary={highRequestSummary}>
         {highRequestRows.length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
           <div className="token-table token-table-requests">
-            <div className="token-table-header"><span>{zh ? "时间 / 项目" : "Time / Project"}</span><span>Model</span><span>Tokens</span><span>Cost</span></div>
+            <div className="token-table-header"><span>{t("stats.timeProject", "Time / Project")}</span><span>{t("stats.model", "Model")}</span><span>{t("stats.tokens", "Tokens")}</span><span>{t("stats.cost", "Cost")}</span></div>
             {highRequestRows.map((r: any) => (
               <div key={r.id} className="token-table-row">
                 <span><b>{new Date(r.timestamp).toLocaleString()}</b><small>{r.projectName}</small></span>
@@ -2323,9 +2385,9 @@ export function ClawdSettingsRoot() {
     return () => media.removeEventListener("change", onSystemThemeChange);
   }, []);
 
-  return route === "pet" ? <PetApp /> : (
+  return (
     <I18nProvider initialLocale={locale}>
-      <SettingsApp />
+      {route === "pet" ? <PetApp /> : <SettingsApp />}
     </I18nProvider>
   );
 }

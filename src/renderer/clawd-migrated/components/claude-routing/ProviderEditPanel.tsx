@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ArrowLeft, Save } from "lucide-react";
+import { useI18n } from "../../useI18n";
 import type { ClaudeProvider } from "./types";
 
 type StringConfigKey = Exclude<keyof ClaudeProvider["settingsConfig"], "env">;
@@ -15,6 +16,7 @@ export function ProviderEditPanel({
   onSave: (provider: ClaudeProvider, originalId?: string) => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState<ClaudeProvider>(provider);
   const env = draft.settingsConfig.env ?? {};
   const baseUrl = env.ANTHROPIC_BASE_URL ?? "";
@@ -41,9 +43,9 @@ export function ProviderEditPanel({
   return (
     <div className="ccs-fullscreen-panel">
       <header className="ccs-fullscreen-header">
-        <button className="ccs-back-button" type="button" onClick={onClose}><ArrowLeft size={18} /></button>
+        <button className="ccs-back-button" type="button" onClick={onClose} aria-label={t("common.back", "Back")} title={t("common.back", "Back")}><ArrowLeft size={18} /></button>
         <div className="ccs-fullscreen-title">
-          <h2>{mode === "edit" ? "编辑供应商" : "添加供应商"}</h2>
+          <h2>{mode === "edit" ? t("routing.editProvider", "Edit provider") : t("routing.addProvider", "Add provider")}</h2>
           <span>Claude Code Provider</span>
         </div>
       </header>
@@ -53,30 +55,30 @@ export function ProviderEditPanel({
           <section className="ccs-form-card">
             <div className="ccs-form-section-heading">
               <div>
-                <h3>基础信息</h3>
-                <p>供应商在列表中的显示名称、官网和分类。</p>
+                <h3>{t("routing.basicInfo", "Basic info")}</h3>
+                <p>{t("routing.basicInfoDesc", "Display name, website, and category shown in the provider list.")}</p>
               </div>
             </div>
             <div className="ccs-form-grid two">
               <label>
-                <span>供应商名称</span>
+                <span>{t("routing.providerName", "Provider name")}</span>
                 <input value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} placeholder="Claude Official" />
               </label>
               <label>
-                <span>分类</span>
+                <span>{t("routing.category", "Category")}</span>
                 <select value={draft.category ?? "custom"} onChange={event => setDraft({ ...draft, category: event.target.value as ClaudeProvider["category"] })}>
-                  <option value="official">official</option>
-                  <option value="third_party">third_party</option>
-                  <option value="custom">custom</option>
+                  <option value="official">{t("routing.categoryOfficial", "Official")}</option>
+                  <option value="third_party">{t("routing.categoryThirdParty", "Third-party")}</option>
+                  <option value="custom">{t("routing.categoryCustom", "Custom")}</option>
                 </select>
               </label>
               <label>
-                <span>官网 / 展示 URL</span>
+                <span>{t("routing.websiteUrl", "Website / display URL")}</span>
                 <input value={draft.websiteUrl ?? ""} onChange={event => setDraft({ ...draft, websiteUrl: event.target.value })} placeholder="https://provider.example.com" />
               </label>
               <label>
-                <span>备注</span>
-                <input value={draft.notes ?? ""} onChange={event => setDraft({ ...draft, notes: event.target.value })} placeholder="显示在供应商卡片下方" />
+                <span>{t("routing.notes", "Notes")}</span>
+                <input value={draft.notes ?? ""} onChange={event => setDraft({ ...draft, notes: event.target.value })} placeholder={t("routing.notesPlaceholder", "Shown below the provider card")} />
               </label>
             </div>
           </section>
@@ -84,8 +86,8 @@ export function ProviderEditPanel({
           <section className="ccs-form-card">
             <div className="ccs-form-section-heading">
               <div>
-                <h3>Claude Code 配置</h3>
-                <p>写入新终端/切换预览使用的 Claude Code 环境变量。</p>
+                <h3>{t("routing.claudeConfig", "Claude Code config")}</h3>
+                <p>{t("routing.claudeConfigDesc", "Environment variables used when opening a new terminal or switching route previews.")}</p>
               </div>
             </div>
             <div className="ccs-form-grid">
@@ -99,7 +101,7 @@ export function ProviderEditPanel({
               </label>
               <label>
                 <span>ANTHROPIC_MODEL</span>
-                <input value={model} onChange={event => updateEnv("ANTHROPIC_MODEL", event.target.value)} placeholder="可选，例如 claude-sonnet-4-6" />
+                <input value={model} onChange={event => updateEnv("ANTHROPIC_MODEL", event.target.value)} placeholder={t("routing.modelPlaceholder", "Optional, e.g. claude-sonnet-4-6")} />
               </label>
             </div>
           </section>
@@ -107,8 +109,8 @@ export function ProviderEditPanel({
           <section className="ccs-form-card">
             <div className="ccs-form-section-heading">
               <div>
-                <h3>高级路由</h3>
-                <p>保持 cc-switch ProviderForm 的分组式配置入口。</p>
+                <h3>{t("routing.advancedRouting", "Advanced routing")}</h3>
+                <p>{t("routing.advancedRoutingDesc", "Grouped configuration fields compatible with cc-switch ProviderForm.")}</p>
               </div>
             </div>
             <div className="ccs-form-grid two">
@@ -126,11 +128,11 @@ export function ProviderEditPanel({
               </label>
               <label>
                 <span>Prefix</span>
-                <input value={draft.settingsConfig.prefix ?? ""} onChange={event => updateConfig("prefix", event.target.value)} placeholder="可选路由前缀" />
+                <input value={draft.settingsConfig.prefix ?? ""} onChange={event => updateConfig("prefix", event.target.value)} placeholder={t("routing.prefixPlaceholder", "Optional route prefix")} />
               </label>
               <label className="wide">
                 <span>Excluded models</span>
-                <textarea value={draft.settingsConfig.excludedModels ?? ""} onChange={event => updateConfig("excludedModels", event.target.value)} placeholder="每行一个模型规则" />
+                <textarea value={draft.settingsConfig.excludedModels ?? ""} onChange={event => updateConfig("excludedModels", event.target.value)} placeholder={t("routing.excludedModelsPlaceholder", "One model rule per line")} />
               </label>
             </div>
           </section>
@@ -138,8 +140,8 @@ export function ProviderEditPanel({
           <section className="ccs-form-card">
             <div className="ccs-form-section-heading">
               <div>
-                <h3>图标</h3>
-                <p>列表左侧 provider icon 的名称和颜色。</p>
+                <h3>{t("routing.icon", "Icon")}</h3>
+                <p>{t("routing.iconDesc", "Name and color for the provider icon shown on the left side of the list.")}</p>
               </div>
             </div>
             <div className="ccs-form-grid two compact">
@@ -157,8 +159,8 @@ export function ProviderEditPanel({
       </main>
 
       <footer className="ccs-fullscreen-footer">
-        <button className="ccs-panel-cancel" type="button" onClick={onClose}>取消</button>
-        <button className="ccs-save-button" type="submit" form="claude-provider-form"><Save size={16} />保存</button>
+        <button className="ccs-panel-cancel" type="button" onClick={onClose}>{t("common.cancel", "Cancel")}</button>
+        <button className="ccs-save-button" type="submit" form="claude-provider-form"><Save size={16} />{t("common.save", "Save")}</button>
       </footer>
     </div>
   );

@@ -117,8 +117,11 @@ export function NotificationRulesPanel({ settings, updateSettings }: { settings:
   return (
     <div className="notification-sound-panel">
       <div className="notification-master-row">
-        <Toggle label={t("notifications.masterSwitch", "通知和音效")} checked={enabled} onChange={notificationsEnabled => updateSettings({ notificationsEnabled, doneSound: notificationsEnabled ? settings.doneSound : false })} />
-        <p className="note">{t("notifications.masterHint", "开启后可按事件分别控制系统通知、播放音效和自定义音频。")}</p>
+        <div className="notification-master-copy">
+          <strong>{t("notifications.masterSwitch", "通知和音效")}</strong>
+          <p>{t("notifications.masterHint", "开启后可按事件分别控制系统通知、播放音效和自定义音频。")}</p>
+        </div>
+        <Toggle label="" checked={enabled} onChange={notificationsEnabled => updateSettings({ notificationsEnabled, doneSound: notificationsEnabled ? settings.doneSound : false })} />
       </div>
 
       {enabled ? (
@@ -143,11 +146,15 @@ export function NotificationRulesPanel({ settings, updateSettings }: { settings:
               return (
                 <div key={eventType} className="notification-rule-row">
                   <strong>{eventLabels[eventType]}</strong>
-                  <Toggle label="" checked={rule.systemNotification} onChange={systemNotification => updateRule(eventType, { systemNotification })} />
-                  <Toggle label="" checked={rule.playSound && hasAudio} onChange={playSound => {
-                    if (playSound && !hasAudio) void pickEventSound(eventType);
-                    else updateRule(eventType, { playSound });
-                  }} />
+                  <div className="notification-toggle-cell">
+                    <Toggle label="" checked={rule.systemNotification} onChange={systemNotification => updateRule(eventType, { systemNotification })} />
+                  </div>
+                  <div className="notification-toggle-cell">
+                    <Toggle label="" checked={rule.playSound && hasAudio} onChange={playSound => {
+                      if (playSound && !hasAudio) void pickEventSound(eventType);
+                      else updateRule(eventType, { playSound });
+                    }} />
+                  </div>
                   <div className="notification-sound-actions">
                     <span className={`sound-file-pill ${customFile ? "custom" : builtIn ? "default" : "empty"}`}>
                       {customFile ? t("sound.custom", "自定义") : builtIn ? t("sound.default", "默认") : t("sound.noDefault", "无默认")}

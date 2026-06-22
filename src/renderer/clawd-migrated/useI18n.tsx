@@ -42,6 +42,11 @@ export function I18nProvider({ children, initialLocale = "zh" }: { children: Rea
 
   const setLocale = useCallback((l: LocaleKey) => {
     setLocaleState(l);
+    try {
+      localStorage.setItem("clawd-locale", l);
+    } catch {
+      // Locale persistence is best-effort; settings persistence is handled separately.
+    }
     document.documentElement.lang = l === "zh" ? "zh-CN" : "en";
   }, []);
 

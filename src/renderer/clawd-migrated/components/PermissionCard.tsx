@@ -118,7 +118,7 @@ export function PermissionCard({ permission, queueCount, onAllow, onDeny, settin
         {queueCount > 1 && (
           <div className="perm-card-queue">
             <Layers size={11} />
-            <span>{t("pet.permissionQueue", `${queueCount - 1} 个等待中`)}</span>
+            <span>{t("pet.permissionQueue", `${queueCount - 1} 个等待中`).replace("{count}", String(queueCount - 1))}</span>
           </div>
         )}
 

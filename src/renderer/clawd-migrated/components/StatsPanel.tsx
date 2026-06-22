@@ -44,14 +44,10 @@ export function StatsPanel({ stats }: { stats: AppStats }) {
   const totalToolCalls = Object.values(stats.toolUsage ?? {}).reduce((sum, count) => sum + count, 0);
   const days = Object.keys(stats.dailyStats ?? {}).length;
   const avgDaily = days > 0 ? Math.round(totalToolCalls / days) : 0;
-  const permTotal = (stats.permissionApproved ?? 0) + (stats.permissionDenied ?? 0);
-  const permRate = permTotal > 0 ? Math.round((stats.permissionApproved / permTotal) * 100) : 0;
-  const metricRows = [
+  const summaryRows = [
     { label: t("stats.totalSessions", "总会话数"), value: formatCount(stats.totalSessions ?? 0, numberLocale) },
     { label: t("stats.totalToolCalls", "总工具调用"), value: formatCount(totalToolCalls, numberLocale) },
     { label: t("stats.errors", "错误次数"), value: formatCount(stats.errorCount ?? 0, numberLocale) },
-    { label: t("stats.totalRuntime", "累计运行"), value: formatDuration(stats.totalRuntime ?? 0) },
-    { label: t("stats.activeDays", "活跃天数"), value: formatCount(days, numberLocale) },
     { label: t("stats.dailyAvg", "日均调用"), value: formatCount(avgDaily, numberLocale) }
   ];
   const todayRows = [
@@ -62,17 +58,24 @@ export function StatsPanel({ stats }: { stats: AppStats }) {
 
   return (
     <div className="stats-workbench">
-      <div className="stats-metric-strip">
-        {metricRows.map(row => (
-          <article key={row.label} className="stats-metric">
-            <span>{row.label}</span>
-            <strong>{row.value}</strong>
-          </article>
-        ))}
-      </div>
+      <section className="stats-overview-surface">
+        <div className="stats-runtime-lead">
+          <span>{t("stats.totalRuntime", "累计运行")}</span>
+          <strong>{formatDuration(stats.totalRuntime ?? 0)}</strong>
+          <small>{days > 0 ? `${formatCount(days, numberLocale)} ${t("stats.activeDays", "活跃天数")}` : t("stats.noData", "无数据")}</small>
+        </div>
+        <div className="stats-summary-strip">
+          {summaryRows.map(row => (
+            <article key={row.label} className="stats-metric">
+              <span>{row.label}</span>
+              <strong>{row.value}</strong>
+            </article>
+          ))}
+        </div>
+      </section>
 
-      <div className="stats-summary-grid">
-        <section className="stats-line-section">
+      <section className="stats-digest-panel">
+        <div className="stats-digest-column">
           <header>
             <h3>{t("stats.todayOverview", "今日概览")}</h3>
             <time>{today}</time>
@@ -85,37 +88,24 @@ export function StatsPanel({ stats }: { stats: AppStats }) {
               </div>
             ))}
           </div>
-        </section>
+        </div>
 
-        {permTotal > 0 ? (
-          <section className="stats-line-section">
-            <header>
-              <h3>{t("stats.permissionRequests", "权限请求")}</h3>
-              <span>{permRate}%</span>
-            </header>
-            <div className="stats-line-list">
-              <div className="stats-line-row"><span>{t("stats.totalRequests", "总请求")}</span><strong>{formatCount(permTotal, numberLocale)}</strong></div>
-              <div className="stats-line-row good"><span>{t("stats.approved", "已批准")}</span><strong>{formatCount(stats.permissionApproved ?? 0, numberLocale)}</strong></div>
-              <div className="stats-line-row bad"><span>{t("stats.denied", "已拒绝")}</span><strong>{formatCount(stats.permissionDenied ?? 0, numberLocale)}</strong></div>
-            </div>
-          </section>
-        ) : (
-          <section className="stats-line-section">
-            <header>
-              <h3>{t("stats.activeHours", "最活跃时段")}</h3>
-              <span>{topHours.length}</span>
-            </header>
-            <div className="stats-line-list">
-              {topHours.length > 0 ? topHours.map(hour => (
-                <div key={hour.hour} className="stats-line-row">
-                  <span>{formatHourRange(hour.hour)}</span>
-                  <strong>{formatCount(hour.count, numberLocale)} {t("stats.times", "次")}</strong>
-                </div>
-              )) : <p className="note">{t("stats.noData", "无数据")}</p>}
-            </div>
-          </section>
-        )}
-      </div>
+        <div className="stats-digest-column">
+          <header>
+            <h3>{t("stats.activeHours", "最活跃时段")}</h3>
+            <span>Top3</span>
+          </header>
+          <div className="stats-line-list">
+            {topHours.length > 0 ? topHours.map(hour => (
+              <div key={hour.hour} className="stats-line-row">
+                <span>{formatHourRange(hour.hour)}</span>
+                <strong>{formatCount(hour.count, numberLocale)} {t("stats.times", "次")}</strong>
+              </div>
+            )) : <p className="note">{t("stats.noData", "无数据")}</p>}
+          </div>
+        </div>
+
+      </section>
 
       {sortedTools.length > 0 && (
         <section className="stats-table-section">
@@ -132,23 +122,6 @@ export function StatsPanel({ stats }: { stats: AppStats }) {
                   <div className="tool-rank-fill" style={{ width: `${(count / (sortedTools[0]?.[1] ?? 1)) * 100}%` }} />
                 </div>
                 <span className="tool-rank-count">{formatCount(count, numberLocale)}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {permTotal > 0 && topHours.length > 0 && (
-        <section className="stats-table-section compact">
-          <header>
-            <h3>{t("stats.activeHours", "最活跃时段")}</h3>
-            <span>{topHours.length}</span>
-          </header>
-          <div className="stats-line-list">
-            {topHours.map(hour => (
-              <div key={hour.hour} className="stats-line-row">
-                <span>{formatHourRange(hour.hour)}</span>
-                <strong>{formatCount(hour.count, numberLocale)} {t("stats.times", "次")}</strong>
               </div>
             ))}
           </div>
