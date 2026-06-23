@@ -15,6 +15,7 @@ import {
   FlaskConical,
   Gauge,
   KeyRound,
+  Minus,
   MonitorCheck,
   MousePointer2,
   PlugZap,
@@ -22,7 +23,7 @@ import {
   Search,
   Shield,
   SlidersHorizontal,
-  Sparkles,
+  Square,
   Terminal,
   Timer,
   Wand2,
@@ -31,8 +32,6 @@ import {
 } from "lucide-react";
 import type { CompanionEvent, CompanionSettings, CompanionSession, FeedbackMode, PetState, PrivacyMode, PermissionRequest, PluginWidgetDescriptor, ToolName, UpdateStatus } from "../shared/events";
 import { defaultSettings, stateFromEvent, type EventHistoryEntry, type NotificationRule, type CustomPlugin } from "../shared/events";
-import clawdImage from "./clawd.png";
-import "./clawd-sprites/sprites.css";
 import "./styles.css";
 import { I18nProvider, useI18n, detectLocale } from "./useI18n";
 import { useCompanion, type ToolStream } from "./useCompanion";
@@ -49,23 +48,10 @@ import { OverviewSection } from "./features/overview/OverviewSection";
 import { SettingsSection } from "./features/settings/SettingsSection";
 import { DataSection } from "./features/data/DataSection";
 import { AnimationSection } from "./features/animation/AnimationSection";
-import { idleBubbleGifClass } from "./utils/sprites";
+import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, petAnimationAssets } from "./utils/petAnimations";
+import { getPetTheme } from "./utils/petThemes";
 
-const clawdGifName: Record<PetState, string> = {
-  idle: "clawd_png_idle",
-  thinking: "thinking_speech",
-  tool_read: "thinking_speech",
-  tool_edit: "working_hardhat",
-  tool_bash: "headset_focus",
-  tool_search: "thinking_speech",
-  tool_mcp: "thinking_speech",
-  skill: "idea_bulb",
-  task: "idea_bulb",
-  agent: "welding_work",
-  waiting_permission: "permission_prompt",
-  done: "celebrate_bunny",
-  error: "error_dead"
-};
+const APP_DISPLAY_NAME = "Chara Desk";
 
 const stateCopy: Record<PetState, { label: string; line: string; tone: string }> = {
   idle: { label: "待机", line: "Clawd 在桌面边缘小憩", tone: "sand" },
@@ -118,13 +104,15 @@ function getFeedbackMode(event: CompanionEvent): FeedbackMode {
   return stateFeedbackMode[stateFromEvent(event)] ?? "card";
 }
 
-function applyTheme(theme: CompanionSettings["theme"]) {
+function applyTheme(theme: CompanionSettings["theme"], petTheme: CompanionSettings["petTheme"] = defaultSettings.petTheme) {
+  const activePetTheme = getPetTheme(petTheme);
+  document.documentElement.setAttribute("data-pet-theme", activePetTheme.id);
   if (theme === "dark") {
     document.documentElement.setAttribute("data-theme", "dark");
     return;
   }
   if (theme === "system") {
-    document.documentElement.setAttribute("data-theme", window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    document.documentElement.setAttribute("data-theme", activePetTheme.interfaceTheme);
     return;
   }
   document.documentElement.setAttribute("data-theme", "light");
@@ -188,6 +176,7 @@ function PetApp() {
   const offRef = useRef(settings.positionOffsets ?? {});
   const [randomBubble, setRandomBubble] = useState<string | null>(null);
   const idleTimers = useRef<number[]>([]);
+  const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
 
   // Git 操作气泡：触发时在 Clawd 头顶弹出，2.2 秒后自动消失
   const [gitToast, setGitToast] = useState<{ id: string; title: string; message: string } | null>(null);
@@ -213,15 +202,26 @@ function PetApp() {
     return () => off();
   }, [settings.sound.volume]);
 
+  useEffect(() => {
+    const off = window.companion.onPreviewPetAnimation(animationKey => {
+      if (animationKey === "__clear_preview") {
+        setPreviewAnimation(null);
+        return;
+      }
+      const normalizedKey = normalizeAnimationKey(animationKey, "idle");
+      setPreviewAnimation({ key: normalizedKey, nonce: Date.now() });
+    });
+    return () => off();
+  }, []);
+
   // 同步计算有效待机气泡（渲染时直接计算，避免 useEffect 时序问题）
-  const mainIdle = (settings as any).mainClawdIdleAnimation ?? "random";
+  const mainIdleSetting = (settings as any).mainClawdIdleAnimation ?? "random";
+  const mainIdle = mainIdleSetting === "random" ? "random" : normalizeAnimationKey(mainIdleSetting, "idle");
   // 只检查非退出中的活跃会话，避免 exitingSessions 残留导致 hasActiveSession 误判
   const hasActiveSession = sessions.some(s => s.isActive && !exitingSessions.has(s.sessionId));
-  const isToolState = petState.startsWith("tool_") || petState === "waiting_permission";
-  const isTerminalState = petState === "done" || petState === "error";
 
   let effectiveIdleBubble: string | null = null;
-  if (!isToolState && !isTerminalState && !editMode) {
+  if (petState === "idle" && !editMode) {
     if (mainIdle !== "random" && hasActiveSession) {
       effectiveIdleBubble = mainIdle;
     } else if (settings.idleAnim?.enabled && petState === "idle") {
@@ -238,7 +238,7 @@ function PetApp() {
       idleTimers.current = [];
       return;
     }
-    const pool = cfg.selectedSprites.length > 0 ? cfg.selectedSprites : ["idle"];
+    const pool = normalizeAnimationKeys(cfg.selectedSprites);
     function playBatch() {
       const sprite = pool[Math.floor(Math.random() * pool.length)];
       const range = cfg!.repeatMax - cfg!.repeatMin;
@@ -496,7 +496,7 @@ function PetApp() {
               </div>
             ) : null}
             <div className={`clawd clawd-${previewState}`} style={{ transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px) scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }}>
-              <ClawdSprite state={previewState} idleBubble={effectiveIdleBubble} eventType={previewEvent.event} tool={previewEvent.tool} stateAnimations={settings.stateAnimations} />
+              <ClawdSprite state={previewState} idleBubble={effectiveIdleBubble} eventType={previewEvent.event} tool={previewEvent.tool} stateAnimations={settings.stateAnimations} overrideAnimation={previewAnimation} />
               {settings.showStatusProp && previewState !== "idle" ? <StateProp state={previewState} /> : null}
             </div>
             {settings.showBubbles ? (
@@ -630,7 +630,7 @@ function PetApp() {
           </div>
         ) : null}
         <div className={`clawd clawd-${petState}`} style={{ transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px) scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }}>
-          <ClawdSprite state={petState} idleBubble={effectiveIdleBubble} eventType={currentEvent?.event} tool={currentEvent?.tool} stateAnimations={settings.stateAnimations} />
+          <ClawdSprite state={petState} idleBubble={effectiveIdleBubble} eventType={currentEvent?.event} tool={currentEvent?.tool} stateAnimations={settings.stateAnimations} overrideAnimation={previewAnimation} />
           {settings.showStatusProp && petState !== "idle" ? <StateProp state={petState} /> : null}
         </div>
         {settings.showBubbles && toolStreams.length > 0 ? (
@@ -766,56 +766,20 @@ function Clawd({ state, settings, forceIdleBubble }: { state: PetState; settings
   );
 }
 
-const eventSpriteOverride: Partial<Record<CompanionEvent["event"], { sprite: string; gif: string }>> = {
-  session_start: { sprite: "tool_read", gif: "headset_focus" },
-  prompt_submit: { sprite: "done", gif: "celebrate_bunny" }
-};
+function ClawdSprite({ state, idleBubble, eventType, tool, stateAnimations, overrideAnimation }: { state: PetState; idleBubble?: string | null; eventType?: CompanionEvent["event"]; tool?: string; stateAnimations?: Record<string, string>; overrideAnimation?: { key: string; nonce: number } | null }) {
+  void eventType;
+  void tool;
+  const baseKey = idleBubble ? normalizeAnimationKey(idleBubble, "idle") : animationKeyForPetState(state);
+  const animationKey = overrideAnimation ? normalizeAnimationKey(overrideAnimation.key, "idle") : normalizeAnimationKey(stateAnimations?.[baseKey], baseKey);
+  const imageKey = overrideAnimation ? `${animationKey}:${overrideAnimation.nonce}` : animationKey;
 
-// 工具到 GIF 动画的映射
-const toolGifMap: Record<string, string> = {
-  Skill: "idea_bulb",
-  Task: "idea_bulb",
-  Agent: "welding_work"
-};
-
-function ClawdSprite({ state, idleBubble, eventType, tool, stateAnimations }: { state: PetState; idleBubble?: string | null; eventType?: CompanionEvent["event"]; tool?: string; stateAnimations?: Record<string, string> }) {
-  if (idleBubble) {
-    const gifClass = idleBubbleGifClass[idleBubble] ?? idleBubble;
-    return (
-      <>
-        <div className="clawd-glow" />
-        <span className={`clawd-sprite clawd-sprite-${idleBubble} clawd-gif-${gifClass}`} aria-hidden="true" />
-        <div className="shadow" />
-      </>
-    );
-  }
-  if (state === "idle") {
-    return (
-      <>
-        <div className="clawd-glow" />
-        <img className="clawd-image" src={clawdImage} alt="" draggable={false} />
-        <div className="shadow" />
-      </>
-    );
-  }
-  // 优先级：用户自定义 > 事件覆盖 > 默认映射
-  const userSprite = stateAnimations?.[state];
-  if (userSprite) {
-    const gifClass = idleBubbleGifClass[userSprite] ?? userSprite;
-    return <span className={`clawd-sprite clawd-sprite-${userSprite} clawd-gif-${gifClass}`} aria-hidden="true" />;
-  }
-  const override = eventType ? eventSpriteOverride[eventType] : undefined;
-  if (override) {
-    return <span className={`clawd-sprite clawd-sprite-${override.sprite} clawd-gif-${override.gif}`} aria-hidden="true" />;
-  }
-  // 检查工具特定的 GIF 映射
-  if (tool && toolGifMap[tool]) {
-    const gifClass = toolGifMap[tool];
-    const spriteState = state === "tool_mcp" ? "thinking" : state === "tool_read" ? "thinking" : state === "tool_bash" ? "tool_read" : state;
-    return <span className={`clawd-sprite clawd-sprite-${spriteState} clawd-gif-${gifClass}`} aria-hidden="true" />;
-  }
-  const spriteState = state === "tool_mcp" ? "thinking" : state === "tool_read" ? "thinking" : state === "tool_bash" ? "tool_read" : state;
-  return <span className={`clawd-sprite clawd-sprite-${spriteState} clawd-gif-${clawdGifName[state]}`} aria-hidden="true" />;
+  return (
+    <>
+      <div className="clawd-glow" />
+      <img key={imageKey} className={`clawd-animation-img clawd-animation-${animationKey}`} src={petAnimationAssets[animationKey]} alt="" draggable={false} />
+      <div className="shadow" />
+    </>
+  );
 }
 
 function CompanionClawd({ session, index, settings, exiting, mainClawdOffset }: { session: CompanionSession; index: number; settings: CompanionSettings; exiting?: boolean; mainClawdOffset: { x: number; y: number } }) {
@@ -827,9 +791,9 @@ function CompanionClawd({ session, index, settings, exiting, mainClawdOffset }: 
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
-  // 工作时自定义待机动画逻辑
-  const isIdleInSession = session.state === "thinking" || session.state === "idle";
-  const configuredIdleAnim = settings.companionIdleAnimations?.[index] ?? "thinking";
+  const isIdleInSession = session.state === "idle";
+  const companionIdleSetting = settings.companionIdleAnimations?.[index] ?? "running";
+  const configuredIdleAnim = companionIdleSetting === "random" ? "random" : normalizeAnimationKey(companionIdleSetting, "running");
 
   // 处理 "random"：从动画池中随机选取精灵，循环播放
   const [randomSprite, setRandomSprite] = useState<string | null>(null);
@@ -841,7 +805,7 @@ function CompanionClawd({ session, index, settings, exiting, mainClawdOffset }: 
       clearTimeout(randomTimerRef.current);
       return;
     }
-    const pool = settings.idleAnim?.selectedSprites?.length ? settings.idleAnim.selectedSprites : ["idle"];
+    const pool = normalizeAnimationKeys(settings.idleAnim?.selectedSprites);
     let cancelled = false;
     function next() {
       if (cancelled) return;
@@ -855,7 +819,7 @@ function CompanionClawd({ session, index, settings, exiting, mainClawdOffset }: 
     return () => { cancelled = true; clearTimeout(randomTimerRef.current); };
   }, [configuredIdleAnim, isIdleInSession, settings.idleAnim]);
 
-  // 确定最终显示的 idleBubble：优先走 idleBubble 路径（与主 Clawd 一致，ClawdSprite 通过 idleBubbleGifClass 正确解析）
+  // 确定最终显示的待机动画；非 idle 状态统一由 ClawdSprite 归并到 running/permission/done。
   let effectiveIdleBubble: string | null = null;
   if (isIdleInSession && configuredIdleAnim) {
     if (configuredIdleAnim === "random") {
@@ -894,6 +858,7 @@ function StateProp({ state }: { state: PetState }) {
 export function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
   const { settings, updateSettings, connection, events, petState, toolStreams } = useCompanion();
+  const activePetTheme = getPetTheme(settings.petTheme);
   const [copied, setCopied] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState("general");
   const [activeSettingsSubsection, setActiveSettingsSubsection] = useState("general");
@@ -1075,7 +1040,8 @@ export function SettingsApp() {
       )}
       <section className="window-bar">
         <div className="window-title">
-          <Sparkles size={16} />Clawd Companion
+          <Bot size={15} />
+          <span>{APP_DISPLAY_NAME}</span>
           {(updateStatus.available || updateStatus.downloading || updateStatus.downloaded) && (
             <button className="update-hint-btn" onClick={() => {
               const content = document.querySelector('.section-content');
@@ -1088,13 +1054,12 @@ export function SettingsApp() {
           )}
         </div>
         <div className="window-actions">
-          <button title={t("main.minimize", "最小化")} onClick={() => window.companion.minimizeSettings()}>-</button>
-          <button title={t("main.maximize", "最大化/还原")} onClick={() => window.companion.toggleMaximizeSettings()}>□</button>
-          <button className="close" title={t("main.close", "关闭配置")} onClick={() => window.companion.closeSettings()}>×</button>
+          <button title={t("main.minimize", "最小化")} onClick={() => window.companion.minimizeSettings()} aria-label={t("main.minimize", "最小化")}><Minus size={13} strokeWidth={2} /></button>
+          <button title={t("main.maximize", "最大化/还原")} onClick={() => window.companion.toggleMaximizeSettings()} aria-label={t("main.maximize", "最大化/还原")}><Square size={12} strokeWidth={1.8} /></button>
+          <button className="close" title={t("main.close", "关闭配置")} onClick={() => window.companion.closeSettings()} aria-label={t("main.close", "关闭配置")}><X size={14} strokeWidth={2.1} /></button>
         </div>
       </section>
       <nav className="tab-bar">
-        <div className="tab-mark"><Sparkles size={18} /></div>
         {[
           { id: "general", icon: <Gauge size={16} />, label: t("settings.tabs.general", "总览") },
           { id: "sessions", icon: <Terminal size={16} />, label: t("settings.tabs.sessions", "会话") },
@@ -1161,11 +1126,10 @@ export function SettingsApp() {
 
       <footer className="version-bar">
         <div className="version-left">
-          <span className="version-label">Clawd Companion</span>
-          <span className="version-number">v{appVersion}</span>
+          <span className="version-label">{activePetTheme.characterName}</span>
           <button
             className="version-link"
-            onClick={() => window.companion.openExternal("https://github.com/Doulor/Clawd-Companion")}
+            onClick={() => window.companion.openExternal("https://github.com/Renakoni/minatoaqua-code-pet")}
             title={t("update.github", "在 GitHub 上查看")}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12 24 5.37 18.63 0 12 0z"/></svg>
@@ -1276,23 +1240,19 @@ export function ClawdSettingsRoot() {
     document.documentElement.setAttribute("data-theme", "light");
     document.documentElement.setAttribute("data-ui-style", "classic");
     let themeMode: CompanionSettings["theme"] = "system";
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onSystemThemeChange = () => {
-      if (themeMode === "system") applyTheme("system");
-    };
+    let petThemeMode: CompanionSettings["petTheme"] = defaultSettings.petTheme;
 
     const initTheme = async () => {
       try {
         const settings = await window.companion.getSettings();
         themeMode = settings.theme || "system";
-        applyTheme(themeMode);
+        petThemeMode = settings.petTheme || defaultSettings.petTheme;
+        applyTheme(themeMode, petThemeMode);
         applyUiStyle(settings.uiStyle || "classic");
       } catch {}
     };
 
-    media.addEventListener("change", onSystemThemeChange);
     initTheme();
-    return () => media.removeEventListener("change", onSystemThemeChange);
   }, []);
 
   return (

@@ -1,0 +1,446 @@
+/* === Minato Aqua Pet Theme === */
+[data-theme="pet"][data-pet-theme="minato-aqua"] {
+  --aqua-ink: oklch(24% 0.055 267);
+  --aqua-ink-soft: oklch(38% 0.05 264);
+  --aqua-muted: oklch(49% 0.035 255);
+  --aqua-faint: oklch(62% 0.034 248);
+  --aqua-line: oklch(65% 0.05 242 / 0.22);
+  --aqua-line-strong: oklch(58% 0.075 242 / 0.34);
+  --aqua-pearl: oklch(98% 0.018 226);
+  --aqua-pearl-raised: oklch(99% 0.014 230 / 0.84);
+  --aqua-blue: oklch(67% 0.13 225);
+  --aqua-blue-strong: oklch(56% 0.16 236);
+  --aqua-cyan: oklch(78% 0.12 205);
+  --aqua-pink: oklch(74% 0.16 345);
+  --aqua-pink-soft: oklch(89% 0.07 350 / 0.52);
+  --aqua-navy: oklch(30% 0.085 267);
+  --aqua-success: oklch(66% 0.1 174);
+  --aqua-danger: oklch(64% 0.13 20);
+  --ink: var(--aqua-ink);
+  --muted: var(--aqua-muted);
+  --paper: var(--aqua-pearl);
+  --panel: oklch(99% 0.014 230 / 0.82);
+  --line: var(--aqua-line);
+  --honey: var(--aqua-blue);
+  --amber: var(--aqua-pink);
+  --amber-dark: oklch(61% 0.14 345);
+  --amber-light: oklch(84% 0.1 350);
+  --coral: var(--aqua-danger);
+  --mint: var(--aqua-success);
+  --steel: var(--aqua-navy);
+  --blue: var(--aqua-blue);
+  --purple: var(--aqua-pink);
+  --black: oklch(18% 0.055 267);
+  --shadow: 0 22px 70px oklch(42% 0.08 240 / 0.16);
+  color: var(--aqua-ink);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] body {
+  background: transparent;
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-shell {
+  background:
+    linear-gradient(135deg, oklch(99% 0.018 226 / 0.96), oklch(94% 0.05 222 / 0.92) 48%, oklch(98% 0.026 342 / 0.9)),
+    repeating-linear-gradient(90deg, oklch(64% 0.11 224 / 0.08) 0 1px, transparent 1px 18px);
+  color: var(--aqua-ink);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-shell::before {
+  content: "";
+  position: fixed;
+  inset: 36px 0 auto;
+  height: 72px;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(135deg, transparent 0 16px, oklch(72% 0.1 220 / 0.08) 16px 18px),
+    linear-gradient(90deg, oklch(71% 0.13 220 / 0.12), oklch(78% 0.14 345 / 0.08));
+  mask-image: linear-gradient(to bottom, black, transparent);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .window-bar,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .tab-bar,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .version-bar {
+  border-color: var(--aqua-line);
+  background: oklch(99% 0.016 226 / 0.88);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .window-title {
+  color: var(--aqua-navy);
+  font-weight: 760;
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .window-title svg {
+  color: var(--aqua-pink);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .window-title::after {
+  display: none;
+  content: none;
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .window-actions button {
+  color: var(--aqua-muted);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .window-actions button:hover,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .window-actions button:active {
+  color: var(--aqua-navy);
+  background: oklch(91% 0.045 223 / 0.62);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .window-actions .close:hover {
+  color: oklch(99% 0.016 226);
+  background: var(--aqua-pink);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .tab-item {
+  color: var(--aqua-muted);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .tab-item:hover {
+  color: var(--aqua-navy);
+  background: oklch(92% 0.045 225 / 0.62);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .tab-item.active {
+  color: var(--aqua-navy);
+  background: oklch(91% 0.055 224 / 0.78);
+  box-shadow: inset 0 0 0 1px oklch(66% 0.12 224 / 0.34), inset 0 -2px 0 var(--aqua-pink);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .tab-item.active svg,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .version-label,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .version-link svg {
+  color: var(--aqua-pink);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .version-label {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid oklch(70% 0.12 345 / 0.28);
+  border-radius: 7px;
+  background: var(--aqua-pink-soft);
+  font-weight: 760;
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .version-link,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .update-btn,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .ghost-btn,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .inline-action {
+  border-color: var(--aqua-line);
+  color: var(--aqua-navy);
+  background: oklch(98% 0.02 226 / 0.76);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .version-link:hover,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .update-btn:hover:not(:disabled),
+[data-theme="pet"][data-pet-theme="minato-aqua"] .ghost-btn:hover:not(:disabled),
+[data-theme="pet"][data-pet-theme="minato-aqua"] .inline-action:hover {
+  border-color: oklch(64% 0.12 224 / 0.42);
+  background: oklch(91% 0.052 224 / 0.74);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .overview-workbench,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .data-workbench {
+  --settings-ink: var(--aqua-ink);
+  --settings-muted: var(--aqua-muted);
+  --settings-faint: var(--aqua-faint);
+  --settings-line: var(--aqua-line);
+  --settings-line-strong: var(--aqua-line-strong);
+  --settings-surface: oklch(99% 0.014 226 / 0.74);
+  --settings-surface-raised: oklch(99% 0.01 226 / 0.88);
+  --settings-surface-hover: oklch(94% 0.043 225 / 0.72);
+  --settings-accent: var(--aqua-blue-strong);
+  --settings-accent-soft: oklch(82% 0.12 220 / 0.2);
+  --settings-success: var(--aqua-success);
+  --settings-danger: var(--aqua-danger);
+  --workbench-surface: oklch(99% 0.014 226 / 0.74);
+  --workbench-subtle: oklch(94% 0.044 225 / 0.36);
+  --workbench-line: var(--aqua-line);
+  --workbench-muted: var(--aqua-muted);
+  --workbench-strong: var(--aqua-ink);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page-head,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .group-card,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .panel-group-card,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .overview-status-panel,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .workbench-section,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .stats-activity-board,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-overview-block,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .plugins-workbench-header,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .claude-sessions-page,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .claude-resources-page {
+  border-color: var(--aqua-line);
+  background: oklch(99% 0.014 226 / 0.76);
+  box-shadow: 0 18px 48px oklch(42% 0.08 240 / 0.1);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page-head,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .group-card,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .plugins-workbench-header,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .claude-sessions-page,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .claude-resources-page {
+  background:
+    linear-gradient(180deg, oklch(99% 0.014 226 / 0.82), oklch(97% 0.026 218 / 0.72)),
+    oklch(99% 0.014 226 / 0.74);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .settings-subtabs,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .theme-switch,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .segmented,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .stats-range-switch,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-heatmap-summary,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-table,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-project-list,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-daily-bars,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .stats-workbench .tool-rank-list {
+  border-color: var(--aqua-line);
+  background: oklch(96% 0.025 225 / 0.56);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .settings-subtab.active,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .theme-switch-option.active,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .segmented button.active,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .stats-range-switch button.active {
+  color: var(--aqua-navy);
+  border-color: oklch(64% 0.12 224 / 0.36);
+  background: oklch(90% 0.058 224 / 0.78);
+  box-shadow: inset 0 0 0 1px oklch(66% 0.12 224 / 0.22);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .theme-switch-system .theme-switch-liquid {
+  background: linear-gradient(135deg, var(--aqua-cyan), var(--aqua-pink));
+  box-shadow: 0 10px 24px oklch(60% 0.13 225 / 0.2);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .hooks-card,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .route-card,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .connection-overview-card {
+  border-color: oklch(64% 0.12 224 / 0.26);
+  background: oklch(99% 0.012 226 / 0.78);
+  box-shadow: 0 16px 40px oklch(42% 0.08 240 / 0.08);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .hooks-card {
+  border-color: oklch(68% 0.12 224 / 0.48);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .hooks-actions button,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .hero-actions button,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .primary-action,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .plugin-install-btn,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .plugin-generate-btn {
+  color: oklch(99% 0.014 226);
+  border-color: oklch(55% 0.16 236 / 0.72);
+  background: linear-gradient(135deg, var(--aqua-blue-strong), oklch(61% 0.14 214));
+  box-shadow: 0 12px 28px oklch(54% 0.13 224 / 0.22);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .hooks-actions button:hover:not(:disabled),
+[data-theme="pet"][data-pet-theme="minato-aqua"] .hero-actions button:hover:not(:disabled),
+[data-theme="pet"][data-pet-theme="minato-aqua"] .primary-action:hover:not(:disabled),
+[data-theme="pet"][data-pet-theme="minato-aqua"] .plugin-install-btn:hover:not(:disabled),
+[data-theme="pet"][data-pet-theme="minato-aqua"] .plugin-generate-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, oklch(59% 0.17 236), oklch(66% 0.145 208));
+  box-shadow: 0 15px 34px oklch(54% 0.13 224 / 0.26);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page button.toggle.on > svg,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .group-card-header svg,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .workbench-section-head > svg,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-kpi-icon,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-disclosure-chevron,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .stats-disclosure-chevron {
+  color: var(--aqua-blue-strong);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page button.toggle.on i {
+  border-color: oklch(64% 0.12 224 / 0.48);
+  background: oklch(82% 0.12 220 / 0.2);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page button.toggle.on i::after,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page input[type="range"]::-webkit-slider-thumb,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .range-track input[type="range"]::-webkit-slider-thumb {
+  background: var(--aqua-blue-strong);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page input[type="range"],
+[data-theme="pet"][data-pet-theme="minato-aqua"] .range-track::before {
+  background: linear-gradient(to right, var(--aqua-blue-strong) var(--slider-fill, 0%), oklch(68% 0.06 238 / 0.22) var(--slider-fill, 0%));
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .range-fill,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .stats-workbench .tool-rank-fill,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-daily-bar-row > div span,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-more-btn:hover {
+  background: var(--aqua-blue-strong);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .pet-theme-card.active {
+  border-color: oklch(66% 0.13 224 / 0.52);
+  background: oklch(96% 0.03 225 / 0.76);
+  box-shadow: inset 0 0 0 1px oklch(72% 0.14 345 / 0.26), 0 14px 34px oklch(52% 0.1 230 / 0.13);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .pet-theme-card-copy strong {
+  color: var(--aqua-navy);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .pet-theme-card-copy small {
+  color: var(--aqua-pink);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .claude-resources-page-dark,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .animation-page {
+  --resource-ink: var(--aqua-ink);
+  --resource-muted: var(--aqua-muted);
+  --resource-faint: var(--aqua-faint);
+  --resource-line: var(--aqua-line);
+  --resource-line-strong: var(--aqua-line-strong);
+  --resource-surface: oklch(99% 0.014 226 / 0.68);
+  --resource-surface-raised: oklch(99% 0.012 226 / 0.82);
+  --resource-surface-hover: oklch(93% 0.044 224 / 0.68);
+  --resource-surface-active: oklch(90% 0.058 224 / 0.7);
+  --resource-control-bg: oklch(99% 0.012 226 / 0.78);
+  --resource-control-hover: oklch(93% 0.044 224 / 0.76);
+  --resource-focus: oklch(64% 0.12 224 / 0.42);
+  --resource-accent: var(--aqua-blue-strong);
+  --resource-success: var(--aqua-success);
+  --resource-idle: var(--aqua-muted);
+  --resource-scrollbar: oklch(68% 0.07 224 / 0.48);
+  --resource-shadow: 0 16px 42px oklch(42% 0.08 240 / 0.1);
+  --anim-ink: var(--aqua-ink);
+  --anim-muted: var(--aqua-muted);
+  --anim-faint: var(--aqua-faint);
+  --anim-line: oklch(64% 0.1 224 / 0.2);
+  --anim-line-strong: oklch(58% 0.12 224 / 0.34);
+  --anim-surface: oklch(99% 0.014 226 / 0.76);
+  --anim-surface-raised: oklch(99% 0.012 226 / 0.84);
+  --anim-surface-hover: oklch(94% 0.043 225 / 0.72);
+  --anim-cell: oklch(98% 0.018 226 / 0.78);
+  --anim-preview: oklch(65% 0.08 224 / 0.14);
+  --anim-accent: var(--aqua-blue-strong);
+  --anim-accent-soft: oklch(82% 0.12 220 / 0.22);
+  --anim-shadow: 0 18px 44px oklch(42% 0.08 240 / 0.11);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .claude-resource-subtabs.compact {
+  border-color: var(--aqua-line);
+  background: oklch(98% 0.018 226 / 0.68);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .claude-resource-subtabs.compact .claude-resource-subtab.active {
+  color: var(--aqua-navy);
+  border-color: oklch(64% 0.12 224 / 0.36);
+  background: oklch(90% 0.058 224 / 0.74);
+  box-shadow: inset 0 -2px 0 var(--aqua-pink);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .claude-resource-subtabs.compact .claude-resource-subtab small {
+  color: var(--aqua-pink);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .claude-resource-table,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .claude-resource-list-toolbar {
+  border-color: var(--aqua-line);
+  background: oklch(99% 0.012 226 / 0.74);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .animation-panel {
+  border-color: var(--anim-line);
+  background:
+    linear-gradient(180deg, oklch(99% 0.012 226 / 0.86), oklch(98% 0.022 220 / 0.74)),
+    var(--anim-surface);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .animation-panel-icon {
+  color: var(--aqua-blue-strong);
+  border-color: oklch(64% 0.12 224 / 0.26);
+  background: oklch(86% 0.105 220 / 0.26);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .animation-summary-row,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .animation-page .idle-sprite-grid,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .animation-page .state-anim-picker-grid,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .animation-page .state-anim-list {
+  border-color: var(--anim-line);
+  background: oklch(66% 0.1 224 / 0.18);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .animation-page .idle-sprite-preview.checked {
+  background:
+    linear-gradient(135deg, oklch(91% 0.064 224 / 0.88), oklch(94% 0.052 345 / 0.58)),
+    var(--anim-accent-soft);
+  box-shadow: inset 0 0 0 1px oklch(64% 0.12 224 / 0.36);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .animation-page .sprite-selected-mark {
+  color: var(--aqua-pink);
+  border-color: oklch(72% 0.14 345 / 0.34);
+  background: oklch(98% 0.02 345 / 0.8);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .animation-page .range-track::before {
+  background: oklch(68% 0.06 238 / 0.2);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-heat-cell.level-1 {
+  background: oklch(82% 0.08 205 / 0.86);
+  border-color: oklch(65% 0.11 210 / 0.68);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-heat-cell.level-2 {
+  background: oklch(75% 0.11 214 / 0.92);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-heat-cell.level-3 {
+  background: oklch(66% 0.14 226 / 0.96);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .token-heat-cell.level-4 {
+  background: var(--aqua-pink);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .bubble,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .thought-bubble,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .tool-ribbon,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .permission-card {
+  border-color: oklch(66% 0.13 224 / 0.34);
+  background: oklch(99% 0.016 226 / 0.9);
+  color: var(--aqua-ink);
+  box-shadow: 0 18px 48px oklch(38% 0.08 240 / 0.16);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .bubble-state,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .git-toast-title,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .perm-card-title {
+  color: var(--aqua-blue-strong);
+}
+
+[data-theme="pet"][data-pet-theme="minato-aqua"] .perm-card-btn.allow,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .code-card-head button,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .cc-route-form-actions button,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .cc-route-active {
+  color: oklch(99% 0.016 226);
+  background: var(--aqua-blue-strong);
+}
+
+[data-ui-style="liquid"][data-theme="pet"][data-pet-theme="minato-aqua"] .window-bar,
+[data-ui-style="liquid"][data-theme="pet"][data-pet-theme="minato-aqua"] .tab-bar,
+[data-ui-style="liquid"][data-theme="pet"][data-pet-theme="minato-aqua"] .version-bar {
+  background: oklch(98% 0.02 226 / 0.66);
+  backdrop-filter: blur(22px) saturate(1.18);
+}
+
+@media (max-width: 720px) {
+  [data-theme="pet"][data-pet-theme="minato-aqua"] .window-title::after {
+    display: none;
+  }
+}

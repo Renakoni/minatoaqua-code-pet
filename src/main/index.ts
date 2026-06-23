@@ -9,17 +9,27 @@ import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, PetEvent, PetState } from "../shared/events";
 
+type DailyRuntimeStats = {
+  events: number;
+  toolCalls: number;
+  sessions: number;
+  errors?: number;
+  permissionRequests?: number;
+};
+
 type RuntimeStats = {
   toolUsage: Record<string, number>;
   eventTypeCounts: Record<string, number>;
   totalSessions: number;
-  dailyStats: Record<string, { events: number; toolCalls: number; sessions: number }>;
+  dailyStats: Record<string, DailyRuntimeStats>;
   errorCount: number;
   permissionRequests: number;
   permissionApproved: number;
   permissionDenied: number;
   totalRuntime: number;
   hourlyActivity: number[];
+  dailyHourlyActivity: Record<string, number[]>;
+  dailyToolUsage: Record<string, Record<string, number>>;
   firstStartTime: number;
   lastEventTime: number;
 };
@@ -85,12 +95,13 @@ let companionSettings: Record<string, any> = {
   permissionDialogEnabled: true,
   showSessionTitle: true,
   companionScale: 0.5,
-  companionIdleAnimations: ["thinking", "idle", "waiting_permission"],
+  companionIdleAnimations: ["running", "idle", "waiting_permission"],
   mainClawdIdleAnimation: "random",
   launchAtLogin: false,
   openSettingsOnStart: true,
   autoStartWithCli: false,
   autoUpdateEnabled: false,
+  petTheme: "minato-aqua",
   enabledSources: ["claude-code", "codex"],
   doneSound: false,
   notificationsEnabled: true,
@@ -137,7 +148,7 @@ let companionSettings: Record<string, any> = {
   activeClaudeRouteId: "claude-official",
   idleAnim: {
     enabled: true,
-    selectedSprites: ["idle"],
+    selectedSprites: ["idle", "running", "waiting_permission", "done", "extra_action_5", "extra_action_7", "extra_action_8", "extra_action_9", "extra_action_aqua_bocchi", "extra_action_aqua_pixel"],
     intervalMin: 12,
     intervalMax: 28,
     repeatMin: 1,
@@ -419,8 +430,8 @@ function configureAutoUpdater() {
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.setFeedURL({
     provider: "github",
-    owner: "Doulor",
-    repo: "Clawd-Companion",
+    owner: "Renakoni",
+    repo: "minatoaqua-code-pet",
     releaseType: "release"
   });
 
@@ -2172,6 +2183,50 @@ function runtimeStatsPath() {
   return join(app.getPath("userData"), "runtime-stats.json");
 }
 
+function normalizeNumberRecord(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, count]) => typeof count === "number" && Number.isFinite(count))
+  ) as Record<string, number>;
+}
+
+function normalizeHourlyBuckets(value: unknown): number[] {
+  return Array.isArray(value) && value.length === 24
+    ? value.map((count: unknown) => typeof count === "number" && Number.isFinite(count) ? count : 0)
+    : new Array(24).fill(0);
+}
+
+function normalizeDailyStats(value: unknown): Record<string, DailyRuntimeStats> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([day, entry]) => {
+      const row = entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : {};
+      return [day, {
+        events: typeof row.events === "number" ? row.events : 0,
+        toolCalls: typeof row.toolCalls === "number" ? row.toolCalls : 0,
+        sessions: typeof row.sessions === "number" ? row.sessions : 0,
+        errors: typeof row.errors === "number" ? row.errors : 0,
+        permissionRequests: typeof row.permissionRequests === "number" ? row.permissionRequests : 0
+      }];
+    })
+  );
+}
+
+function normalizeDailyHourlyActivity(value: unknown): Record<string, number[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([day, buckets]) => [day, normalizeHourlyBuckets(buckets)])
+  );
+}
+
+function normalizeDailyToolUsage(value: unknown): Record<string, Record<string, number>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([day, usage]) => [day, normalizeNumberRecord(usage)])
+  );
+}
+
 function createRuntimeStats(): RuntimeStats {
   return {
     toolUsage: {},
@@ -2184,6 +2239,8 @@ function createRuntimeStats(): RuntimeStats {
     permissionDenied: 0,
     totalRuntime: 0,
     hourlyActivity: new Array(24).fill(0),
+    dailyHourlyActivity: {},
+    dailyToolUsage: {},
     firstStartTime: appStartedAt,
     lastEventTime: 0
   };
@@ -2194,16 +2251,18 @@ function normalizeRuntimeStats(value: unknown): RuntimeStats {
   if (!value || typeof value !== "object" || Array.isArray(value)) return base;
   const raw = value as Partial<RuntimeStats>;
   return {
-    toolUsage: raw.toolUsage && typeof raw.toolUsage === "object" && !Array.isArray(raw.toolUsage) ? raw.toolUsage as Record<string, number> : {},
-    eventTypeCounts: raw.eventTypeCounts && typeof raw.eventTypeCounts === "object" && !Array.isArray(raw.eventTypeCounts) ? raw.eventTypeCounts as Record<string, number> : {},
+    toolUsage: normalizeNumberRecord(raw.toolUsage),
+    eventTypeCounts: normalizeNumberRecord(raw.eventTypeCounts),
     totalSessions: typeof raw.totalSessions === "number" ? raw.totalSessions : 0,
-    dailyStats: raw.dailyStats && typeof raw.dailyStats === "object" && !Array.isArray(raw.dailyStats) ? raw.dailyStats as Record<string, { events: number; toolCalls: number; sessions: number }> : {},
+    dailyStats: normalizeDailyStats(raw.dailyStats),
     errorCount: typeof raw.errorCount === "number" ? raw.errorCount : 0,
     permissionRequests: typeof raw.permissionRequests === "number" ? raw.permissionRequests : 0,
     permissionApproved: typeof raw.permissionApproved === "number" ? raw.permissionApproved : 0,
     permissionDenied: typeof raw.permissionDenied === "number" ? raw.permissionDenied : 0,
     totalRuntime: typeof raw.totalRuntime === "number" ? raw.totalRuntime : 0,
-    hourlyActivity: Array.isArray(raw.hourlyActivity) && raw.hourlyActivity.length === 24 ? raw.hourlyActivity.map((value: unknown) => typeof value === "number" ? value : 0) : new Array(24).fill(0),
+    hourlyActivity: normalizeHourlyBuckets(raw.hourlyActivity),
+    dailyHourlyActivity: normalizeDailyHourlyActivity(raw.dailyHourlyActivity),
+    dailyToolUsage: normalizeDailyToolUsage(raw.dailyToolUsage),
     firstStartTime: typeof raw.firstStartTime === "number" && raw.firstStartTime > 0 ? raw.firstStartTime : appStartedAt,
     lastEventTime: typeof raw.lastEventTime === "number" ? raw.lastEventTime : 0
   };
@@ -2239,11 +2298,20 @@ function recordRuntimeEvent(event: CompanionEvent) {
   if (event.event === "session_start") stats.totalSessions++;
   const date = new Date(event.timestamp);
   const day = localDateKey(event.timestamp);
-  stats.hourlyActivity[date.getHours()]++;
-  stats.dailyStats[day] ??= { events: 0, toolCalls: 0, sessions: 0 };
+  const hour = date.getHours();
+  stats.hourlyActivity[hour]++;
+  stats.dailyHourlyActivity[day] ??= new Array(24).fill(0);
+  stats.dailyHourlyActivity[day][hour]++;
+  stats.dailyStats[day] ??= { events: 0, toolCalls: 0, sessions: 0, errors: 0, permissionRequests: 0 };
   stats.dailyStats[day].events++;
-  if (event.tool) stats.dailyStats[day].toolCalls++;
+  if (event.tool) {
+    stats.dailyStats[day].toolCalls++;
+    stats.dailyToolUsage[day] ??= {};
+    stats.dailyToolUsage[day][event.tool] = (stats.dailyToolUsage[day][event.tool] ?? 0) + 1;
+  }
   if (event.event === "session_start") stats.dailyStats[day].sessions++;
+  if (event.event === "error") stats.dailyStats[day].errors = (stats.dailyStats[day].errors ?? 0) + 1;
+  if (event.event === "permission_wait") stats.dailyStats[day].permissionRequests = (stats.dailyStats[day].permissionRequests ?? 0) + 1;
   if (!stats.firstStartTime || stats.firstStartTime > event.timestamp) stats.firstStartTime = event.timestamp;
   stats.lastEventTime = Math.max(stats.lastEventTime ?? 0, event.timestamp);
   runtimeStatsDirty = true;
@@ -2595,6 +2663,12 @@ app.whenReady().then(() => {
       : await dialog.showOpenDialog(options);
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
+  });
+  ipcMain.handle("companion:preview-pet-animation", (_, animationKey: unknown) => {
+    if (typeof animationKey !== "string") return false;
+    const target = petWindow && !petWindow.isDestroyed() ? petWindow : null;
+    target?.webContents.send("companion:preview-pet-animation", animationKey);
+    return Boolean(target);
   });
   ipcMain.handle("companion:sync-idle-bubble", (_, payload: unknown) => panelWindow?.webContents.send("companion:idle-bubble-sync", payload));
   ipcMain.handle("companion:get-event-history", () => getCompanionEvents().map(event => ({ id: event.id, event, timestamp: event.timestamp })));

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CompanionConnectionStatus, CompanionEvent, CompanionSession, CompanionSettings, PermissionRequest, PetState } from "../shared/events";
 import { defaultSettings, stateFromEvent } from "../shared/events";
+import { getPetTheme } from "./utils/petThemes";
 
 export interface ToolStream {
   event: CompanionEvent;
@@ -10,13 +11,15 @@ export interface ToolStream {
   exitSlot?: number;
 }
 
-function applyTheme(theme: CompanionSettings["theme"]) {
+function applyTheme(theme: CompanionSettings["theme"], petTheme: CompanionSettings["petTheme"] = defaultSettings.petTheme) {
+  const activePetTheme = getPetTheme(petTheme);
+  document.documentElement.setAttribute("data-pet-theme", activePetTheme.id);
   if (theme === "dark") {
     document.documentElement.setAttribute("data-theme", "dark");
     return;
   }
   if (theme === "system") {
-    document.documentElement.setAttribute("data-theme", window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    document.documentElement.setAttribute("data-theme", activePetTheme.interfaceTheme);
     return;
   }
   document.documentElement.setAttribute("data-theme", "light");
@@ -76,7 +79,11 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
   useEffect(() => {
     void window.companion.getSettings().then(setSettings);
     void window.companion.getConnectionStatus().then(setConnection);
-    const offSettings = window.companion.onSettings(setSettings);
+    const offSettings = window.companion.onSettings(next => {
+      setSettings(next);
+      applyTheme(next.theme, next.petTheme);
+      applyUiStyle(next.uiStyle);
+    });
     const offConnection = window.companion.onConnection(setConnection);
     const offEvent = window.companion.onEvent(event => {
       const sid = event.sessionId;
@@ -280,7 +287,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
   async function updateSettings(next: Partial<CompanionSettings>) {
     const saved = await window.companion.saveSettings(next);
     setSettings(saved);
-    if (next.theme) applyTheme(next.theme);
+    if (next.theme || next.petTheme) applyTheme(saved.theme, saved.petTheme);
     if (next.uiStyle) applyUiStyle(next.uiStyle);
   }
 

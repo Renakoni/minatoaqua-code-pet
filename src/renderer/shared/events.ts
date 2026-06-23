@@ -40,13 +40,15 @@ export interface AppStats {
   toolUsage: Record<string, number>;
   eventTypeCounts: Record<string, number>;
   totalSessions: number;
-  dailyStats: Record<string, { events: number; toolCalls: number; sessions: number }>;
+  dailyStats: Record<string, { events: number; toolCalls: number; sessions: number; errors?: number; permissionRequests?: number }>;
   errorCount: number;
   permissionRequests: number;
   permissionApproved: number;
   permissionDenied: number;
   totalRuntime: number;
   hourlyActivity: number[];
+  dailyHourlyActivity: Record<string, number[]>;
+  dailyToolUsage: Record<string, Record<string, number>>;
   firstStartTime: number;
   lastEventTime: number;
 }
@@ -62,6 +64,8 @@ export const defaultStats: AppStats = {
   permissionDenied: 0,
   totalRuntime: 0,
   hourlyActivity: new Array(24).fill(0),
+  dailyHourlyActivity: {},
+  dailyToolUsage: {},
   firstStartTime: Date.now(),
   lastEventTime: 0
 };
@@ -119,6 +123,7 @@ export type PetState =
 
 export type PrivacyMode = "safe" | "standard" | "detailed";
 export type FeedbackMode = "thought" | "card" | "ribbon";
+export type PetThemeId = "minato-aqua";
 
 export type ClientType = "cli" | "desktop" | "vscode" | "unknown";
 
@@ -228,6 +233,7 @@ export interface CompanionSettings {
   openSettingsOnStart: boolean;
   autoStartWithCli: boolean;
   autoUpdateEnabled: boolean;
+  petTheme: PetThemeId;
   enabledSources: ProviderId[];
   doneSound: boolean;
   notificationsEnabled: boolean;
@@ -643,12 +649,13 @@ export const defaultSettings: CompanionSettings = {
   permissionDialogEnabled: true,
   showSessionTitle: true,
   companionScale: 0.5,
-  companionIdleAnimations: ["thinking", "idle", "waiting_permission"],
+  companionIdleAnimations: ["running", "idle", "waiting_permission"],
   mainClawdIdleAnimation: "random",
   launchAtLogin: false,
   openSettingsOnStart: false,
   autoStartWithCli: false,
   autoUpdateEnabled: true,
+  petTheme: "minato-aqua",
   enabledSources: ["claude-code"],
   doneSound: false,
   notificationsEnabled: true,
@@ -699,17 +706,13 @@ export const defaultSettings: CompanionSettings = {
   zoneSizes: {},
   idleAnim: {
     enabled: true,
-    selectedSprites: ["idle", "thinking", "tool_read", "tool_edit", "waiting_permission", "done", "error", "skill", "agent"],
+    selectedSprites: ["idle", "running", "waiting_permission", "done", "extra_action_5", "extra_action_7", "extra_action_8", "extra_action_9", "extra_action_aqua_bocchi", "extra_action_aqua_pixel"],
     intervalMin: 15,
     intervalMax: 40,
     repeatMin: 2,
     repeatMax: 3
   },
-  stateAnimations: {
-    skill: "skill",
-    task: "task",
-    agent: "agent"
-  }
+  stateAnimations: {}
 };
 
 export function stateFromEvent(event: CompanionEvent): PetState {

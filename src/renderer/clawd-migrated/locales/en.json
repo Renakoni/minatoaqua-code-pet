@@ -1,6 +1,6 @@
 {
   "settings": {
-    "title": "Clawd Companion",
+    "title": "Chara Desk",
     "eyebrow": "Settings",
     "tabs": {
       "general": "Overview",
@@ -32,7 +32,7 @@
       "about": "About"
     },
     "about": {
-      "title": "About Clawd Companion",
+      "title": "About Chara Desk",
       "description": "A local desktop companion and workbench for Claude Code.",
       "version": "Version",
       "product": "Product",
@@ -41,7 +41,7 @@
     "themeLabel": "Theme",
     "themeLight": "Light",
     "themeDark": "Dark",
-    "themeSystem": "System",
+    "themeSystem": "Pet theme",
     "languageLabel": "Language",
     "autoStartDelay": "Start delay (s)",
     "autoStartMinimized": "Start minimized",
@@ -494,7 +494,7 @@
     "localToken": "Local token"
   },
   "appearance": {
-    "themeNote": "Choose light, dark, or system mode. Switch between classic and liquid glass UI on the right.",
+    "themeNote": "Choose light, pet theme, or dark mode. Switch between classic and liquid glass UI on the right.",
     "privacyNote": "Safe mode shows only tool types; standard shows filenames/search patterns; detailed may show truncated command summaries.",
     "enablePet": "Enable pet",
     "alwaysOnTop": "Always on top",

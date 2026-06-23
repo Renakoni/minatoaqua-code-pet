@@ -285,6 +285,18 @@
   user-select: none;
   pointer-events: none;
 }
+.clawd-animation-img {
+  position: relative;
+  z-index: 4;
+  align-self: end;
+  justify-self: center;
+  width: 226px;
+  height: 226px;
+  object-fit: contain;
+  image-rendering: auto;
+  user-select: none;
+  pointer-events: none;
+}
 
 /* === State-specific animations === */
 

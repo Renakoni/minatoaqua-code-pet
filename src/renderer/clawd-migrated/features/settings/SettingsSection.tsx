@@ -3,10 +3,12 @@ import React from "react";
 import { Bell, Bot, Gauge, KeyRound, MonitorCheck, MousePointer2, Radio, Shield, Sparkles, Timer } from "lucide-react";
 import { defaultSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
+import minatoAquaCover from "../../../assets/themes/minato-aqua-cover.png";
 import { NotificationRulesPanel } from "../../components/NotificationRulesPanel";
 import { DoctorPanel } from "../../components/DoctorPanel";
 import { ConnectionDetail, Field, GroupCard, LanguageSegmented, Segmented, SettingsInfoRow, Slider, ThemeSegmented, Toggle } from "../../components/workbench/Primitives";
 import { shortSession, timeAgo } from "../../utils/format";
+import { getPetTheme, petThemes } from "../../utils/petThemes";
 
 export function SettingsSection({
   settings,
@@ -38,13 +40,17 @@ export function SettingsSection({
   handleCheckUpdate: () => void;
 }) {
   const { t } = useI18n();
+  const activePetTheme = getPetTheme(settings.petTheme);
+  const petThemeCovers: Record<string, string> = {
+    "minato-aqua": minatoAquaCover
+  };
 
   return (
     <section className="settings-page">
       <header className="settings-page-head">
         <div>
           <span>{t("settings.eyebrow", "Settings")}</span>
-          <h2>{t("settings.title", "偏好设置")}</h2>
+          <h2>Chara Desk</h2>
         </div>
         <nav className="settings-subtabs">
           {[
@@ -112,6 +118,25 @@ export function SettingsSection({
             <Toggle label={t("appearance.showBubbles", "显示气泡")} checked={settings.showBubbles} onChange={showBubbles => updateSettings({ showBubbles })} />
           </GroupCard>
 
+          <GroupCard icon={<Sparkles size={18} />} title={t("sections.petTheme", "桌宠选择")}>
+            <div className="pet-theme-grid">
+              {petThemes.map(theme => (
+                <button
+                  key={theme.id}
+                  type="button"
+                  className={`pet-theme-card ${activePetTheme.id === theme.id ? "active" : ""}`}
+                  onClick={() => updateSettings({ petTheme: theme.id })}
+                >
+                  <img src={petThemeCovers[theme.id]} alt="" draggable={false} />
+                  <span className="pet-theme-card-copy">
+                    <strong>{theme.displayName}</strong>
+                    <small>{theme.characterName}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </GroupCard>
+
           <div className="section-grid-2col">
             <GroupCard title={t("appearance.overallScale", "整体缩放")}>
               <Slider label={t("appearance.viewScale", "视图缩放")} min={0.7} max={1.45} step={0.05} value={settings.petScale} format={v => `${Math.round(v * 100)}%`} onChange={petScale => updateSettings({ petScale })} />
@@ -119,7 +144,7 @@ export function SettingsSection({
               <Slider label={t("appearance.opacity", "整体透明")} min={0.45} max={1} step={0.05} value={settings.petOpacity} format={v => `${Math.round(v * 100)}%`} onChange={petOpacity => updateSettings({ petOpacity })} />
             </GroupCard>
 
-            <GroupCard title="Clawd">
+            <GroupCard title={activePetTheme.characterName}>
               <Slider label={t("appearance.size", "尺寸")} min={0.7} max={1.35} step={0.05} value={settings.clawdScale} format={v => `${Math.round(v * 100)}%`} onChange={clawdScale => updateSettings({ clawdScale })} />
               <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.clawdOpacity} format={v => `${Math.round(v * 100)}%`} onChange={clawdOpacity => updateSettings({ clawdOpacity })} />
             </GroupCard>
@@ -200,15 +225,15 @@ export function SettingsSection({
         </>}
 
         {activeSettingsSubsection === "about" && <>
-          <GroupCard icon={<Sparkles size={18} />} title={t("settings.about.title", "关于 Clawd Companion")}>
+          <GroupCard icon={<Sparkles size={18} />} title={t("settings.about.title", "关于 Chara Desk")}>
             <div className="settings-about-panel">
-              <div className="settings-about-mark">Clawd</div>
+              <div className="settings-about-mark">Aqua</div>
               <div className="settings-about-copy">
-                <strong>Clawd Companion</strong>
+                <strong>Chara Desk</strong>
                 <span>{t("settings.about.description", "面向 Claude Code 的本地桌宠和工作台。")}</span>
               </div>
               <div className="settings-about-actions">
-                <button className="inline-action" onClick={() => window.companion.openExternal("https://github.com/Doulor/Clawd-Companion")}>GitHub</button>
+                <button className="inline-action" onClick={() => window.companion.openExternal("https://github.com/Renakoni/minatoaqua-code-pet")}>GitHub</button>
                 <button className="inline-action" onClick={handleCheckUpdate} disabled={checkingUpdate || updateStatus.checking || updateStatus.downloading}>
                   {checkingUpdate || updateStatus.checking ? t("update.checkShort", "检查中...") : t("update.check", "检查更新")}
                 </button>

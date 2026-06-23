@@ -432,6 +432,77 @@
   box-shadow: none;
 }
 
+.settings-page .pet-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 220px));
+  gap: 12px;
+}
+
+.settings-page .pet-theme-card {
+  min-width: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 150px auto;
+  padding: 0;
+  border: 1px solid var(--settings-line);
+  border-radius: 8px;
+  color: var(--settings-ink);
+  background: var(--settings-subtle);
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-page .pet-theme-card:hover {
+  border-color: oklch(72% 0.09 82 / 0.38);
+  background: oklch(96% 0.01 78 / 0.44);
+}
+
+.settings-page .pet-theme-card.active {
+  border-color: oklch(72% 0.09 82 / 0.46);
+  box-shadow: inset 0 0 0 1px oklch(72% 0.09 82 / 0.28);
+}
+
+.settings-page .pet-theme-card img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: 50% 18%;
+}
+
+.settings-page .pet-theme-card-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 10px 11px;
+  border-top: 1px solid var(--settings-line);
+}
+
+.settings-page .pet-theme-card-copy strong,
+.settings-page .pet-theme-card-copy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page .pet-theme-card-copy strong {
+  font-size: 13px;
+  font-weight: 780;
+  line-height: 1.15;
+}
+
+.settings-page .pet-theme-card-copy small {
+  color: var(--settings-muted);
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1.1;
+}
+
+[data-theme=dark] .settings-page .pet-theme-card:hover {
+  background: oklch(28% 0.008 75 / 0.5);
+}
+
 .settings-page .toggle-row {
   display: inline-flex;
   align-items: center;
@@ -1063,6 +1134,71 @@
   background-clip: padding-box;
 }
 
+.settings-page .animation-workbench .animation-master-row,
+.settings-page .animation-workbench .animation-summary-row,
+.settings-page .animation-workbench .animation-section-block,
+.settings-page .animation-workbench .state-anim-list,
+.settings-page .animation-workbench .state-anim-picker {
+  border-color: var(--settings-line);
+  background: var(--settings-surface-raised);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.settings-page .animation-workbench .idle-sprite-preview,
+.settings-page .animation-workbench .animation-assignment-button,
+.settings-page .animation-workbench .sprite-preview-box,
+.settings-page .animation-workbench .state-anim-picker-close {
+  border-color: var(--settings-line);
+  background: var(--settings-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.settings-page .animation-workbench .idle-sprite-preview:hover,
+.settings-page .animation-workbench .animation-assignment-button:hover,
+.settings-page .animation-workbench .animation-assignment-button.open,
+.settings-page .animation-workbench .state-anim-picker-close:hover {
+  border-color: var(--settings-line-strong);
+  background: var(--settings-surface-hover);
+}
+
+.settings-page .animation-workbench .idle-sprite-preview.checked {
+  border-color: oklch(77% 0.105 82 / 0.5);
+  background: var(--settings-accent-soft);
+}
+
+.settings-page .animation-workbench .sprite-preview-box.random,
+.settings-page .animation-workbench .sprite-reset-mark {
+  color: var(--settings-accent);
+  border-color: oklch(77% 0.105 82 / 0.28);
+  background: var(--settings-accent-soft);
+}
+
+.settings-page .animation-ranges .range-slider-row {
+  grid-template-columns: minmax(150px, 210px) minmax(0, 1fr);
+}
+
+.settings-page .animation-ranges .range-track input[type="range"],
+.settings-page .animation-ranges .range-track input[type="range"]::-webkit-slider-runnable-track {
+  background: transparent;
+}
+
+.settings-page .animation-ranges .range-track input[type="range"]::-webkit-slider-thumb {
+  border-color: var(--settings-surface-raised);
+  background: var(--settings-accent);
+}
+
+[data-ui-style=liquid] .settings-page .animation-workbench .idle-sprite-preview,
+[data-ui-style=liquid] .settings-page .animation-workbench .animation-assignment-button,
+[data-ui-style=liquid] .settings-page .animation-workbench .state-anim-picker,
+[data-ui-style=liquid] .settings-page .animation-workbench .sprite-preview-box {
+  background: var(--settings-surface);
+  border-color: var(--settings-line);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
 @media (max-width: 1060px) {
   .settings-page-head {
     grid-template-columns: 1fr;
@@ -1150,9 +1286,12 @@
     gap: 7px;
   }
 
+  .settings-page .animation-ranges .range-slider-row {
+    grid-template-columns: 1fr;
+  }
+
   .settings-page .slider-row b,
   .settings-page .slider-value {
     text-align: left;
   }
 }
-

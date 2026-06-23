@@ -30,18 +30,18 @@
       "about": "关于"
     },
     "about": {
-      "title": "关于 Clawd Companion",
+      "title": "关于 Chara Desk",
       "description": "面向 Claude Code 的本地桌宠和工作台。",
       "version": "版本",
       "product": "产品定位",
       "productValue": "Claude Code 桌宠与本地控制面板"
     },
-    "title": "Clawd Companion",
+    "title": "Chara Desk",
     "eyebrow": "设置",
     "themeLabel": "主题",
     "themeLight": "浅色",
     "themeDark": "深色",
-    "themeSystem": "跟随系统",
+    "themeSystem": "桌宠主题",
     "languageLabel": "语言",
     "autoStartDelay": "启动延迟（秒）",
     "autoStartMinimized": "最小化启动",
@@ -494,7 +494,7 @@
     "localToken": "本地 token"
   },
   "appearance": {
-    "themeNote": "选择日间、夜间或跟随系统；右侧可切换经典 / 液态玻璃界面风格。",
+    "themeNote": "选择日间、桌宠主题或夜间；右侧可切换经典 / 液态玻璃界面风格。",
     "privacyNote": "安全模式只显示工具类型；标准模式显示文件名和搜索模式；详细模式可显示被截断的命令摘要。",
     "enablePet": "启用桌宠",
     "alwaysOnTop": "始终置顶",

@@ -43,6 +43,8 @@
 .clawd-idle-picker,
 .clawd-idle-option,
 .idle-sprite-preview,
+.animation-switch,
+.animation-assignment-button,
 .state-anim-picker-close,
 .companion-idle-btn {
   transition:
@@ -70,6 +72,8 @@
 .clawd-idle-picker:hover,
 .clawd-idle-option:hover,
 .idle-sprite-preview:hover,
+.animation-switch:hover,
+.animation-assignment-button:hover,
 .companion-idle-btn:hover:not(.active) {
   transform: translateY(-1px);
 }
@@ -95,6 +99,7 @@
 .feedback-mode-row button.active,
 .companion-idle-btn.active,
 .idle-sprite-preview.checked,
+.animation-assignment-button.open,
 .clawd-idle-picker.active,
 .clawd-idle-option.active {
   animation: selected-soft-pop 180ms var(--ease-snap) both;
@@ -132,6 +137,8 @@
 button:focus-visible,
 input:focus-visible,
 .clawd-idle-picker:focus-visible,
+.animation-switch:focus-visible,
+.animation-assignment-button:focus-visible,
 .idle-sprite-preview:focus-visible {
   outline: 2px solid rgba(234, 187, 88, 0.72);
   outline-offset: 2px;

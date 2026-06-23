@@ -1,3 +1,706 @@
+/* === App Chrome Refresh === */
+.settings-shell {
+  grid-template-rows: 36px 42px minmax(0, 1fr) auto;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+.window-bar {
+  height: 36px;
+  padding: 0 0 0 14px;
+  background: oklch(97% 0.006 78 / 0.9);
+  border-bottom: 1px solid oklch(34% 0.012 75 / 0.14);
+  backdrop-filter: blur(14px);
+}
+
+.window-title {
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: oklch(26% 0.012 75);
+}
+
+.window-title svg {
+  flex: 0 0 auto;
+  color: oklch(68% 0.12 82);
+}
+
+.update-hint-btn {
+  height: 20px;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 6px;
+  color: oklch(45% 0.08 245);
+  background: oklch(60% 0.08 245 / 0.12);
+  animation: none;
+}
+
+.window-actions {
+  height: 100%;
+  gap: 0;
+  align-self: stretch;
+}
+
+.window-actions button {
+  width: 44px;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  color: oklch(48% 0.01 75);
+  background: transparent;
+  box-shadow: none;
+}
+
+.window-actions button:hover,
+.window-actions button:active {
+  color: oklch(24% 0.012 75);
+  background: oklch(91% 0.006 78 / 0.76);
+  transform: none;
+}
+
+.window-actions .close:hover {
+  color: oklch(98% 0.006 78);
+  background: oklch(56% 0.14 31 / 0.88);
+  border-color: transparent;
+}
+
+.tab-bar {
+  min-height: 42px;
+  padding: 0 16px;
+  gap: 4px;
+  background: oklch(96% 0.006 78 / 0.86);
+  border-bottom: 1px solid oklch(34% 0.012 75 / 0.14);
+  backdrop-filter: blur(14px);
+}
+
+.tab-item {
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 8px;
+  color: oklch(48% 0.01 75);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.tab-item svg {
+  color: currentColor;
+  opacity: 0.86;
+}
+
+.tab-item:hover {
+  color: oklch(25% 0.012 75);
+  background: oklch(91% 0.008 78 / 0.82);
+}
+
+.tab-item.active {
+  color: oklch(32% 0.062 82);
+  background: oklch(93% 0.032 82 / 0.88);
+  box-shadow: inset 0 0 0 1px oklch(70% 0.08 82 / 0.36);
+}
+
+.version-bar {
+  min-height: 40px;
+  padding: 7px 18px;
+  background: oklch(97% 0.006 78 / 0.9);
+  border-top: 1px solid oklch(34% 0.012 75 / 0.14);
+  backdrop-filter: blur(14px);
+}
+
+.version-left,
+.version-right {
+  gap: 8px;
+}
+
+.version-label {
+  font-size: 12px;
+  font-weight: 650;
+  color: oklch(27% 0.012 75);
+}
+
+.version-link {
+  min-height: 24px;
+  padding: 0 7px;
+  border-radius: 7px;
+}
+
+.update-btn {
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+}
+
+.update-refresh-btn {
+  min-width: 22px;
+  min-height: 22px;
+  border-radius: 6px;
+}
+
+[data-theme=dark] .window-bar {
+  background: oklch(15% 0.006 75 / 0.94);
+  border-bottom-color: oklch(30% 0.006 75);
+}
+
+[data-theme=dark] .window-title {
+  color: oklch(89% 0.011 78);
+}
+
+[data-theme=dark] .window-title svg {
+  color: oklch(78% 0.1 82);
+}
+
+[data-theme=dark] .window-actions button {
+  color: oklch(62% 0.009 78);
+}
+
+[data-theme=dark] .window-actions button:hover,
+[data-theme=dark] .window-actions button:active {
+  color: oklch(91% 0.012 78);
+  background: oklch(24% 0.007 75);
+}
+
+[data-theme=dark] .window-actions .close:hover {
+  color: oklch(96% 0.01 78);
+  background: oklch(54% 0.13 31 / 0.9);
+}
+
+[data-theme=dark] .tab-bar {
+  background: oklch(14.5% 0.006 75 / 0.94);
+  border-bottom-color: oklch(30% 0.006 75);
+}
+
+[data-theme=dark] .tab-bar .tab-item {
+  color: oklch(63% 0.009 78);
+}
+
+[data-theme=dark] .tab-bar .tab-item:hover {
+  color: oklch(90% 0.011 78);
+  background: oklch(24% 0.007 75);
+}
+
+[data-theme=dark] .tab-bar .tab-item.active {
+  color: oklch(82% 0.105 82);
+  background: oklch(24% 0.03 82 / 0.78);
+  box-shadow: inset 0 0 0 1px oklch(62% 0.055 82 / 0.36);
+}
+
+[data-theme=dark] .version-bar {
+  background: oklch(15% 0.006 75 / 0.94);
+  border-top-color: oklch(30% 0.006 75);
+}
+
+[data-theme=dark] .version-label {
+  color: oklch(88% 0.011 78);
+}
+
+[data-ui-style=liquid] .window-bar,
+[data-ui-style=liquid] .tab-bar,
+[data-ui-style=liquid] .version-bar {
+  background: oklch(98% 0.008 230 / 0.54);
+  backdrop-filter: blur(20px) saturate(1.18);
+}
+
+[data-ui-style=liquid][data-theme=dark] .window-bar,
+[data-ui-style=liquid][data-theme=dark] .tab-bar,
+[data-ui-style=liquid][data-theme=dark] .version-bar {
+  background: oklch(18% 0.012 250 / 0.7);
+}
+
+@media (max-width: 640px) {
+  .settings-shell {
+    grid-template-rows: 36px 40px minmax(0, 1fr) auto;
+  }
+
+  .window-actions button {
+    width: 38px;
+  }
+
+  .tab-bar {
+    min-height: 40px;
+    padding-inline: 10px;
+  }
+
+  .tab-item {
+    height: 28px;
+    padding-inline: 9px;
+  }
+}
+
+/* === Animation Workbench Refresh === */
+.animation-page {
+  --anim-ink: oklch(22% 0.01 75);
+  --anim-muted: oklch(50% 0.011 75);
+  --anim-faint: oklch(61% 0.01 75);
+  --anim-line: oklch(34% 0.012 75 / 0.16);
+  --anim-line-strong: oklch(34% 0.012 75 / 0.28);
+  --anim-surface: oklch(98% 0.008 78 / 0.82);
+  --anim-surface-raised: oklch(99% 0.006 78 / 0.92);
+  --anim-surface-hover: oklch(95% 0.01 78 / 0.9);
+  --anim-cell: oklch(97% 0.008 78 / 0.72);
+  --anim-preview: oklch(18% 0.006 75 / 0.08);
+  --anim-accent: oklch(74% 0.112 82);
+  --anim-accent-soft: oklch(80% 0.105 82 / 0.16);
+  --anim-shadow: 0 18px 44px oklch(14% 0.006 75 / 0.1);
+  width: 100%;
+  max-width: 1180px;
+  display: grid;
+  gap: 12px;
+  color: var(--anim-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+[data-theme=dark] .animation-page {
+  --anim-ink: oklch(91% 0.012 78);
+  --anim-muted: oklch(64% 0.01 78);
+  --anim-faint: oklch(51% 0.009 78);
+  --anim-line: oklch(78% 0.009 78 / 0.14);
+  --anim-line-strong: oklch(78% 0.009 78 / 0.24);
+  --anim-surface: oklch(17.5% 0.006 75);
+  --anim-surface-raised: oklch(20% 0.007 75);
+  --anim-surface-hover: oklch(22.5% 0.008 75);
+  --anim-cell: oklch(19% 0.006 75);
+  --anim-preview: oklch(13% 0.006 75);
+  --anim-accent: oklch(78% 0.105 82);
+  --anim-accent-soft: oklch(78% 0.105 82 / 0.13);
+  --anim-shadow: 0 18px 44px oklch(10% 0.006 75 / 0.28);
+}
+
+.animation-page-secondary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.78fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.animation-panel {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--anim-line);
+  border-radius: 9px;
+  background: var(--anim-surface);
+  box-shadow: var(--anim-shadow);
+  overflow: clip;
+}
+
+.animation-panel-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+}
+
+.animation-panel-title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.animation-panel-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--anim-accent);
+  border: 1px solid var(--anim-line);
+  border-radius: 7px;
+  background: var(--anim-accent-soft);
+}
+
+.animation-panel-title h3 {
+  min-width: 0;
+  margin: 0;
+  color: var(--anim-ink);
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.animation-panel-meta {
+  color: var(--anim-faint);
+  font-size: 11px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.animation-page .idle-anim-settings {
+  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+  gap: 12px;
+}
+
+.animation-page .animation-master-row {
+  min-height: 58px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.animation-page .animation-master-copy {
+  gap: 3px;
+}
+
+.animation-page .animation-master-copy strong {
+  color: var(--anim-ink);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.animation-page .animation-master-copy span {
+  color: var(--anim-muted);
+  font-size: 12px;
+}
+
+.animation-page .animation-summary-row {
+  border-color: var(--anim-line);
+  border-radius: 9px;
+  background: var(--anim-surface-raised);
+}
+
+.animation-page .animation-stat {
+  min-height: 58px;
+  border-right-color: var(--anim-line);
+  padding: 10px 12px;
+}
+
+.animation-page .animation-stat-icon {
+  color: var(--anim-accent);
+}
+
+.animation-page .animation-stat > span:not(.animation-stat-icon) {
+  color: var(--anim-faint);
+}
+
+.animation-page .animation-stat strong {
+  color: var(--anim-ink);
+}
+
+.animation-page .idle-anim-settings > .animation-section-block,
+.animation-page .idle-anim-settings > .animation-ranges {
+  grid-column: 1 / -1;
+}
+
+.animation-page .animation-section-block {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.animation-page .animation-section-head {
+  min-height: 24px;
+}
+
+.animation-page .animation-section-head .panel-subtitle {
+  margin: 0;
+  color: var(--anim-ink);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.animation-page .animation-section-head > span {
+  color: var(--anim-faint);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.animation-page .idle-sprite-grid,
+.animation-page .state-anim-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(154px, 1fr));
+  gap: 1px;
+  border: 1px solid var(--anim-line);
+  border-radius: 9px;
+  background: var(--anim-line);
+  overflow: hidden;
+}
+
+.animation-page .idle-sprite-preview {
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) 20px;
+  grid-template-rows: 1fr;
+  justify-items: stretch;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 0;
+  color: var(--anim-muted);
+  background: var(--anim-cell);
+  box-shadow: none;
+}
+
+.animation-page .idle-sprite-preview:hover {
+  color: var(--anim-ink);
+  background: var(--anim-surface-hover);
+  box-shadow: none;
+}
+
+.animation-page .idle-sprite-preview.checked {
+  color: var(--anim-ink);
+  background: var(--anim-accent-soft);
+  box-shadow: inset 0 0 0 1px oklch(74% 0.105 82 / 0.34);
+}
+
+.animation-page .sprite-preview-box {
+  width: 54px;
+  height: 54px;
+  border-color: var(--anim-line);
+  border-radius: 7px;
+  background:
+    conic-gradient(from 90deg, var(--anim-preview) 25%, transparent 0 50%, var(--anim-preview) 0 75%, transparent 0) 0 0 / 12px 12px,
+    var(--anim-surface-raised);
+}
+
+.animation-page .sprite-preview-box.random,
+.animation-page .sprite-reset-mark {
+  color: var(--anim-accent);
+  background: var(--anim-accent-soft);
+}
+
+.animation-page .idle-sprite-label {
+  color: currentColor;
+  font-size: 12px;
+  font-weight: 720;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.animation-page .sprite-selected-mark {
+  position: static;
+  justify-self: end;
+  width: 18px;
+  height: 18px;
+  color: var(--anim-accent);
+  border-color: oklch(74% 0.105 82 / 0.4);
+  background: var(--anim-surface-raised);
+}
+
+.animation-page .animation-ranges {
+  display: grid;
+  gap: 0;
+  padding-top: 2px;
+  border-top: 1px solid var(--anim-line);
+}
+
+.animation-page .range-slider-row {
+  min-height: 56px;
+  grid-template-columns: minmax(140px, 190px) minmax(0, 1fr);
+  padding: 10px 0;
+  border-bottom-color: var(--anim-line);
+}
+
+.animation-page .range-slider-copy > span {
+  color: var(--anim-muted);
+}
+
+.animation-page .range-slider-copy > b {
+  color: var(--anim-ink);
+}
+
+.animation-page .range-track::before {
+  background: oklch(52% 0.006 75 / 0.2);
+}
+
+.animation-page .range-fill {
+  background: var(--anim-accent);
+}
+
+.animation-page .range-track input[type="range"]::-webkit-slider-thumb {
+  border-color: var(--anim-surface);
+  background: var(--anim-accent);
+  box-shadow: 0 0 0 1px oklch(74% 0.105 82 / 0.36), 0 5px 14px oklch(14% 0.006 75 / 0.18);
+}
+
+.animation-page .animation-switch {
+  border-color: var(--anim-line-strong);
+  background: oklch(52% 0.006 75 / 0.18);
+}
+
+.animation-page .animation-switch-knob {
+  background: var(--anim-faint);
+}
+
+.animation-page .animation-switch.on {
+  border-color: oklch(74% 0.105 82 / 0.54);
+  background: var(--anim-accent-soft);
+}
+
+.animation-page .animation-switch.on .animation-switch-knob {
+  background: var(--anim-accent);
+}
+
+.animation-page .state-anim-list {
+  border-color: var(--anim-line);
+  border-radius: 9px;
+  background: var(--anim-line);
+}
+
+.animation-page .state-anim-row {
+  min-height: 64px;
+  grid-template-columns: minmax(170px, 1fr) minmax(176px, 230px);
+  border-bottom-color: var(--anim-line);
+  background: var(--anim-cell);
+}
+
+.animation-page .state-anim-meta strong {
+  color: var(--anim-ink);
+}
+
+.animation-page .state-anim-meta span {
+  color: var(--anim-faint);
+}
+
+.animation-page .animation-assignment-button {
+  min-height: 42px;
+  grid-template-columns: 38px minmax(0, 1fr) 15px;
+  border-color: var(--anim-line);
+  border-radius: 7px;
+  color: var(--anim-ink);
+  background: var(--anim-surface-raised);
+}
+
+.animation-page .animation-assignment-button:hover,
+.animation-page .animation-assignment-button.open {
+  border-color: var(--anim-line-strong);
+  background: var(--anim-surface-hover);
+}
+
+.animation-page .animation-assignment-button.open {
+  box-shadow: inset 0 0 0 1px oklch(74% 0.105 82 / 0.24);
+}
+
+.animation-page .animation-assignment-button .sprite-preview-box {
+  width: 38px;
+  height: 38px;
+}
+
+.animation-page .animation-assignment-button > span:not(.sprite-preview-box) {
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.animation-page .animation-assignment-button svg:last-child {
+  color: var(--anim-faint);
+}
+
+.animation-page .state-anim-picker {
+  gap: 10px;
+  padding: 10px;
+  border-color: var(--anim-line);
+  border-radius: 9px;
+  background: var(--anim-surface-raised);
+}
+
+.animation-page .state-anim-picker-title {
+  color: var(--anim-ink);
+  font-size: 12px;
+}
+
+.animation-page .state-anim-picker-close {
+  color: var(--anim-muted);
+  border-color: var(--anim-line);
+  background: var(--anim-cell);
+}
+
+.animation-page .state-anim-picker-close:hover {
+  color: var(--anim-ink);
+  border-color: var(--anim-line-strong);
+  background: var(--anim-surface-hover);
+}
+
+.animation-page .state-anim-picker-grid .idle-sprite-preview,
+.animation-page .animation-test-grid .idle-sprite-preview {
+  min-height: 64px;
+  grid-template-rows: 1fr;
+}
+
+.animation-page .state-anim-picker-grid .idle-sprite-preview .sprite-preview-box {
+  width: 50px;
+  height: 50px;
+}
+
+.animation-page .animation-test-actions {
+  justify-content: flex-start;
+}
+
+.animation-page .animation-test-stop {
+  min-height: 30px;
+  padding: 0 11px;
+  border-color: var(--anim-line);
+  border-radius: 7px;
+  color: var(--anim-muted);
+  background: var(--anim-surface-raised);
+}
+
+.animation-page .animation-test-stop:hover:not(:disabled) {
+  color: var(--anim-ink);
+  border-color: var(--anim-line-strong);
+  background: var(--anim-surface-hover);
+}
+
+.animation-page .animation-test-stop:disabled {
+  opacity: 0.42;
+}
+
+.animation-page .idle-sprite-preview.reset {
+  grid-template-rows: 1fr;
+}
+
+.animation-page .sprite-reset-mark {
+  width: 38px;
+  height: 38px;
+  border-color: oklch(74% 0.105 82 / 0.28);
+}
+
+[data-ui-style=liquid] .animation-page .animation-panel,
+[data-ui-style=liquid] .animation-page .state-anim-picker {
+  background: oklch(98% 0.008 230 / 0.58);
+  backdrop-filter: blur(20px) saturate(1.15);
+}
+
+[data-ui-style=liquid][data-theme=dark] .animation-page .animation-panel,
+[data-ui-style=liquid][data-theme=dark] .animation-page .state-anim-picker {
+  background: oklch(19% 0.012 250 / 0.7);
+}
+
+@media (max-width: 980px) {
+  .animation-page-secondary,
+  .animation-page .idle-anim-settings {
+    grid-template-columns: 1fr;
+  }
+
+  .animation-page .animation-master-row,
+  .animation-page .animation-summary-row,
+  .animation-page .idle-anim-settings > .animation-section-block,
+  .animation-page .idle-anim-settings > .animation-ranges {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .animation-panel {
+    padding: 12px;
+  }
+
+  .animation-page .idle-sprite-grid,
+  .animation-page .state-anim-picker-grid {
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  }
+
+  .animation-page .state-anim-row,
+  .animation-page .range-slider-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* === Light Theme Alignment for Migrated Workbenches === */
 .claude-sessions-page {
   --session-ink: oklch(23% 0.011 75);

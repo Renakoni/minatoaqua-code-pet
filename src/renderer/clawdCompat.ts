@@ -55,8 +55,10 @@ type CompanionApi = {
   getDefaultSoundPaths: () => Promise<Record<string, string | null>>;
   previewSoundFile: (path: string) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
   pickSoundFile: () => Promise<string | null>;
+  previewPetAnimation: (animationKey: string) => Promise<boolean>;
   syncIdleBubble: (payload: unknown) => Promise<void>;
   onIdleBubbleSync: (callback: Listener<unknown>) => Unsubscribe;
+  onPreviewPetAnimation: (callback: Listener<string>) => Unsubscribe;
   getEventHistory: () => Promise<EventHistoryEntry[]>;
   getSessionHistory: () => Promise<SessionHistory[]>;
   clearEventHistory: () => Promise<void>;
@@ -101,6 +103,7 @@ const currentSettings: CompanionSettings = {
   privacyMode: "detailed",
   language: "zh",
   enabledSources: ["claude-code", "codex"],
+  petTheme: "minato-aqua",
   openSettingsOnStart: true
 };
 
@@ -115,6 +118,7 @@ const companionEventListeners = new Set<Listener<CompanionEvent>>();
 const permissionRequestListeners = new Set<Listener<PermissionRequest>>();
 const permissionResolvedListeners = new Set<Listener<{ id: string }>>();
 const idleBubbleSyncListeners = new Set<Listener<unknown>>();
+const previewPetAnimationListeners = new Set<Listener<string>>();
 const updateStatusListeners = new Set<Listener<UpdateStatus>>();
 const playSoundListeners = new Set<Listener<string>>();
 const openSectionListeners = new Set<Listener<string>>();
@@ -145,6 +149,14 @@ function normalizeTool(tool?: string): ToolName {
   if (normalized.includes("task")) return "Task";
   if (normalized.includes("mcp")) return "MCP";
   return "Unknown";
+}
+
+function localDateKey(timestamp = Date.now()): string {
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function toCompanionEvent(event: PetEvent): CompanionEvent {
@@ -215,6 +227,8 @@ function buildStats(): AppStats {
     eventTypeCounts: {},
     dailyStats: {},
     hourlyActivity: new Array(24).fill(0),
+    dailyHourlyActivity: {},
+    dailyToolUsage: {},
     firstStartTime: startedAt,
     lastEventTime: lastEvent?.timestamp ?? 0,
     totalRuntime: Math.max(0, Date.now() - startedAt)
@@ -227,12 +241,21 @@ function buildStats(): AppStats {
     if (event.event === "error") stats.errorCount++;
     if (event.event === "permission_wait") stats.permissionRequests++;
     const date = new Date(event.timestamp);
-    const day = date.toISOString().slice(0, 10);
-    stats.hourlyActivity[date.getHours()]++;
-    stats.dailyStats[day] ??= { events: 0, toolCalls: 0, sessions: 0 };
+    const day = localDateKey(event.timestamp);
+    const hour = date.getHours();
+    stats.hourlyActivity[hour]++;
+    stats.dailyHourlyActivity[day] ??= new Array(24).fill(0);
+    stats.dailyHourlyActivity[day][hour]++;
+    stats.dailyStats[day] ??= { events: 0, toolCalls: 0, sessions: 0, errors: 0, permissionRequests: 0 };
     stats.dailyStats[day].events++;
-    if (event.tool) stats.dailyStats[day].toolCalls++;
+    if (event.tool) {
+      stats.dailyStats[day].toolCalls++;
+      stats.dailyToolUsage[day] ??= {};
+      stats.dailyToolUsage[day][event.tool] = (stats.dailyToolUsage[day][event.tool] ?? 0) + 1;
+    }
     if (event.event === "session_start") stats.dailyStats[day].sessions++;
+    if (event.event === "error") stats.dailyStats[day].errors = (stats.dailyStats[day].errors ?? 0) + 1;
+    if (event.event === "permission_wait") stats.dailyStats[day].permissionRequests = (stats.dailyStats[day].permissionRequests ?? 0) + 1;
   }
 
   stats.totalSessions = 1;
@@ -385,8 +408,13 @@ export function installClawdCompat() {
     getDefaultSoundPaths: async () => ({ done: null, error: null, permission: null }),
     previewSoundFile: async () => ({ ok: false, error: "Sound preview is only available in the desktop app." }),
     pickSoundFile: async () => null,
+    previewPetAnimation: async animationKey => {
+      emit(previewPetAnimationListeners, animationKey);
+      return true;
+    },
     syncIdleBubble: async payload => emit(idleBubbleSyncListeners, payload),
     onIdleBubbleSync: callback => subscribe(idleBubbleSyncListeners, callback),
+    onPreviewPetAnimation: callback => subscribe(previewPetAnimationListeners, callback),
     getEventHistory: async () => eventHistory,
     getSessionHistory: async () => sessionHistory(),
     clearEventHistory: async () => { eventHistory = []; },

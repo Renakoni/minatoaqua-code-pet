@@ -8,9 +8,14 @@ import { nextPetState } from "./state/petStateMachine";
 const completedResetMs = 3000;
 const showDebugPanel = import.meta.env.DEV;
 
+type PreviewCompanionApi = {
+  onPreviewPetAnimation: (callback: (animationKey: string) => void) => () => void;
+};
+
 export default function App() {
   const [state, setState] = useState<PetState>("idle");
   const [lastEvent, setLastEvent] = useState<PetEvent | null>(null);
+  const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
   const resetTimer = useRef<number | null>(null);
 
   function applyEvent(event: PetEvent) {
@@ -32,6 +37,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const companion = (window as Window & { companion?: PreviewCompanionApi }).companion;
+    const unsubscribe = companion?.onPreviewPetAnimation(animationKey => {
+      if (animationKey === "__clear_preview") {
+        setPreviewAnimation(null);
+        return;
+      }
+      setPreviewAnimation({ key: animationKey, nonce: Date.now() });
+    });
+    return () => unsubscribe?.();
+  }, []);
+
+  useEffect(() => {
     if (resetTimer.current) window.clearTimeout(resetTimer.current);
 
     if (state === "completed") {
@@ -49,7 +66,7 @@ export default function App() {
   return (
     <main className={`app state-${state}`}>
       {state === "permission-prompt" ? <PermissionCard event={lastEvent} /> : <Panel state={state} event={lastEvent} />}
-      <Pet state={state} />
+      <Pet state={state} previewAnimation={previewAnimation} />
       {showDebugPanel && (
         <div className="debug-panel">
           <button onClick={() => applyDebugEvent(createPetEvent("idle", { title: "Idle" }))}>Idle</button>

@@ -72,7 +72,7 @@ export function ThemeSegmented({ value, onChange }: { value: CompanionSettings["
   const { t } = useI18n();
   const items: Array<{ value: CompanionSettings["theme"]; label: string; icon: string }> = [
     { value: "light", label: t("settings.themeLight", "浅色"), icon: "☀" },
-    { value: "system", label: t("settings.themeSystem", "跟随"), icon: "◐" },
+    { value: "system", label: t("settings.themeSystem", "桌宠"), icon: "✦" },
     { value: "dark", label: t("settings.themeDark", "夜间"), icon: "☾" }
   ];
   const activeIndex = Math.max(0, items.findIndex(item => item.value === value));
