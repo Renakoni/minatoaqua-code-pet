@@ -129,8 +129,6 @@ export type ClientType = "cli" | "desktop" | "vscode" | "unknown";
 
 export type ProviderId = "claude-code" | "codex";
 
-export const PROVIDER_IDS: ProviderId[] = ["claude-code", "codex"];
-
 export type PermissionDecision = "allow" | "deny";
 
 export interface PermissionRequest {

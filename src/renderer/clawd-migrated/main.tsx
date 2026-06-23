@@ -3,8 +3,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
+  Anchor,
   Bell,
-  Bot,
   Check,
   CheckCircle2,
   Clipboard,
@@ -855,7 +855,7 @@ function StateProp({ state }: { state: PetState }) {
   return null;
 }
 
-export function SettingsApp() {
+function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
   const { settings, updateSettings, connection, events, petState, toolStreams } = useCompanion();
   const activePetTheme = getPetTheme(settings.petTheme);
@@ -1040,7 +1040,7 @@ export function SettingsApp() {
       )}
       <section className="window-bar">
         <div className="window-title">
-          <Bot size={15} />
+          <Anchor size={15} />
           <span>{APP_DISPLAY_NAME}</span>
           {(updateStatus.available || updateStatus.downloading || updateStatus.downloaded) && (
             <button className="update-hint-btn" onClick={() => {

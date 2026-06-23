@@ -22,8 +22,7 @@
     "electron-updater": "^6.8.9",
     "lucide-react": "^0.479.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "ws": "^8.21.0"
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

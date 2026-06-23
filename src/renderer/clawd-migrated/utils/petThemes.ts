@@ -18,7 +18,7 @@ export const petThemes: PetThemeDefinition[] = [
   }
 ];
 
-export function normalizePetThemeId(value: unknown): PetThemeId {
+function normalizePetThemeId(value: unknown): PetThemeId {
   return value === "minato-aqua" ? value : "minato-aqua";
 }
 

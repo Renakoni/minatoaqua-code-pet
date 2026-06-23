@@ -187,29 +187,10 @@
 .idle-prop { background: var(--steel); }
 .clawd-thinking .clawd-glow, .clawd-tool_bash .clawd-glow, .clawd-tool_edit .clawd-glow, .clawd-tool_read .clawd-glow, .clawd-tool_search .clawd-glow { animation-duration: 1.1s; }
 
-/* CLAWD_GIF_ALIGN: 按 GIF 内容名手动调整位置和大小。
-   x: 负数往左，正数往右；y: 负数往上，正数往下；scale: 小于 1 变小，大于 1 变大。
-   当前映射：
-   - thinking_speech.gif: thinking / tool_search
-   - headset_focus.gif: tool_read
-   - working_hardhat.gif: tool_edit / tool_bash
-   - permission_prompt.gif: waiting_permission
-   - celebrate_bunny.gif: done
-   - error_dead.gif: error
-   - idle_bubble.gif: idle 待机随机动画 */
 .clawd-sprite {
   transform: translate(var(--sprite-x, 0px), var(--sprite-y, 0px)) scale(var(--sprite-scale, 1));
   transform-origin: bottom center;
 }
-.clawd-gif-thinking_speech { --sprite-x: -5px; --sprite-y: -45px; --sprite-scale: 1; }
-.clawd-gif-headset_focus { --sprite-x: 0px; --sprite-y: -10px; --sprite-scale: 1.1; }
-.clawd-gif-working_hardhat { --sprite-x: 15px; --sprite-y: -10px; --sprite-scale: 1.25; }
-.clawd-gif-permission_prompt { --sprite-x: 10px; --sprite-y: 6px; --sprite-scale: 1.1; }
-.clawd-gif-celebrate_bunny { --sprite-x: 1.25px; --sprite-y: -50px; --sprite-scale: 0.95; }
-.clawd-gif-error_dead { --sprite-x: 10px; --sprite-y: -20px; --sprite-scale: 1.2; }
-.clawd-gif-idle_bubble { --sprite-x: 38px; --sprite-y: -10px; --sprite-scale: 1.5; }
-.clawd-gif-idea_bulb { --sprite-x: -130px; --sprite-y: -295px; --sprite-scale: 0.55; }
-.clawd-gif-welding_work { --sprite-x: -125px; --sprite-y: -245px; --sprite-scale: 0.50; }
 .clawd:not(.clawd-idle) {
   animation: none;
 }
