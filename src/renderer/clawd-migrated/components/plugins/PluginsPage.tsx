@@ -44,11 +44,11 @@ export function PluginsPage(_: { settings: CompanionSettings; updateSettings: (s
   const [error, setError] = useState<string | null>(null);
   const [showScanNote, setShowScanNote] = useState(false);
 
-  async function refresh() {
+  async function refresh(force = false) {
     setLoading(true);
     setError(null);
     try {
-      const next = await window.companion.getClaudeResources();
+      const next = await window.companion.getClaudeResources(force);
       setSnapshot((next as ClaudeResourcesSnapshot | null | undefined) ?? emptySnapshot);
       setShowScanNote(true);
     } catch (err) {
@@ -97,7 +97,7 @@ export function PluginsPage(_: { settings: CompanionSettings; updateSettings: (s
             </button>
           );
         })}
-        <button className="claude-resource-subtab claude-resource-refresh-tab" onClick={() => void refresh()} disabled={loading} aria-label={zh ? "重新扫描" : "Refresh"} title={zh ? "重新扫描" : "Refresh"}>
+        <button className="claude-resource-subtab claude-resource-refresh-tab" onClick={() => void refresh(true)} disabled={loading} aria-label={zh ? "重新扫描" : "Refresh"} title={zh ? "重新扫描" : "Refresh"}>
           <RefreshCw size={17} />
         </button>
       </nav>

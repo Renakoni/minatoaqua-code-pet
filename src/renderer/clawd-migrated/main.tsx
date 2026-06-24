@@ -36,22 +36,59 @@ import "./styles.css";
 import { I18nProvider, useI18n, detectLocale } from "./useI18n";
 import { useCompanion, type ToolStream } from "./useCompanion";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { SessionStatsDashboard } from "./components/SessionStatsDashboard";
-import { TimelinePanel } from "./components/TimelinePanel";
 import { PermissionCard } from "./components/PermissionCard";
 import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
-import { PluginsPage } from "./components/plugins/PluginsPage";
-import { SessionsPage } from "./components/sessions/SessionsPage";
 import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
 import type { HookSetupStage, HookStatus } from "./components/hooks/HooksManager";
 import { OverviewSection } from "./features/overview/OverviewSection";
-import { SettingsSection } from "./features/settings/SettingsSection";
-import { DataSection } from "./features/data/DataSection";
-import { AnimationSection } from "./features/animation/AnimationSection";
-import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, petAnimationAssets } from "./utils/petAnimations";
+import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
 import { getPetTheme } from "./utils/petThemes";
 
 const APP_DISPLAY_NAME = "Chara Desk";
+
+const SettingsSection = React.lazy(() => import("./features/settings/SettingsSection").then(module => ({ default: module.SettingsSection })));
+const SessionsPage = React.lazy(() => import("./components/sessions/SessionsPage").then(module => ({ default: module.SessionsPage })));
+const PluginsPage = React.lazy(() => import("./components/plugins/PluginsPage").then(module => ({ default: module.PluginsPage })));
+const AnimationSection = React.lazy(() => import("./features/animation/AnimationSection").then(module => ({ default: module.AnimationSection })));
+const DataSection = React.lazy(() => import("./features/data/DataSection").then(module => ({ default: module.DataSection })));
+
+function preloadPanelSections() {
+  void import("./features/settings/SettingsSection");
+  void import("./components/sessions/SessionsPage");
+  void import("./components/plugins/PluginsPage");
+  void import("./features/animation/AnimationSection");
+  void import("./features/data/DataSection");
+}
+
+function warmPanelData() {
+  void window.companion.getClaudeResources(false).catch(() => {});
+  void window.companion.getClaudeSessions(false).catch(() => {});
+  void window.companion.getStats().catch(() => {});
+}
+
+function SectionFallback() {
+  const { t } = useI18n();
+  return <p className="note">{t("common.loading", "加载中...")}</p>;
+}
+
+type PetAnimationAssets = Partial<Record<PetAnimationKey, string>>;
+let cachedPetAnimationAssets: PetAnimationAssets | null = null;
+
+function usePetAnimationAssets() {
+  const [assets, setAssets] = useState<PetAnimationAssets | null>(cachedPetAnimationAssets);
+  useEffect(() => {
+    if (assets) return undefined;
+    let cancelled = false;
+    import("./utils/petAnimationAssets")
+      .then(module => {
+        cachedPetAnimationAssets = module.petAnimationAssets;
+        if (!cancelled) setAssets(module.petAnimationAssets);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [assets]);
+  return assets;
+}
 
 const stateCopy: Record<PetState, { label: string; line: string; tone: string }> = {
   idle: { label: "待机", line: "Clawd 在桌面边缘小憩", tone: "sand" },
@@ -606,7 +643,7 @@ function PetApp() {
 
   return (
     <main className={`pet-stage ${settings.clickThrough ? 'pet-clickthrough' : ''}`}>
-      <PluginSpriteLoader />
+      <PluginSpriteLoader plugins={settings.customPlugins ?? []} />
       <section className="pet-anchor" style={{ transform: `translateX(-50%) scale(${settings.petScale}) translate(${viewOff.x}px, ${viewOff.y}px)`, opacity: settings.petOpacity }} onMouseDown={beginNormalDrag}>
       {gitToast && (
         <div className="git-toast" key={gitToast.id} style={{ top: 8, left: "50%", transform: `translateX(-50%) translate(${(settings.positionOffsets?.gitToast?.x ?? 0)}px, ${(settings.positionOffsets?.gitToast?.y ?? 0)}px)` }}>
@@ -769,14 +806,16 @@ function Clawd({ state, settings, forceIdleBubble }: { state: PetState; settings
 function ClawdSprite({ state, idleBubble, eventType, tool, stateAnimations, overrideAnimation }: { state: PetState; idleBubble?: string | null; eventType?: CompanionEvent["event"]; tool?: string; stateAnimations?: Record<string, string>; overrideAnimation?: { key: string; nonce: number } | null }) {
   void eventType;
   void tool;
+  const assets = usePetAnimationAssets();
   const baseKey = idleBubble ? normalizeAnimationKey(idleBubble, "idle") : animationKeyForPetState(state);
   const animationKey = overrideAnimation ? normalizeAnimationKey(overrideAnimation.key, "idle") : normalizeAnimationKey(stateAnimations?.[baseKey], baseKey);
   const imageKey = overrideAnimation ? `${animationKey}:${overrideAnimation.nonce}` : animationKey;
+  const imageSrc = assets?.[animationKey];
 
   return (
     <>
       <div className="clawd-glow" />
-      <img key={imageKey} className={`clawd-animation-img clawd-animation-${animationKey}`} src={petAnimationAssets[animationKey]} alt="" draggable={false} />
+      {imageSrc ? <img key={imageKey} className={`clawd-animation-img clawd-animation-${animationKey}`} src={imageSrc} alt="" draggable={false} /> : null}
       <div className="shadow" />
     </>
   );
@@ -902,22 +941,45 @@ function SettingsApp() {
   const hookSetupShowingSuccess = !hookSetupNeedsAttention && (hookSetupStage === "success" || hookSetupStage === "hiding");
   const shouldRenderHookSetup = hookSetupNeedsAttention || hookSetupStage !== "idle";
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
-  const hookCommand = "node D:/build/GitLocal/Clawd-Companion/dist/hook-forwarder/index.js";
-  const hookConfigPath = "C:/Users/Doulor/.claude/settings.json";
-  const hookSnippet = useMemo(() => buildHookSnippet(hookCommand), [hookCommand]);
 
   useEffect(() => {
-    window.companion.getAppVersion().then(setAppVersion);
-    window.companion.getUpdateStatus().then(setUpdateStatus);
-    window.companion.getStats().then(setPersistedStats);
+    preloadPanelSections();
+    warmPanelData();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.companion.getAppVersion().then(version => { if (!cancelled) setAppVersion(version); });
+    window.companion.getUpdateStatus().then(status => { if (!cancelled) setUpdateStatus(status); });
     const offUpdate = window.companion.onUpdateStatus(setUpdateStatus);
+    return () => {
+      cancelled = true;
+      offUpdate();
+    };
+  }, []);
+
+  useEffect(() => {
     const offPlaySound = window.companion.onPlaySound((dataUrl) => {
       try { playClippedAudio(dataUrl, settings.sound.volume); } catch { /* ignore */ }
     });
-    // 每秒刷新统计
-    const statsInterval = window.setInterval(() => window.companion.getStats().then(setPersistedStats), 1_000);
-    return () => { offUpdate(); offPlaySound(); window.clearInterval(statsInterval); };
+    return () => offPlaySound();
   }, [settings.sound.volume]);
+
+  useEffect(() => {
+    if (activeSection !== "data") return undefined;
+    let cancelled = false;
+    const refreshStats = () => {
+      window.companion.getStats().then(stats => {
+        if (!cancelled) setPersistedStats(stats);
+      });
+    };
+    refreshStats();
+    const statsInterval = window.setInterval(refreshStats, 5_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(statsInterval);
+    };
+  }, [activeSection]);
 
   useEffect(() => {
     let cancelled = false;
@@ -958,9 +1020,10 @@ function SettingsApp() {
   }
 
   useEffect(() => {
+    if (activeSection !== "general" && activeSection !== "settings") return undefined;
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [activeSection]);
 
   function jumpTo(section: string) {
     if (section === activeSection) return;
@@ -1095,33 +1158,35 @@ function SettingsApp() {
           />
         )}
 
-        {activeSection === "settings" && (
-          <SettingsSection
-            settings={settings}
-            updateSettings={updateSettings}
-            connection={connection}
-            activeSettingsSubsection={activeSettingsSubsection}
-            setActiveSettingsSubsection={setActiveSettingsSubsection}
-            sectionContentRef={sectionContentRef}
-            locale={locale}
-            setLocale={setLocale}
-            now={now}
-            appVersion={appVersion}
-            updateStatus={updateStatus}
-            checkingUpdate={checkingUpdate}
-            handleCheckUpdate={handleCheckUpdate}
-          />
-        )}
+        <React.Suspense fallback={<SectionFallback />}>
+          {activeSection === "settings" && (
+            <SettingsSection
+              settings={settings}
+              updateSettings={updateSettings}
+              connection={connection}
+              activeSettingsSubsection={activeSettingsSubsection}
+              setActiveSettingsSubsection={setActiveSettingsSubsection}
+              sectionContentRef={sectionContentRef}
+              locale={locale}
+              setLocale={setLocale}
+              now={now}
+              appVersion={appVersion}
+              updateStatus={updateStatus}
+              checkingUpdate={checkingUpdate}
+              handleCheckUpdate={handleCheckUpdate}
+            />
+          )}
 
-        {activeSection === "sessions" && <SessionsPage />}
+          {activeSection === "sessions" && <SessionsPage />}
 
-        {activeSection === "plugins" && <PluginsPage settings={settings} updateSettings={updateSettings} />}
+          {activeSection === "plugins" && <PluginsPage settings={settings} updateSettings={updateSettings} />}
 
-        {activeSection === "animation" && <AnimationSection settings={settings} updateSettings={updateSettings} />}
+          {activeSection === "animation" && <AnimationSection settings={settings} updateSettings={updateSettings} />}
 
-        {activeSection === "data" && (
-          <DataSection persistedStats={persistedStats} />
-        )}
+          {activeSection === "data" && (
+            <DataSection persistedStats={persistedStats} />
+          )}
+        </React.Suspense>
       </div>
 
       <footer className="version-bar">
@@ -1198,20 +1263,6 @@ function privacyLabel(mode: PrivacyMode) {
   if (mode === "safe") return "安全";
   if (mode === "standard") return "标准";
   return "详细";
-}
-
-function buildHookSnippet(command: string) {
-  const hook = { matcher: "*", hooks: [{ type: "command", command }] };
-  return JSON.stringify({
-    hooks: {
-      SessionStart: [hook],
-      UserPromptSubmit: [hook],
-      PreToolUse: [hook],
-      PostToolUse: [hook],
-      Notification: [hook],
-      Stop: [hook]
-    }
-  }, null, 2);
 }
 
 export function ClawdSettingsRoot() {

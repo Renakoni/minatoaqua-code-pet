@@ -82,7 +82,7 @@ contextBridge.exposeInMainWorld("companion", {
   exportEventHistoryFile: () => ipcRenderer.invoke("companion:export-event-history-file"),
   getMonitors: () => ipcRenderer.invoke("companion:get-monitors"),
   getPlugins: () => ipcRenderer.invoke("companion:get-plugins"),
-  getClaudeResources: () => ipcRenderer.invoke("companion:get-claude-resources"),
+  getClaudeResources: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-resources", force),
   getClaudeSessions: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-sessions", force),
   getClaudeSessionDetail: (filePath: string) => ipcRenderer.invoke("companion:get-claude-session-detail", filePath),
   resumeClaudeSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke("companion:resume-claude-session", sessionId, projectPath),

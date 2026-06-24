@@ -29,9 +29,9 @@ type CompanionApi = {
   saveSettings: (next: Partial<CompanionSettings>) => Promise<CompanionSettings>;
   getConnectionStatus: () => Promise<CompanionConnectionStatus>;
   checkHooks: (provider?: ProviderId) => Promise<ReturnType<typeof hooksStatus>>;
-  installHooks: (provider?: ProviderId) => Promise<void>;
-  repairHooks: (provider?: ProviderId) => Promise<void>;
-  removeHooks: (provider?: ProviderId) => Promise<void>;
+  installHooks: (provider?: ProviderId) => Promise<{ success: boolean; error?: string; status: ReturnType<typeof hooksStatus> }>;
+  repairHooks: (provider?: ProviderId) => Promise<{ success: boolean; error?: string; fixed: string[]; status: ReturnType<typeof hooksStatus> }>;
+  removeHooks: (provider?: ProviderId) => Promise<{ success: boolean; removed: number; status: ReturnType<typeof hooksStatus> }>;
   openSettings: () => Promise<void>;
   minimizeSettings: () => Promise<void>;
   toggleMaximizeSettings: () => Promise<void>;
@@ -65,7 +65,7 @@ type CompanionApi = {
   exportEventHistoryFile: () => Promise<void>;
   getMonitors: () => Promise<unknown[]>;
   getPlugins: () => Promise<unknown[]>;
-  getClaudeResources: () => Promise<unknown>;
+  getClaudeResources: (force?: boolean) => Promise<unknown>;
   getClaudeSessions: (force?: boolean) => Promise<unknown>;
   getClaudeSessionDetail: (filePath: string) => Promise<unknown>;
   resumeClaudeSession: (sessionId: string, projectPath?: string) => Promise<unknown>;
@@ -96,6 +96,7 @@ declare global {
 }
 
 const sessionId = "local-pet-session";
+const missingHookEvents = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
 const currentSettings: CompanionSettings = {
   ...defaultSettings,
   port: 17321,
@@ -294,8 +295,9 @@ function hooksStatus() {
     configExists: false,
     hookCount: 0,
     requiredCount: 6,
-    missingEvents: ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"],
-    commandMatches: false
+    missingEvents: missingHookEvents,
+    commandMatches: false,
+    forwarder: { expectedPath: "scripts/hook-forwarder.js", exists: false }
   };
 }
 
@@ -308,17 +310,17 @@ function doctorReport(): DoctorReport {
     providers: {
       "claude-code": {
         hooks,
-        forwarder: { expectedPath: "scripts/hook-forwarder.js", exists: true }
+        forwarder: { expectedPath: "scripts/hook-forwarder.js", exists: false }
       },
       codex: {
         hooks,
-        forwarder: { expectedPath: "scripts/hook-forwarder.js", exists: true }
+        forwarder: { expectedPath: "scripts/hook-forwarder.js", exists: false }
       }
     },
     hooks,
     forwarder: {
       expectedPath: "scripts/hook-forwarder.js",
-      exists: true,
+      exists: false,
       autoStartMarkerPath: "",
       autoStartMarkerExists: false
     },
@@ -382,9 +384,9 @@ export function installClawdCompat() {
     },
     getConnectionStatus: async () => currentConnection(),
     checkHooks: async () => hooksStatus(),
-    installHooks: async () => undefined,
-    repairHooks: async () => undefined,
-    removeHooks: async () => undefined,
+    installHooks: async () => ({ success: false, error: "Hook installation is only available in the desktop app.", status: hooksStatus() }),
+    repairHooks: async () => ({ success: false, error: "Hook repair is only available in the desktop app.", fixed: missingHookEvents, status: hooksStatus() }),
+    removeHooks: async () => ({ success: true, removed: 0, status: hooksStatus() }),
     openSettings: async () => undefined,
     minimizeSettings: async () => petApi?.minimizePanel(),
     toggleMaximizeSettings: async () => petApi?.toggleMaximizePanel(),

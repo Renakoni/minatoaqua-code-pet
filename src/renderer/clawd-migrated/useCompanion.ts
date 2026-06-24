@@ -48,11 +48,26 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
   const [exitingSessions, setExitingSessions] = useState<Set<string>>(new Set());
   const [mainSessionId, setMainSessionId] = useState<string | null>(null);
   const sessionsRef = useRef<Map<string, CompanionSession>>(new Map());
+  const settingsRef = useRef<CompanionSettings>(defaultSettings);
+  const mainSessionIdRef = useRef<string | null>(null);
+  const exitingSessionsRef = useRef<Set<string>>(new Set());
   const ribbonTimers = useRef<Map<string, number>>(new Map());
   const ribbonTimestamps = useRef<Map<string, number>>(new Map());
   const eventThrottleRef = useRef<{ timer: number | null; lastFlush: number }>({ timer: null, lastFlush: 0 });
   const pendingEventsRef = useRef<CompanionEvent[]>([]);
   const companionSlotRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { mainSessionIdRef.current = mainSessionId; }, [mainSessionId]);
+  useEffect(() => { exitingSessionsRef.current = exitingSessions; }, [exitingSessions]);
+
+  function updateExitingSessions(updater: (previous: Set<string>) => Set<string>) {
+    setExitingSessions(previous => {
+      const next = updater(previous);
+      exitingSessionsRef.current = next;
+      return next;
+    });
+  }
 
   function scheduleStreamRemoval(eventId: string) {
     window.setTimeout(() => {
@@ -77,9 +92,15 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
   }
 
   useEffect(() => {
-    void window.companion.getSettings().then(setSettings);
+    void window.companion.getSettings().then(next => {
+      settingsRef.current = next;
+      setSettings(next);
+      applyTheme(next.theme, next.petTheme);
+      applyUiStyle(next.uiStyle);
+    });
     void window.companion.getConnectionStatus().then(setConnection);
     const offSettings = window.companion.onSettings(next => {
+      settingsRef.current = next;
       setSettings(next);
       applyTheme(next.theme, next.petTheme);
       applyUiStyle(next.uiStyle);
@@ -88,9 +109,13 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
     const offEvent = window.companion.onEvent(event => {
       const sid = event.sessionId;
       const isDone = event.event === "done" || event.event === "error";
+      let sessionsChanged = false;
       if (sid) {
         const existing = sessionsRef.current.get(sid);
-        if (!mainSessionId && sessionsRef.current.size === 0) setMainSessionId(sid);
+        if (!mainSessionIdRef.current && sessionsRef.current.size === 0) {
+          mainSessionIdRef.current = sid;
+          setMainSessionId(sid);
+        }
         let title = existing?.title ?? "";
         const raw = event.detail || event.title || event.message || "";
         const clean = raw.length > 25 ? raw.slice(0, 25) + "…" : raw;
@@ -110,15 +135,15 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
           eventCount: (existing?.eventCount ?? 0) + 1
         };
         sessionsRef.current.set(sid, session);
-        setSessions(Array.from(sessionsRef.current.values()));
-        if (!wasActive && !isDone) setExitingSessions(prev => { const next = new Set(prev); next.delete(sid); return next; });
+        sessionsChanged = true;
+        if (!wasActive && !isDone) updateExitingSessions(prev => { const next = new Set(prev); next.delete(sid); return next; });
         if (wasActive && isDone) {
-          setExitingSessions(prev => new Set(prev).add(sid));
+          updateExitingSessions(prev => new Set(prev).add(sid));
           const exitId = sid;
           window.setTimeout(() => {
             const revived = sessionsRef.current.get(exitId);
             if (revived?.isActive) return;
-            setExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
+            updateExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
             sessionsRef.current.delete(exitId);
             setSessions(Array.from(sessionsRef.current.values()));
           }, 700);
@@ -127,44 +152,45 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
         for (const [id, session] of sessionsRef.current) {
           if (session.isActive) {
             sessionsRef.current.set(id, { ...session, isActive: false });
-            setExitingSessions(prev => new Set(prev).add(id));
+            sessionsChanged = true;
+            updateExitingSessions(prev => new Set(prev).add(id));
             const exitId = id;
             window.setTimeout(() => {
               const revived = sessionsRef.current.get(exitId);
               if (revived?.isActive) return;
-              setExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
+              updateExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
               sessionsRef.current.delete(exitId);
               setSessions(Array.from(sessionsRef.current.values()));
             }, 700);
           }
         }
-        setSessions(Array.from(sessionsRef.current.values()));
       }
 
       for (const [id, session] of sessionsRef.current) {
-        if (id !== mainSessionId && session.isActive && Date.now() - session.lastEventTime > 60_000 && !exitingSessions.has(id)) {
+        if (id !== mainSessionIdRef.current && session.isActive && Date.now() - session.lastEventTime > 60_000 && !exitingSessionsRef.current.has(id)) {
           sessionsRef.current.set(id, { ...session, isActive: false });
-          setExitingSessions(prev => new Set(prev).add(id));
+          sessionsChanged = true;
+          updateExitingSessions(prev => new Set(prev).add(id));
           const exitId = id;
           window.setTimeout(() => {
             const revived = sessionsRef.current.get(exitId);
             if (revived?.isActive) return;
-            setExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
+            updateExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
             sessionsRef.current.delete(exitId);
             setSessions(Array.from(sessionsRef.current.values()));
           }, 700);
         }
       }
-      setSessions(Array.from(sessionsRef.current.values()));
       let silentCleanup = false;
       for (const [id, session] of sessionsRef.current) {
         if (Date.now() - session.lastEventTime > 300_000) {
           sessionsRef.current.delete(id);
-          setExitingSessions(prev => { const next = new Set(prev); next.delete(id); return next; });
+          updateExitingSessions(prev => { const next = new Set(prev); next.delete(id); return next; });
           silentCleanup = true;
         }
       }
-      if (silentCleanup) setSessions(Array.from(sessionsRef.current.values()));
+      if (silentCleanup) sessionsChanged = true;
+      if (sessionsChanged) setSessions(Array.from(sessionsRef.current.values()));
 
       const now = Date.now();
       if (now - eventThrottleRef.current.lastFlush < 100) {
@@ -175,7 +201,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
             pendingEventsRef.current = [];
             eventThrottleRef.current.timer = null;
             eventThrottleRef.current.lastFlush = Date.now();
-            if (keepEventList) setEvents(previous => [...pending.reverse(), ...previous].slice(0, settings.eventHistoryLimit));
+            if (keepEventList) setEvents(previous => [...pending.reverse(), ...previous].slice(0, settingsRef.current.eventHistoryLimit));
             const stateEvent = pending.find(e => e.event === "tool_start") ?? pending.find(e => e.event !== "tool_end" && e.event !== "git_operation");
             if (stateEvent) {
               setPetState(stateFromEvent(stateEvent));
@@ -185,7 +211,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
         }
       } else {
         eventThrottleRef.current.lastFlush = now;
-        if (keepEventList) setEvents(previous => [event, ...previous].slice(0, settings.eventHistoryLimit));
+        if (keepEventList) setEvents(previous => [event, ...previous].slice(0, settingsRef.current.eventHistoryLimit));
         if (event.event !== "tool_end" && event.event !== "git_operation") {
           setPetState(stateFromEvent(event));
           setCurrentEvent(event);
@@ -198,7 +224,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
           if (!matching) return previous;
           const addedAt = ribbonTimestamps.current.get(matching.event.id) ?? Date.now();
           const elapsed = Date.now() - addedAt;
-          const minDisplayMs = Math.max(300, settings.toolStreamMinDuration * 1000);
+          const minDisplayMs = Math.max(300, settingsRef.current.toolStreamMinDuration * 1000);
           const fallbackId = ribbonTimers.current.get(matching.event.id);
           if (fallbackId) window.clearTimeout(fallbackId);
           ribbonTimers.current.delete(matching.event.id);
@@ -233,7 +259,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
         ribbonTimers.current.set(event.id, window.setTimeout(() => { markExiting(event.id); }, 10_000));
       }
 
-      const timeout = (event.event === "done" || event.event === "error" ? 5.2 : settings.bubbleDuration) * 1000;
+      const timeout = (event.event === "done" || event.event === "error" ? 5.2 : settingsRef.current.bubbleDuration) * 1000;
       window.setTimeout(() => {
         setPetState(current => current === stateFromEvent(event) ? "idle" : current);
         setCurrentEvent(current => current?.id === event.id ? null : current);
@@ -257,7 +283,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
       ribbonTimers.current.clear();
       ribbonTimestamps.current.clear();
     };
-  }, [keepEventList, settings.bubbleDuration, settings.eventHistoryLimit, settings.toolStreamMinDuration]);
+  }, [keepEventList]);
 
   useEffect(() => {
     if (mainSessionId && !sessionsRef.current.has(mainSessionId) && sessionsRef.current.size === 0) {
@@ -286,6 +312,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
 
   async function updateSettings(next: Partial<CompanionSettings>) {
     const saved = await window.companion.saveSettings(next);
+    settingsRef.current = saved;
     setSettings(saved);
     if (next.theme || next.petTheme) applyTheme(saved.theme, saved.petTheme);
     if (next.uiStyle) applyUiStyle(next.uiStyle);

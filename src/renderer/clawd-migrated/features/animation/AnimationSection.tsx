@@ -4,7 +4,8 @@ import { Check, ChevronDown, Clock3, FlaskConical, Repeat2, RotateCcw, Shuffle, 
 import type { CompanionSettings, IdleAnimConfig } from "../../../shared/events";
 import { defaultSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
-import { normalizeAnimationKey, normalizeAnimationKeys, petAnimationAssets, petAnimationOptions, type PetAnimationKey } from "../../utils/petAnimations";
+import { petAnimationAssets } from "../../utils/petAnimationAssets";
+import { normalizeAnimationKey, normalizeAnimationKeys, petAnimationOptions, type PetAnimationKey } from "../../utils/petAnimations";
 
 const stateAnimEntries: Array<{ key: string; labelKey: string; fallback: string; meta: string; defaultAnimation: PetAnimationKey }> = [
   { key: "running", labelKey: "animation.state.running", fallback: "正在运行", meta: "读取、编辑、执行、搜索、技能、子代理、错误", defaultAnimation: "running" },

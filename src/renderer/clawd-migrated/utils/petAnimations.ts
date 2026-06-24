@@ -1,14 +1,4 @@
 import type { PetState } from "../../shared/events";
-import completedAnimation from "../../assets/pet/completed.webp";
-import extraAction5Animation from "../../assets/pet/extra-action-5.webp";
-import extraAction7Animation from "../../assets/pet/extra-action-7.webp";
-import extraAction8Animation from "../../assets/pet/extra-action-8.webp";
-import extraAction9Animation from "../../assets/pet/extra-action-9.webp";
-import extraActionAquaBocchiAnimation from "../../assets/pet/extra-action-aqua-bocchi.png";
-import extraActionAquaPixelAnimation from "../../assets/pet/extra-action-aqua-pixel.gif";
-import idleAnimation from "../../assets/pet/idle.png";
-import permissionAnimation from "../../assets/pet/permission-prompt.webp";
-import runningAnimation from "../../assets/pet/running.webp";
 
 export type PetAnimationKey =
   | "idle"
@@ -34,19 +24,6 @@ export const petAnimationOptions: Array<{ key: PetAnimationKey; labelKey: string
   { key: "extra_action_aqua_bocchi", labelKey: "animation.sprite.aquaBocchi", fallback: "Aqua 趴姿" },
   { key: "extra_action_aqua_pixel", labelKey: "animation.sprite.aquaPixel", fallback: "Aqua 像素" }
 ];
-
-export const petAnimationAssets: Record<PetAnimationKey, string> = {
-  idle: idleAnimation,
-  running: runningAnimation,
-  waiting_permission: permissionAnimation,
-  done: completedAnimation,
-  extra_action_5: extraAction5Animation,
-  extra_action_7: extraAction7Animation,
-  extra_action_8: extraAction8Animation,
-  extra_action_9: extraAction9Animation,
-  extra_action_aqua_bocchi: extraActionAquaBocchiAnimation,
-  extra_action_aqua_pixel: extraActionAquaPixelAnimation
-};
 
 const legacyAnimationKeyMap: Record<string, PetAnimationKey> = {
   idle: "idle",

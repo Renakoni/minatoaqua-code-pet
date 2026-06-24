@@ -20,7 +20,11 @@ export function HooksManager({ compact = false, success = false, onStatusChange,
   }
 
   useEffect(() => {
-    window.companion.checkHooks().then(updateHookStatus);
+    let cancelled = false;
+    window.companion.checkHooks().then(next => {
+      if (!cancelled) updateHookStatus(next);
+    });
+    return () => { cancelled = true; };
   }, []);
 
   async function handleInstall() {
@@ -41,18 +45,28 @@ export function HooksManager({ compact = false, success = false, onStatusChange,
 
   async function handleRepair() {
     setAction("repairing");
-    const res = await window.companion.repairHooks();
-    setResult(res.success ? formatText(t("doctor.repairDone", "修复完成，修复了 {count} 项配置。"), { count: res.fixed.length }) : formatText(t("doctor.repairFailed", "修复失败: {error}"), { error: res.error ?? "" }));
-    updateHookStatus(await window.companion.checkHooks());
-    setAction(null);
+    try {
+      const res = await window.companion.repairHooks();
+      setResult(res.success ? formatText(t("doctor.repairDone", "修复完成，修复了 {count} 项配置。"), { count: res.fixed.length }) : formatText(t("doctor.repairFailed", "修复失败: {error}"), { error: res.error ?? "" }));
+      updateHookStatus(await window.companion.checkHooks());
+    } catch (error) {
+      setResult(formatText(t("doctor.repairFailed", "修复失败: {error}"), { error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setAction(null);
+    }
   }
 
   async function handleRemove() {
     setAction("removing");
-    const res = await window.companion.removeHooks();
-    setResult(res.success ? t("doctor.removeDone", "已移除所有 Clawd hooks。") : formatText(t("doctor.removeFailed", "移除失败: {error}"), { error: res.error ?? "" }));
-    updateHookStatus(await window.companion.checkHooks());
-    setAction(null);
+    try {
+      const res = await window.companion.removeHooks();
+      setResult(res.success ? t("doctor.removeDone", "已移除所有 Clawd hooks。") : formatText(t("doctor.removeFailed", "移除失败: {error}"), { error: res.error ?? "" }));
+      updateHookStatus(await window.companion.checkHooks());
+    } catch (error) {
+      setResult(formatText(t("doctor.removeFailed", "移除失败: {error}"), { error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setAction(null);
+    }
   }
 
   const configuredLabel = formatText(t("doctor.configuredCount", "已配置 {count} / {total} 个事件"), { count: status?.hookCount ?? 0, total: status?.requiredCount ?? 6 });

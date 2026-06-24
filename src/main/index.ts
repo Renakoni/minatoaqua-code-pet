@@ -53,10 +53,13 @@ let petWindow: BrowserWindow | null = null;
 let panelWindow: BrowserWindow | null = null;
 let eventServer: ReturnType<typeof createServer> | null = null;
 let tray: Tray | null = null;
+let startupWarmupTimer: ReturnType<typeof setTimeout> | null = null;
 let currentState: PetState = "idle";
 let eventHistory: PetEvent[] = [];
 let runtimeStats: RuntimeStats | null = null;
 let runtimeStatsDirty = false;
+let runtimeStatsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let companionSettingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const activePermissionIds = new Set<string>();
 let autoUpdaterConfigured = false;
 let updateStatus: UpdateStatus = {
@@ -275,6 +278,8 @@ function createPanelWindow() {
     height: 720,
     minWidth: 860,
     minHeight: 620,
+    show: false,
+    paintWhenInitiallyHidden: true,
     title: "Minato Aqua Code Pet",
     frame: false,
     backgroundColor: "#f5efe3",
@@ -311,6 +316,11 @@ function showPanelWindow() {
 function hidePanelWindow() {
   panelWindow?.hide();
   updateTrayMenu();
+}
+
+function warmPanelWindow() {
+  if (panelWindow && !panelWindow.isDestroyed()) return;
+  createPanelWindow();
 }
 
 function togglePanelWindow() {
@@ -567,9 +577,22 @@ function runStartupBehaviors() {
   }
   applyLaunchAtLoginSetting();
   if (companionSettings.openSettingsOnStart) showPanelWindow();
+  scheduleStartupWarmup();
   if (companionSettings.autoUpdateEnabled && app.isPackaged) {
     setTimeout(() => void checkForUpdates(), 1500);
   }
+}
+
+function scheduleStartupWarmup() {
+  if (startupWarmupTimer) return;
+  startupWarmupTimer = setTimeout(() => {
+    startupWarmupTimer = null;
+    warmPanelWindow();
+    void getClaudeResourcesSnapshot(false).catch(() => {});
+    setTimeout(() => void getClaudeSessionSnapshot(false).catch(() => {}), 250);
+    setTimeout(() => void getStats(), 500);
+    setTimeout(() => void getClaudeTokenStats(false).catch(() => {}), 5000);
+  }, 150);
 }
 
 function readJson(req: IncomingMessage): Promise<unknown> {
@@ -599,7 +622,7 @@ function readJson(req: IncomingMessage): Promise<unknown> {
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown) {
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "http://127.0.0.1:5173",
+    "access-control-allow-origin": "http://127.0.0.1:5273",
     "access-control-allow-methods": "POST, OPTIONS",
     "access-control-allow-headers": "content-type"
   });
@@ -879,6 +902,19 @@ function getClaudePaths() {
   };
 }
 
+type ClaudeResourcesSnapshot = {
+  summary: { skills: number; plugins: number; mcp: number };
+  skills: ClaudeResourceItem[];
+  plugins: ClaudeResourceItem[];
+  mcp: ClaudeResourceItem[];
+  scannedAt: number;
+  paths: ReturnType<typeof getClaudePaths>;
+};
+
+const CLAUDE_RESOURCE_CACHE_TTL = 30 * 1000;
+let claudeResourceCache: { data: ClaudeResourcesSnapshot; timestamp: number } | null = null;
+let pendingClaudeResourceScan: Promise<ClaudeResourcesSnapshot> | null = null;
+
 function readTextIfExists(filePath: string) {
   try {
     if (!existsSync(filePath) || !statSync(filePath).isFile()) return "";
@@ -944,19 +980,20 @@ function normalizeInstalledPluginEntries(value: unknown): ClaudeInstalledPluginE
 
 function scanSkillDirectory(skillDir: string, name: string, detail = "SKILL.md"): ClaudeResourceItem | null {
   const skillFile = join(skillDir, "SKILL.md");
-  if (!readTextIfExists(skillFile)) return null;
+  const markdown = readTextIfExists(skillFile);
+  if (!markdown) return null;
   return {
     id: `skill:${name}`,
     kind: "skill" as const,
     name,
-    description: extractMarkdownDescription(readTextIfExists(skillFile)),
+    description: extractMarkdownDescription(markdown),
     path: skillDir,
     source: "claude" as const,
     detail
   };
 }
 
-function scanClaudeSkills(claudeDir: string): ClaudeResourceItem[] {
+function scanClaudeSkills(claudeDir: string, enabledPluginsInput?: Record<string, boolean> | null, installedPluginsInput?: Record<string, unknown> | null): ClaudeResourceItem[] {
   const found = new Map<string, ClaudeResourceItem>();
   const skillsDir = join(claudeDir, "skills");
   try {
@@ -969,8 +1006,8 @@ function scanClaudeSkills(claudeDir: string): ClaudeResourceItem[] {
       }
     }
 
-    const enabledPlugins = readClaudeEnabledPlugins(claudeDir) ?? {};
-    const installedPlugins = readClaudeInstalledPlugins(claudeDir) ?? {};
+    const enabledPlugins = enabledPluginsInput ?? readClaudeEnabledPlugins(claudeDir) ?? {};
+    const installedPlugins = installedPluginsInput ?? readClaudeInstalledPlugins(claudeDir) ?? {};
     for (const [pluginName, enabled] of Object.entries(enabledPlugins)) {
       if (enabled !== true) continue;
       for (const entry of normalizeInstalledPluginEntries(installedPlugins[pluginName])) {
@@ -992,11 +1029,11 @@ function scanClaudeSkills(claudeDir: string): ClaudeResourceItem[] {
   return Array.from(found.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function scanClaudePlugins(claudeDir: string): ClaudeResourceItem[] {
+function scanClaudePlugins(claudeDir: string, enabledPluginsInput?: Record<string, boolean> | null, registryPluginsInput?: Record<string, unknown> | null): ClaudeResourceItem[] {
   const pluginsDir = join(claudeDir, "plugins");
-  const registryPlugins = readClaudeInstalledPlugins(claudeDir);
+  const registryPlugins = registryPluginsInput ?? readClaudeInstalledPlugins(claudeDir);
   if (registryPlugins) {
-    const enabledPlugins = readClaudeEnabledPlugins(claudeDir);
+    const enabledPlugins = enabledPluginsInput ?? readClaudeEnabledPlugins(claudeDir);
     return Object.entries(registryPlugins)
       .map(([name, value]) => {
         const entries = normalizeInstalledPluginEntries(value);
@@ -1066,10 +1103,12 @@ function scanClaudeMcp(claudeJson: string): ClaudeResourceItem[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function getClaudeResourcesSnapshot() {
+function scanClaudeResourcesFresh(): ClaudeResourcesSnapshot {
   const paths = getClaudePaths();
-  const skills = scanClaudeSkills(paths.claudeDir);
-  const plugins = scanClaudePlugins(paths.claudeDir);
+  const enabledPlugins = readClaudeEnabledPlugins(paths.claudeDir);
+  const installedPlugins = readClaudeInstalledPlugins(paths.claudeDir);
+  const skills = scanClaudeSkills(paths.claudeDir, enabledPlugins, installedPlugins);
+  const plugins = scanClaudePlugins(paths.claudeDir, enabledPlugins, installedPlugins);
   const mcp = scanClaudeMcp(paths.claudeJson);
   return {
     summary: { skills: skills.length, plugins: plugins.length, mcp: mcp.length },
@@ -1079,6 +1118,25 @@ function getClaudeResourcesSnapshot() {
     scannedAt: Date.now(),
     paths
   };
+}
+
+function getClaudeResourcesSnapshot(force = false) {
+  const now = Date.now();
+  if (!force && claudeResourceCache && now - claudeResourceCache.timestamp < CLAUDE_RESOURCE_CACHE_TTL) {
+    return Promise.resolve(claudeResourceCache.data);
+  }
+  if (pendingClaudeResourceScan) return pendingClaudeResourceScan;
+
+  pendingClaudeResourceScan = new Promise<ClaudeResourcesSnapshot>(resolve => {
+    setImmediate(() => resolve(scanClaudeResourcesFresh()));
+  })
+    .then(data => {
+      claudeResourceCache = { data, timestamp: Date.now() };
+      return data;
+    })
+    .finally(() => { pendingClaudeResourceScan = null; });
+
+  return pendingClaudeResourceScan;
 }
 
 function isAllowedClaudeResourcePath(targetPath: string) {
@@ -1119,8 +1177,20 @@ type ClaudeSessionMessage = {
 const CLAUDE_SESSION_CACHE_TTL = 60 * 1000;
 const CLAUDE_SESSION_STALE_TTL = 7 * 24 * 60 * 60 * 1000;
 const CLAUDE_SESSION_SCAN_CONCURRENCY = 10;
+const CLAUDE_SESSION_FILE_SCAN_CONCURRENCY = 4;
 let claudeSessionCache: { data: { sessions: ClaudeSessionIndexItem[]; scannedAt: number; projectsDir: string }; timestamp: number } | null = null;
 let pendingClaudeSessionScan: Promise<{ sessions: ClaudeSessionIndexItem[]; scannedAt: number; projectsDir: string }> | null = null;
+let claudeSessionFileCache = new Map<string, { mtimeMs: number; size: number; item: ClaudeSessionIndexItem }>();
+
+async function mapInBatches<T, R>(items: T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  const limit = Math.max(1, concurrency);
+  for (let index = 0; index < items.length; index += limit) {
+    const batch = items.slice(index, index + limit);
+    results.push(...await Promise.all(batch.map(mapper)));
+  }
+  return results;
+}
 
 function decodeClaudeProjectName(encodedProject: string) {
   if (!encodedProject) return "Claude Code";
@@ -1140,17 +1210,17 @@ async function collectClaudeProjectDirs(projectsDir: string) {
 async function scanClaudeProjectDirectory(projectDir: string, encodedProject: string) {
   try {
     const entries = await readdir(projectDir, { withFileTypes: true });
-    const sessions: ClaudeSessionIndexItem[] = [];
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
-      const filePath = join(projectDir, entry.name);
+    const files = entries
+      .filter(entry => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .map(entry => join(projectDir, entry.name));
+    const sessions = await mapInBatches(files, CLAUDE_SESSION_FILE_SCAN_CONCURRENCY, async filePath => {
       try {
-        sessions.push(await scanSingleClaudeSessionStream(filePath, encodedProject));
+        return await scanSingleClaudeSessionStream(filePath, encodedProject);
       } catch {
-        // Skip unreadable session files in the index scan.
+        return null;
       }
-    }
-    return sessions;
+    });
+    return sessions.filter((session): session is ClaudeSessionIndexItem => Boolean(session));
   } catch {
     return [];
   }
@@ -1158,6 +1228,8 @@ async function scanClaudeProjectDirectory(projectDir: string, encodedProject: st
 
 async function scanSingleClaudeSessionStream(filePath: string, encodedProject: string): Promise<ClaudeSessionIndexItem> {
   const stat = statSync(filePath);
+  const cached = claudeSessionFileCache.get(filePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.item;
   const fallbackTime = stat.mtimeMs;
   let sessionId = sessionIdFromPath(filePath);
   let firstPrompt = "";
@@ -1219,7 +1291,7 @@ async function scanSingleClaudeSessionStream(filePath: string, encodedProject: s
 
   const projectName = projectPath ? projectPath.split(/[\\/]/).filter(Boolean).pop() ?? projectPath : decodeClaudeProjectName(encodedProject);
   const title = customTitle || firstPrompt || lastText || sessionId;
-  return {
+  const item: ClaudeSessionIndexItem = {
     sessionId,
     title: title.slice(0, 180),
     firstPrompt: firstPrompt ? firstPrompt.slice(0, 240) : undefined,
@@ -1234,17 +1306,20 @@ async function scanSingleClaudeSessionStream(filePath: string, encodedProject: s
     model,
     branch
   };
+  claudeSessionFileCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, item });
+  return item;
 }
 
 async function scanClaudeSessionsFresh() {
   const paths = getClaudePaths();
   const projectDirs = await collectClaudeProjectDirs(paths.projectsDir);
-  const sessions: ClaudeSessionIndexItem[] = [];
-
-  for (let index = 0; index < projectDirs.length; index += CLAUDE_SESSION_SCAN_CONCURRENCY) {
-    const batch = projectDirs.slice(index, index + CLAUDE_SESSION_SCAN_CONCURRENCY);
-    const batchResults = await Promise.all(batch.map(project => scanClaudeProjectDirectory(project.projectDir, project.encodedProject)));
-    for (const result of batchResults) sessions.push(...result);
+  const projectResults = await mapInBatches(projectDirs, CLAUDE_SESSION_SCAN_CONCURRENCY, project => scanClaudeProjectDirectory(project.projectDir, project.encodedProject));
+  const sessions = projectResults.flat();
+  if (claudeSessionFileCache.size > sessions.length + 200) {
+    const seenFiles = new Set(sessions.map(session => session.filePath));
+    for (const filePath of claudeSessionFileCache.keys()) {
+      if (!seenFiles.has(filePath)) claudeSessionFileCache.delete(filePath);
+    }
   }
 
   return {
@@ -1324,6 +1399,7 @@ const CLAUDE_TOKEN_STALE_TTL = 7 * 24 * 60 * 60 * 1000;
 const CLAUDE_TOKEN_SCAN_CONCURRENCY = 10;
 let claudeTokenStatsCache: { data: ClaudeTokenStats; timestamp: number } | null = null;
 let pendingClaudeTokenStatsScan: Promise<ClaudeTokenStats> | null = null;
+let claudeTokenFileCache = new Map<string, { mtimeMs: number; size: number; requests: ClaudeTokenRequest[] }>();
 
 function emptyClaudeTokenStats(scannedAt = Date.now()): ClaudeTokenStats {
   return {
@@ -1398,14 +1474,20 @@ async function loadDynamicPricingRates() {
       return cached;
     }
     try {
-      const response = await fetch("https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json");
-      if (!response.ok) throw new Error(`pricing_fetch_${response.status}`);
-      const data = await response.json();
-      const rates = parseLiteLlmPricing(data);
-      if (rates.size > 0) {
-        dynamicPricingRates = rates;
-        try { writeFileSync(pricingCachePath(), JSON.stringify({ timestamp: Date.now(), rates: Object.fromEntries(rates) } satisfies PricingCacheFile), "utf8"); } catch { /* best effort */ }
-        return rates;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2500);
+      try {
+        const response = await fetch("https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json", { signal: controller.signal });
+        if (!response.ok) throw new Error(`pricing_fetch_${response.status}`);
+        const data = await response.json();
+        const rates = parseLiteLlmPricing(data);
+        if (rates.size > 0) {
+          dynamicPricingRates = rates;
+          try { writeFileSync(pricingCachePath(), JSON.stringify({ timestamp: Date.now(), rates: Object.fromEntries(rates) } satisfies PricingCacheFile), "utf8"); } catch { /* best effort */ }
+          return rates;
+        }
+      } finally {
+        clearTimeout(timeout);
       }
     } catch { /* fall back to embedded table */ }
     dynamicPricingRates = new Map();
@@ -1533,6 +1615,8 @@ function collectClaudeJsonlFilesRecursive(projectsDir: string) {
 
 async function scanClaudeTokenFile(filePath: string, encodedProject: string): Promise<ClaudeTokenRequest[]> {
   const stat = statSync(filePath);
+  const cached = claudeTokenFileCache.get(filePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.requests;
   const fallbackTime = stat.mtimeMs;
   let sessionId = sessionIdFromPath(filePath);
   let projectPath: string | undefined;
@@ -1613,6 +1697,7 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string): Pr
     reader.close();
     stream.destroy();
   }
+  claudeTokenFileCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, requests });
   return requests;
 }
 
@@ -1620,12 +1705,12 @@ async function scanClaudeTokenStatsFresh(): Promise<ClaudeTokenStats> {
   await loadDynamicPricingRates();
   const paths = getClaudePaths();
   const files = collectClaudeJsonlFilesRecursive(paths.projectsDir);
-  const requests: ClaudeTokenRequest[] = [];
-  for (let index = 0; index < files.length; index += CLAUDE_TOKEN_SCAN_CONCURRENCY) {
-    const batch = files.slice(index, index + CLAUDE_TOKEN_SCAN_CONCURRENCY);
-    const batchResults = await Promise.all(batch.map(file => scanClaudeTokenFile(file.filePath, file.encodedProject).catch(() => [])));
-    for (const result of batchResults) requests.push(...result);
+  const seenFiles = new Set(files.map(file => file.filePath));
+  for (const filePath of claudeTokenFileCache.keys()) {
+    if (!seenFiles.has(filePath)) claudeTokenFileCache.delete(filePath);
   }
+  const batchResults = await mapInBatches(files, CLAUDE_TOKEN_SCAN_CONCURRENCY, file => scanClaudeTokenFile(file.filePath, file.encodedProject).catch(() => []));
+  const requests = batchResults.flat();
   return aggregateClaudeTokenStats(requests, Date.now());
 }
 
@@ -1992,11 +2077,7 @@ function getCompanionEvents() {
 
 function getClaudeSettingsPath() {
   const claudeDir = join(homedir(), ".claude");
-  const settings = join(claudeDir, "settings.json");
-  const legacy = join(claudeDir, "claude.json");
-  if (existsSync(settings)) return settings;
-  if (existsSync(legacy)) return legacy;
-  return settings;
+  return join(claudeDir, "settings.json");
 }
 
 function readLiveJsonObject(path: string) {
@@ -2105,8 +2186,8 @@ function applyClaudeRoute(routeId: string) {
   const liveApply = applyClaudeProviderToLiveSettings(routeId);
   if (!liveApply.ok) return { ...getClaudeRouteRuntimePreview(), liveApply };
   companionSettings = { ...companionSettings, activeClaudeRouteId: routeId, currentClaudeProviderId: routeId };
-  saveCompanionSettings();
-  panelWindow?.webContents.send("companion:settings", companionSettings);
+  saveCompanionSettings(true);
+  broadcastCompanionSettings();
   return { ...getClaudeRouteRuntimePreview(), liveApply };
 }
 
@@ -2167,8 +2248,34 @@ function loadCompanionSettings() {
   } catch { /* ignore corrupt settings */ }
 }
 
-function saveCompanionSettings() {
+function broadcastCompanionSettings() {
+  for (const target of [panelWindow, petWindow]) {
+    if (target && !target.isDestroyed()) target.webContents.send("companion:settings", companionSettings);
+  }
+}
+
+function broadcastCompanionConnection() {
+  const status = getConnectionStatus();
+  for (const target of [panelWindow, petWindow]) {
+    if (target && !target.isDestroyed()) target.webContents.send("companion:connection", status);
+  }
+}
+
+function writeCompanionSettings() {
+  if (companionSettingsSaveTimer) {
+    clearTimeout(companionSettingsSaveTimer);
+    companionSettingsSaveTimer = null;
+  }
   try { writeFileSync(settingsPath(), JSON.stringify(companionSettings, null, 2), "utf8"); } catch { /* best effort */ }
+}
+
+function saveCompanionSettings(immediate = false) {
+  if (immediate) {
+    writeCompanionSettings();
+    return;
+  }
+  if (companionSettingsSaveTimer) clearTimeout(companionSettingsSaveTimer);
+  companionSettingsSaveTimer = setTimeout(writeCompanionSettings, 350);
 }
 
 function localDateKey(timestamp = Date.now()) {
@@ -2281,12 +2388,25 @@ function loadRuntimeStats() {
   return runtimeStats;
 }
 
-function saveRuntimeStats(force = false) {
-  if (!runtimeStats || (!force && !runtimeStatsDirty)) return;
+function writeRuntimeStats() {
+  if (runtimeStatsSaveTimer) {
+    clearTimeout(runtimeStatsSaveTimer);
+    runtimeStatsSaveTimer = null;
+  }
+  if (!runtimeStats) return;
   try {
     writeFileSync(runtimeStatsPath(), JSON.stringify(runtimeStats, null, 2), "utf8");
     runtimeStatsDirty = false;
   } catch { /* best effort */ }
+}
+
+function saveRuntimeStats(force = false) {
+  if (!runtimeStats || (!force && !runtimeStatsDirty)) return;
+  if (force) {
+    writeRuntimeStats();
+    return;
+  }
+  if (!runtimeStatsSaveTimer) runtimeStatsSaveTimer = setTimeout(writeRuntimeStats, 750);
 }
 
 function recordRuntimeEvent(event: CompanionEvent) {
@@ -2328,7 +2448,8 @@ function recordPermissionDecision(decision?: string) {
 }
 
 function getStats() {
-  const stats = { ...loadRuntimeStats(), totalRuntime: (loadRuntimeStats().totalRuntime ?? 0) + (Date.now() - appStartedAt) };
+  const persisted = loadRuntimeStats();
+  const stats = { ...persisted, totalRuntime: (persisted.totalRuntime ?? 0) + (Date.now() - appStartedAt) };
   return stats;
 }
 
@@ -2348,13 +2469,30 @@ function getSessionHistory() {
 
 const requiredClaudeHookEvents = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
 
+function isExternalNodeReadablePath(candidate: string) {
+  const normalized = candidate.replace(/\\/g, "/");
+  return Boolean(candidate) && !normalized.includes(".asar/") && existsSync(candidate);
+}
+
 function getHookForwarderPath() {
   const candidates = [
-    join(app.getAppPath(), "scripts", "hook-forwarder.js"),
     join(process.cwd(), "scripts", "hook-forwarder.js"),
-    join(__dirname, "../../scripts/hook-forwarder.js")
+    join(__dirname, "../../scripts/hook-forwarder.js"),
+    join(process.resourcesPath ?? "", "scripts", "hook-forwarder.js"),
+    join(process.resourcesPath ?? "", "app.asar.unpacked", "scripts", "hook-forwarder.js"),
+    join(app.getAppPath(), "scripts", "hook-forwarder.js")
   ];
-  return candidates.find(candidate => existsSync(candidate)) ?? candidates[0];
+  return candidates.find(isExternalNodeReadablePath) ?? candidates[0];
+}
+
+function normalizeComparablePath(path: string) {
+  const resolved = resolve(path);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function getForwarderStatus() {
+  const expectedPath = getHookForwarderPath();
+  return { expectedPath, exists: isExternalNodeReadablePath(expectedPath) };
 }
 
 function getHookCommand(eventName: string) {
@@ -2373,11 +2511,27 @@ function getHookCommand(eventName: string) {
   ].join(" ");
 }
 
-function isClawdHookCommand(command: unknown, eventName?: string) {
+function extractHookForwarderPath(command: string) {
+  const match = command.match(/(?:"([^"]*hook-forwarder\.js)"|'([^']*hook-forwarder\.js)'|([^\s"']*hook-forwarder\.js))/i);
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? "";
+}
+
+function isClawdHookCommand(command: unknown, eventName?: string, options: { requireReadableForwarder?: boolean; requireCurrentForwarder?: boolean } = {}) {
   if (typeof command !== "string") return false;
   const normalized = command.replace(/\\/g, "/");
   const scriptNameMatches = normalized.includes("hook-forwarder.js");
-  return scriptNameMatches && (!eventName || normalized.includes(eventName));
+  if (!scriptNameMatches) return false;
+  if (!eventName) return true;
+  if (!new RegExp(`(^|[\\s"'])${eventName}($|[\\s"'])`).test(normalized)) return false;
+
+  const forwarderPath = extractHookForwarderPath(command);
+  if (options.requireReadableForwarder && !isExternalNodeReadablePath(forwarderPath)) return false;
+  if (options.requireCurrentForwarder) {
+    const currentForwarderPath = getHookForwarderPath();
+    if (!isExternalNodeReadablePath(forwarderPath) || !isExternalNodeReadablePath(currentForwarderPath)) return false;
+    return normalizeComparablePath(forwarderPath) === normalizeComparablePath(currentForwarderPath);
+  }
+  return true;
 }
 
 function getHookEntries(settings: Record<string, any>, eventName: string): Array<Record<string, any>> {
@@ -2398,74 +2552,91 @@ function getHooksStatus() {
 
   const missingEvents = requiredClaudeHookEvents.filter(eventName => {
     const entries = getHookEntries(settings, eventName);
-    return !entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => isClawdHookCommand(hook?.command, eventName)));
+    return !entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName, { requireReadableForwarder: true })));
   });
   const hookCount = requiredClaudeHookEvents.length - missingEvents.length;
-  const commandMatches = missingEvents.length === 0;
+  const commandMatches = requiredClaudeHookEvents.every(eventName => {
+    const entries = getHookEntries(settings, eventName);
+    return entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName, { requireCurrentForwarder: true })));
+  });
 
   return {
-    installed: commandMatches,
+    installed: missingEvents.length === 0 && commandMatches,
     configExists,
     hookCount,
     requiredCount: requiredClaudeHookEvents.length,
     missingEvents,
-    commandMatches
+    commandMatches,
+    settingsPath: path,
+    forwarder: getForwarderStatus()
   };
 }
 
 function installHooks() {
-  const path = getClaudeSettingsPath();
-  mkdirSync(join(homedir(), ".claude"), { recursive: true });
-  const settings = readLiveJsonObject(path);
-  backupFile(path);
-  const hooks = settings.hooks && typeof settings.hooks === "object" && !Array.isArray(settings.hooks) ? { ...settings.hooks } : {};
+  try {
+    const path = getClaudeSettingsPath();
+    const forwarderPath = getHookForwarderPath();
+    if (!isExternalNodeReadablePath(forwarderPath)) {
+      return { success: false, error: `Hook forwarder not found: ${forwarderPath}`, status: getHooksStatus() };
+    }
+    mkdirSync(join(homedir(), ".claude"), { recursive: true });
+    const settings = readLiveJsonObject(path);
+    backupFile(path);
+    const hooks = settings.hooks && typeof settings.hooks === "object" && !Array.isArray(settings.hooks) ? { ...settings.hooks } : {};
 
-  for (const eventName of requiredClaudeHookEvents) {
-    const entries = Array.isArray(hooks[eventName]) ? [...hooks[eventName]] : [];
-    const existingIndex = entries.findIndex(entry => entry && typeof entry === "object" && Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => isClawdHookCommand(hook?.command)));
-    const clawdEntry = { matcher: "*", hooks: [{ type: "command", command: getHookCommand(eventName) }] };
-    if (existingIndex >= 0) entries[existingIndex] = clawdEntry;
-    else entries.push(clawdEntry);
-    hooks[eventName] = entries;
+    for (const eventName of requiredClaudeHookEvents) {
+      const entries = Array.isArray(hooks[eventName]) ? [...hooks[eventName]] : [];
+      const existingIndex = entries.findIndex(entry => entry && typeof entry === "object" && Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => isClawdHookCommand(hook?.command)));
+      const clawdEntry = { matcher: "*", hooks: [{ type: "command", command: getHookCommand(eventName) }] };
+      if (existingIndex >= 0) entries[existingIndex] = clawdEntry;
+      else entries.push(clawdEntry);
+      hooks[eventName] = entries;
+    }
+
+    writeFileSync(path, `${JSON.stringify({ ...settings, hooks }, null, 2)}\n`, "utf-8");
+    return { success: true, status: getHooksStatus() };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error), status: getHooksStatus() };
   }
-
-  writeFileSync(path, `${JSON.stringify({ ...settings, hooks }, null, 2)}\n`, "utf-8");
-  return { success: true, status: getHooksStatus() };
 }
 
 function repairHooks() {
   const before = getHooksStatus();
   const result = installHooks();
   const after = getHooksStatus();
-  return { success: true, fixed: before.missingEvents, status: after, install: result };
+  return { success: result.success, fixed: before.missingEvents, status: after, install: result, error: result.success ? undefined : result.error };
 }
 
 function removeHooks() {
-  const path = getClaudeSettingsPath();
-  if (!existsSync(path)) return { success: true, removed: 0, status: getHooksStatus() };
-  const settings = readLiveJsonObject(path);
-  backupFile(path);
-  let removed = 0;
-  const hooks = settings.hooks && typeof settings.hooks === "object" && !Array.isArray(settings.hooks) ? { ...settings.hooks } : {};
+  try {
+    const path = getClaudeSettingsPath();
+    if (!existsSync(path)) return { success: true, removed: 0, status: getHooksStatus() };
+    const settings = readLiveJsonObject(path);
+    backupFile(path);
+    let removed = 0;
+    const hooks = settings.hooks && typeof settings.hooks === "object" && !Array.isArray(settings.hooks) ? { ...settings.hooks } : {};
 
-  for (const eventName of Object.keys(hooks)) {
-    if (!Array.isArray(hooks[eventName])) continue;
-    hooks[eventName] = hooks[eventName].map((entry: any) => {
-      if (!entry || typeof entry !== "object" || !Array.isArray(entry.hooks)) return entry;
-      const nextHooks = entry.hooks.filter((hook: any) => {
-        const shouldRemove = isClawdHookCommand(hook?.command);
-        if (shouldRemove) removed += 1;
-        return !shouldRemove;
-      });
-      return { ...entry, hooks: nextHooks };
-    }).filter((entry: any) => !entry || typeof entry !== "object" || !Array.isArray(entry.hooks) || entry.hooks.length > 0);
-    if (hooks[eventName].length === 0) delete hooks[eventName];
+    for (const eventName of Object.keys(hooks)) {
+      if (!Array.isArray(hooks[eventName])) continue;
+      hooks[eventName] = hooks[eventName].map((entry: any) => {
+        if (!entry || typeof entry !== "object" || !Array.isArray(entry.hooks)) return entry;
+        const nextHooks = entry.hooks.filter((hook: any) => {
+          const shouldRemove = isClawdHookCommand(hook?.command);
+          if (shouldRemove) removed += 1;
+          return !shouldRemove;
+        });
+        return { ...entry, hooks: nextHooks };
+      }).filter((entry: any) => !entry || typeof entry !== "object" || !Array.isArray(entry.hooks) || entry.hooks.length > 0);
+      if (hooks[eventName].length === 0) delete hooks[eventName];
+    }
+
+    const nextSettings = { ...settings, hooks };
+    if (Object.keys(hooks).length === 0) delete nextSettings.hooks;
+    writeFileSync(path, `${JSON.stringify(nextSettings, null, 2)}\n`, "utf-8");
+    return { success: true, removed, status: getHooksStatus() };
+  } catch (error) {
+    return { success: false, removed: 0, error: error instanceof Error ? error.message : String(error), status: getHooksStatus() };
   }
-
-  const nextSettings = { ...settings, hooks };
-  if (Object.keys(hooks).length === 0) delete nextSettings.hooks;
-  writeFileSync(path, `${JSON.stringify(nextSettings, null, 2)}\n`, "utf-8");
-  return { success: true, removed, status: getHooksStatus() };
 }
 
 function getUpdateStatus() {
@@ -2474,6 +2645,7 @@ function getUpdateStatus() {
 
 function getDoctorReport() {
   const hooks = getHooksStatus();
+  const forwarder = getForwarderStatus();
   return {
     generatedAt: Date.now(),
     appVersion: app.getVersion(),
@@ -2481,17 +2653,17 @@ function getDoctorReport() {
     providers: {
       "claude-code": {
         hooks,
-        forwarder: { expectedPath: join(app.getAppPath(), "scripts", "hook-forwarder.js"), exists: true }
+        forwarder
       },
       codex: {
         hooks,
-        forwarder: { expectedPath: join(app.getAppPath(), "scripts", "hook-forwarder.js"), exists: true }
+        forwarder
       }
     },
     hooks,
     forwarder: {
-      expectedPath: join(app.getAppPath(), "scripts", "hook-forwarder.js"),
-      exists: true,
+      expectedPath: forwarder.expectedPath,
+      exists: forwarder.exists,
       autoStartMarkerPath: settingsPath(),
       autoStartMarkerExists: companionSettings.autoStartWithCli === true
     },
@@ -2608,8 +2780,8 @@ app.whenReady().then(() => {
       applyPetAlwaysOnTopSetting();
       updateTrayMenu();
     }
-    panelWindow?.webContents.send("companion:settings", companionSettings);
-    panelWindow?.webContents.send("companion:connection", getConnectionStatus());
+    broadcastCompanionSettings();
+    broadcastCompanionConnection();
     return companionSettings;
   });
   ipcMain.handle("companion:get-connection-status", () => getConnectionStatus());
@@ -2680,7 +2852,7 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:export-event-history-file", () => undefined);
   ipcMain.handle("companion:get-monitors", () => screen.getAllDisplays().map(display => ({ id: String(display.id), label: display.label || `Display ${display.id}`, bounds: display.bounds, workArea: display.workArea, scaleFactor: display.scaleFactor })));
   ipcMain.handle("companion:get-plugins", () => companionSettings.customPlugins);
-  ipcMain.handle("companion:get-claude-resources", () => getClaudeResourcesSnapshot());
+  ipcMain.handle("companion:get-claude-resources", (_, force?: boolean) => getClaudeResourcesSnapshot(Boolean(force)));
   ipcMain.handle("companion:get-claude-sessions", (_, force?: boolean) => getClaudeSessionSnapshot(Boolean(force)));
   ipcMain.handle("companion:get-claude-session-detail", (_, filePath: string) => getClaudeSessionDetail(filePath));
   ipcMain.handle("companion:resume-claude-session", (_, targetSessionId: string, projectPath?: string) => resumeClaudeSession(targetSessionId, projectPath));
@@ -2698,7 +2870,7 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:save-plugins", (_, plugins: unknown[]) => {
     companionSettings = { ...companionSettings, customPlugins: plugins };
     saveCompanionSettings();
-    panelWindow?.webContents.send("companion:settings", companionSettings);
+    broadcastCompanionSettings();
   });
   ipcMain.handle("companion:open-external", (_, url: string) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
@@ -2731,6 +2903,11 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  if (startupWarmupTimer) {
+    clearTimeout(startupWarmupTimer);
+    startupWarmupTimer = null;
+  }
+  saveCompanionSettings(true);
   if (runtimeStats) {
     runtimeStats.totalRuntime = (runtimeStats.totalRuntime ?? 0) + (Date.now() - appStartedAt);
     runtimeStatsDirty = true;

@@ -1,18 +1,8 @@
 ﻿// @ts-nocheck
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import type { CustomPlugin } from "../../shared/events";
 
-export function PluginSpriteLoader() {
-  const [plugins, setPlugins] = useState<CustomPlugin[]>([]);
-
-  useEffect(() => {
-    void window.companion.getPlugins().then(setPlugins).catch(() => {});
-    const interval = window.setInterval(() => {
-      void window.companion.getPlugins().then(setPlugins).catch(() => {});
-    }, 3000);
-    return () => window.clearInterval(interval);
-  }, []);
-
+export function PluginSpriteLoader({ plugins }: { plugins: CustomPlugin[] }) {
   useEffect(() => {
     const head = document.head;
     head.querySelectorAll('link[data-plugin-sprites="true"]').forEach(el => el.remove());
