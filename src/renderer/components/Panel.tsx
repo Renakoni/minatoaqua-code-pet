@@ -15,7 +15,7 @@ const stateLabels: Record<PetState, string> = {
 
 export function Panel({ state, event }: PanelProps) {
   return (
-    <section className="panel" aria-label="Pet status">
+    <section className={`pet-bubble panel state-${state}`} aria-label="Pet status">
       <div className="panel-header">
         <span className={`status-dot status-${state}`} />
         <span className="panel-state">{stateLabels[state]}</span>

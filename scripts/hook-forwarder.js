@@ -109,6 +109,23 @@ function pickDetail(payload) {
   );
 }
 
+/**
+ * A clean, human-readable detail for a permission request — the salient field
+ * of tool_input (the command, path, pattern, URL, …) rather than raw JSON, so
+ * the permission bubble shows the thing the user is actually authorizing.
+ * Capped generously; the UI caps/scrolls further.
+ */
+function pickPermissionDetail(payload) {
+  const input = payload.tool_input && typeof payload.tool_input === "object" ? payload.tool_input
+    : payload.toolInput && typeof payload.toolInput === "object" ? payload.toolInput : null;
+  if (input) {
+    const salient = input.command ?? input.file_path ?? input.path ?? input.pattern
+      ?? input.url ?? input.query ?? input.prompt ?? input.notebook_path;
+    if (typeof salient === "string" && salient.trim()) return shorten(salient, 1000);
+  }
+  return pickDetail(payload);
+}
+
 // Tools Claude Code auto-approves in acceptEdits mode — never a permission gate there.
 const EDIT_FAMILY_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Update"]);
 
@@ -285,7 +302,7 @@ function httpJson(options, body, timeout) {
 async function requestPermissionDecision(payload) {
   const body = JSON.stringify({
     toolName: pickToolName(payload) ?? "Unknown",
-    toolDetail: pickDetail(payload),
+    toolDetail: pickPermissionDetail(payload),
     sessionId: payload.session_id ?? payload.sessionId,
     rawPayload: {}
   });

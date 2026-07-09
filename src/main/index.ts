@@ -68,6 +68,11 @@ const appStartedAt = Date.now();
 const singleInstanceLock = app.requestSingleInstanceLock();
 let petWindow: BrowserWindow | null = null;
 let panelWindow: BrowserWindow | null = null;
+// The pet window grows upward while a permission bubble is showing so the
+// bubble has room above the character instead of crowding it.
+const PET_BASE_HEIGHT = 300;
+const PET_EXPANDED_HEIGHT = 470;
+let petExpanded = false;
 let eventServer: ReturnType<typeof createServer> | null = null;
 let tray: Tray | null = null;
 let startupWarmupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -187,7 +192,7 @@ if (!singleInstanceLock) {
 
 function getPetWindowBounds() {
   const width = 260;
-  const height = 300;
+  const height = PET_BASE_HEIGHT;
   const cursorPoint = screen.getCursorScreenPoint();
   const workArea = screen.getDisplayNearestPoint(cursorPoint).workArea;
 
@@ -197,6 +202,25 @@ function getPetWindowBounds() {
     x: workArea.x + workArea.width - width - 24,
     y: workArea.y + workArea.height - height - 24
   };
+}
+
+/**
+ * Grow / shrink the pet window while keeping its bottom edge fixed, so the
+ * character stays put and the extra height opens up above it for the bubble.
+ */
+function setPetWindowExpanded(expanded: boolean) {
+  if (!petWindow || petWindow.isDestroyed()) {
+    petExpanded = false;
+    return;
+  }
+  if (expanded === petExpanded) return;
+  const bounds = petWindow.getBounds();
+  const bottom = bounds.y + bounds.height;
+  const height = expanded ? PET_EXPANDED_HEIGHT : PET_BASE_HEIGHT;
+  const workArea = screen.getDisplayNearestPoint({ x: bounds.x, y: bottom }).workArea;
+  const y = Math.max(workArea.y, bottom - height);
+  petWindow.setBounds({ x: bounds.x, y, width: bounds.width, height });
+  petExpanded = expanded;
 }
 
 function rendererUrl(view?: "panel") {
@@ -377,6 +401,8 @@ function showPetWindow() {
   if (!petWindow) return;
 
   petWindow.setBounds(getPetWindowBounds());
+  petExpanded = false;
+  if (permissionBroker.size > 0) setPetWindowExpanded(true);
   petWindow.setOpacity(1);
   petWindow.setIgnoreMouseEvents(false);
   if (petWindow.isMinimized()) petWindow.restore();
@@ -2745,6 +2771,7 @@ const permissionBroker = new PermissionBroker({
     for (const target of [petWindow, panelWindow]) {
       if (target && !target.isDestroyed()) target.webContents.send("companion:permission-resolved", { id: pending.id, decision: result.decision });
     }
+    if (permissionBroker.size === 0) setPetWindowExpanded(false);
     updateTrayMenu();
   }
 });
@@ -2755,6 +2782,7 @@ const permissionBroker = new PermissionBroker({
  * ONLY place a permission alert originates — tool events never alert.
  */
 function announcePermissionRequest(pending: PendingPermission) {
+  setPetWindowExpanded(true);
   for (const target of [petWindow, panelWindow]) {
     if (target && !target.isDestroyed()) {
       target.webContents.send("companion:permission-request", {
