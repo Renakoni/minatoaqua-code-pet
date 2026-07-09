@@ -417,8 +417,9 @@
   color: var(--aqua-ink);
 }
 
-/* provider fullscreen editor rides --ccs-editor-* */
-[data-theme="pet"][data-pet-theme="minato-aqua"] .ccs-fullscreen-panel {
+/* provider fullscreen editor and portaled confirm dialogs ride --ccs-editor-* */
+[data-theme="pet"][data-pet-theme="minato-aqua"] .ccs-fullscreen-panel,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .ccs-confirm-backdrop {
   --ccs-editor-ink: var(--aqua-ink);
   --ccs-editor-muted: var(--aqua-muted);
   --ccs-editor-faint: var(--aqua-faint);
