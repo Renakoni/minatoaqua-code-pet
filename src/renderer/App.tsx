@@ -113,7 +113,7 @@ export default function App() {
       {showDebugPanel && (
         <div className="debug-panel">
           <button onClick={() => applyDebugEvent(createPetEvent("idle", { title: "Idle" }))}>Idle</button>
-          <button onClick={() => applyDebugEvent(createPetEvent("running", { title: "Running", message: "Working on task" }))}>Running</button>
+          <button onClick={() => applyDebugEvent(createPetEvent("running", { title: "Working", tool: "Read", detail: "src/renderer/components/PermissionCard.tsx" }))}>Running</button>
           <button onClick={() => setPermissions([{ id: `debug-${Date.now()}`, tool: "Bash", detail: "npm run build" }])}>Permission</button>
           <button onClick={() => applyDebugEvent(createPetEvent("completed", { title: "Completed", message: "Task finished" }))}>Completed</button>
         </div>

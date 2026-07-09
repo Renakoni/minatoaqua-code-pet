@@ -1,3 +1,5 @@
+import { actionForTool, toolLabel } from "./toolPresentation";
+
 export interface PermissionRequestView {
   id: string;
   tool: string;
@@ -26,20 +28,6 @@ function getRiskLevel(tool: string, detail: string): RiskLevel {
   return "low";
 }
 
-/** A short human action for the headline, so the card reads as intent, not internals. */
-function actionForTool(tool: string): string {
-  const t = tool.toLowerCase();
-  if (t === "bash" || t === "shell") return "Run a command";
-  if (t === "edit" || t === "write" || t === "multiedit" || t === "update") return "Edit a file";
-  if (t === "notebookedit") return "Edit a notebook";
-  if (t === "read") return "Read a file";
-  if (t === "webfetch") return "Fetch a URL";
-  if (t === "websearch") return "Search the web";
-  if (t === "applypatch") return "Apply a patch";
-  if (t === "mcp") return "Use an MCP tool";
-  return `Use ${tool}`;
-}
-
 export function PermissionCard({ request, queueCount = 0, onAllow, onDeny }: PermissionCardProps) {
   const rawDetail = (request.detail ?? "").trim();
   const detail = rawDetail.length > DETAIL_CAP ? `${rawDetail.slice(0, DETAIL_CAP)}…` : rawDetail;
@@ -47,20 +35,20 @@ export function PermissionCard({ request, queueCount = 0, onAllow, onDeny }: Per
 
   return (
     <section className={`pet-bubble permission-card risk-${risk}`} aria-label="Permission request" role="alertdialog">
-      <header className="permission-head">
-        <span className="permission-eyebrow">
-          <span className="permission-dot" aria-hidden="true" />
-          Permission request
+      <header className="bubble-head">
+        <span className="bubble-eyebrow">
+          <span className="bubble-dot" aria-hidden="true" />
+          Permission
         </span>
         <span className="permission-risk">{riskLabels[risk]}</span>
       </header>
 
-      <div className="permission-body">
-        <p className="permission-action">{actionForTool(request.tool)}</p>
-        <span className="permission-tool-chip">{request.tool || "Tool"}</span>
+      <div className="bubble-body">
+        <p className="bubble-action">{actionForTool(request.tool)}</p>
+        <span className="bubble-tool-chip">{toolLabel(request.tool)}</span>
       </div>
 
-      {detail ? <pre className="permission-detail">{detail}</pre> : null}
+      {detail ? <pre className="bubble-detail">{detail}</pre> : null}
 
       <footer className="permission-foot">
         {queueCount > 1 ? <span className="permission-queue">+{queueCount - 1} more waiting</span> : <span />}

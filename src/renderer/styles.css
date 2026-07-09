@@ -72,34 +72,18 @@ button {
   -webkit-app-region: no-drag;
 }
 
-/* --- status panel --- */
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 11px 14px;
-}
-
-.state-running .panel { --accent: #7fb0c9; }
-.state-completed .panel { --accent: #8caf95; }
-.state-error .panel { --accent: #cf866b; }
-.state-permission-prompt .panel { --accent: #c6a56a; }
-
-.panel-header {
+/* --- shared bubble content (status panel + permission card) --- */
+.bubble-head {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-bottom: 1px;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.status-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.panel-state {
+.bubble-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: rgba(255, 255, 255, 0.44);
   font-size: 10px;
   font-weight: 500;
@@ -107,92 +91,21 @@ button {
   text-transform: uppercase;
 }
 
-.panel-title {
-  overflow: hidden;
-  color: rgba(247, 247, 249, 0.95);
-  font-size: 13px;
-  font-weight: 550;
-  letter-spacing: -0.01em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.panel-meta {
-  display: flex;
-  gap: 6px;
-  overflow: hidden;
-  color: rgba(255, 255, 255, 0.42);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.panel-meta span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* === Permission bubble ===
-   The permission variant of .pet-bubble: taller, with a scrollable detail
-   block so a long command stays readable while the bubble grows upward,
-   never into the pet. Restrained — one quiet risk accent, no glow. */
-.permission-card {
-  --risk: #8caf95;
-  max-height: 250px;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 13px 14px;
-}
-
-.risk-high { --risk: #cf866b; }
-.risk-medium { --risk: #c6a56a; }
-.risk-low { --risk: #8caf95; }
-
-.permission-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.permission-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: rgba(255, 255, 255, 0.44);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
-.permission-dot {
+.bubble-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--risk);
+  background: var(--accent);
 }
 
-.permission-risk {
-  flex: 0 0 auto;
-  padding: 1px 8px 2px;
-  border: 1px solid color-mix(in srgb, var(--risk) 40%, transparent);
-  border-radius: 6px;
-  color: color-mix(in srgb, var(--risk) 82%, white 18%);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-}
-
-.permission-body {
+.bubble-body {
   display: flex;
   align-items: baseline;
   gap: 8px;
   min-width: 0;
 }
 
-.permission-action {
+.bubble-action {
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
@@ -206,7 +119,7 @@ button {
   white-space: nowrap;
 }
 
-.permission-tool-chip {
+.bubble-tool-chip {
   flex: 0 0 auto;
   padding: 2px 7px;
   border-radius: 5px;
@@ -217,7 +130,7 @@ button {
   font-weight: 450;
 }
 
-.permission-detail {
+.bubble-detail {
   max-height: 78px;
   margin: 0;
   overflow-y: auto;
@@ -236,12 +149,83 @@ button {
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
-.permission-detail::-webkit-scrollbar { width: 8px; }
-.permission-detail::-webkit-scrollbar-thumb {
+.bubble-detail::-webkit-scrollbar { width: 8px; }
+.bubble-detail::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.18);
   background-clip: padding-box;
+}
+
+/* --- status panel ---
+   Stays compact (no window growth like the permission bubble), so the detail
+   is a single truncated line rather than the scrollable box. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 14px;
+}
+
+.state-running .panel { --accent: #7fb0c9; }
+.state-completed .panel { --accent: #8caf95; }
+.state-error .panel { --accent: #cf866b; }
+.state-permission-prompt .panel { --accent: #c6a56a; }
+
+/* Monospace target on one line; truncate from the left so the filename / tail
+   (the useful part of a path) stays visible. */
+.panel-path {
+  overflow: hidden;
+  color: rgba(226, 227, 233, 0.6);
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.panel-path bdi {
+  unicode-bidi: plaintext;
+}
+
+.panel-note {
+  margin: 0;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* === Permission bubble ===
+   The permission variant of .pet-bubble: taller, with a scrollable detail
+   block so a long command stays readable while the bubble grows upward,
+   never into the pet. Restrained — one quiet risk accent, no glow. */
+.permission-card {
+  --risk: #8caf95;
+  --accent: var(--risk);
+  max-height: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px 14px;
+}
+
+.risk-high { --risk: #cf866b; }
+.risk-medium { --risk: #c6a56a; }
+.risk-low { --risk: #8caf95; }
+
+.permission-risk {
+  flex: 0 0 auto;
+  padding: 1px 8px 2px;
+  border: 1px solid color-mix(in srgb, var(--risk) 40%, transparent);
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--risk) 82%, white 18%);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .permission-foot {
