@@ -71,7 +71,7 @@ contextBridge.exposeInMainWorld("companion", {
   duplicateClaudeProvider: (id: string) => ipcRenderer.invoke("companion:providers-duplicate", id),
   reorderClaudeProviders: (orderedIds: string[]) => ipcRenderer.invoke("companion:providers-reorder", orderedIds),
   switchClaudeProvider: (id: string) => ipcRenderer.invoke("companion:providers-switch", id),
-  testClaudeProvider: (payload: { id?: string; baseUrl?: string; apiKey?: string }) => ipcRenderer.invoke("companion:providers-test", payload),
+  testClaudeProvider: (payload: { id?: string; baseUrl?: string }) => ipcRenderer.invoke("companion:providers-test", payload),
   onCcSwitchChanged: (callback: (payload: unknown) => void) => onChannel("companion:ccswitch-changed", callback),
   getUpdateStatus: () => ipcRenderer.invoke("companion:get-update-status"),
   getAppVersion: () => ipcRenderer.invoke("companion:get-app-version"),

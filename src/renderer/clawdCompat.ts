@@ -98,7 +98,7 @@ type CompanionApi = {
   duplicateClaudeProvider: (id: string) => Promise<ClaudeProviderSaveResult>;
   reorderClaudeProviders: (orderedIds: string[]) => Promise<{ ok: boolean; error?: string }>;
   switchClaudeProvider: (id: string) => Promise<ClaudeProviderSwitchResult>;
-  testClaudeProvider: (payload: { id?: string; baseUrl?: string; apiKey?: string }) => Promise<ClaudeProviderTestResult>;
+  testClaudeProvider: (payload: { id?: string; baseUrl?: string }) => Promise<ClaudeProviderTestResult>;
   onCcSwitchChanged: (callback: Listener<unknown>) => Unsubscribe;
 };
 
@@ -520,10 +520,10 @@ export function installClawdCompat() {
       return { ok: true, path: "~/.claude/settings.json", backupPath: null, warnings: [] };
     },
     testClaudeProvider: async payload => ({
-      ok: false,
-      reachable: false,
-      url: `${(payload.baseUrl || "https://api.anthropic.com").replace(/\/+$/, "")}/v1/models`,
-      error: "Connectivity tests are only available in the desktop app."
+      status: "failed",
+      success: false,
+      url: payload.baseUrl ?? "",
+      message: "Connectivity tests are only available in the desktop app."
     }),
     onCcSwitchChanged: () => () => undefined
   };

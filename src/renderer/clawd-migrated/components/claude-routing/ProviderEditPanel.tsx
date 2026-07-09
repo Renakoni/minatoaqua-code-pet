@@ -64,7 +64,7 @@ export function ProviderEditPanel({
   hasCommonConfig?: boolean;
   onSave: (provider: ClaudeProvider, originalId?: string) => void;
   onClose: () => void;
-  onTestEndpoint?: (baseUrl: string, apiKey?: string) => Promise<ClaudeProviderTestResult>;
+  onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
 }) {
   const { t } = useI18n();
 
@@ -182,7 +182,7 @@ export function ProviderEditPanel({
   async function testEndpoint(url: string) {
     if (!onTestEndpoint || !url) return;
     setEndpointResults(current => ({ ...current, [url]: "testing" }));
-    const result = await onTestEndpoint(url, apiKey || undefined);
+    const result = await onTestEndpoint(url);
     setEndpointResults(current => ({ ...current, [url]: result }));
   }
 
@@ -425,7 +425,7 @@ export function ProviderEditPanel({
                           {result === "testing"
                             ? t("routing.testing", "测速中…")
                             : result
-                              ? result.reachable ? `${result.latencyMs} ms` : t("routing.unreachable", "不可达")
+                              ? result.success ? `${result.responseTimeMs} ms` : t("routing.unreachable", "不可达")
                               : ""}
                         </span>
                         <button type="button" className="ccs-endpoint-test" onClick={() => void testEndpoint(candidate)} disabled={result === "testing"}>
