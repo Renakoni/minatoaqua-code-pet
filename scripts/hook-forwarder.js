@@ -110,12 +110,12 @@ function pickDetail(payload) {
 }
 
 /**
- * A clean, human-readable detail for a permission request — the salient field
- * of tool_input (the command, path, pattern, URL, …) rather than raw JSON, so
- * the permission bubble shows the thing the user is actually authorizing.
+ * A clean, human-readable detail for a tool — the salient field of tool_input
+ * (the command, path, pattern, URL, …) rather than raw JSON, so both the
+ * permission bubble and the status bubble show the thing being acted on.
  * Capped generously; the UI caps/scrolls further.
  */
-function pickPermissionDetail(payload) {
+function pickToolDetail(payload) {
   const input = payload.tool_input && typeof payload.tool_input === "object" ? payload.tool_input
     : payload.toolInput && typeof payload.toolInput === "object" ? payload.toolInput : null;
   if (input) {
@@ -199,7 +199,7 @@ function payloadIndicatesError(payload) {
 
 function mapHookToPetEvent(hook, payload) {
   const tool = pickToolName(payload);
-  const detail = pickDetail(payload);
+  const detail = pickToolDetail(payload);
   const isError = payloadIndicatesError(payload);
 
   switch (hook) {
@@ -302,7 +302,7 @@ function httpJson(options, body, timeout) {
 async function requestPermissionDecision(payload) {
   const body = JSON.stringify({
     toolName: pickToolName(payload) ?? "Unknown",
-    toolDetail: pickPermissionDetail(payload),
+    toolDetail: pickToolDetail(payload),
     sessionId: payload.session_id ?? payload.sessionId,
     rawPayload: {}
   });
