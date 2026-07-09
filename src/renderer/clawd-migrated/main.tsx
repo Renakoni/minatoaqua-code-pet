@@ -23,6 +23,7 @@ import {
   Search,
   Shield,
   SlidersHorizontal,
+  Sparkles,
   Square,
   Terminal,
   Timer,
@@ -898,6 +899,9 @@ function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
   const { settings, updateSettings, connection, events, petState, toolStreams } = useCompanion();
   const activePetTheme = getPetTheme(settings.petTheme);
+  // Character chrome (anchor icon, character name in the version bar) only
+  // belongs to the pet interface theme; light/dark stay neutral.
+  const petChromeActive = (settings.theme ?? "system") === "system" && activePetTheme.interfaceTheme === "pet";
   const [copied, setCopied] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState("general");
   const [activeSettingsSubsection, setActiveSettingsSubsection] = useState("general");
@@ -1103,7 +1107,7 @@ function SettingsApp() {
       )}
       <section className="window-bar">
         <div className="window-title">
-          <Anchor size={15} />
+          {petChromeActive ? <Anchor size={15} /> : <Sparkles size={15} />}
           <span>{APP_DISPLAY_NAME}</span>
           {(updateStatus.available || updateStatus.downloading || updateStatus.downloaded) && (
             <button className="update-hint-btn" onClick={() => {
@@ -1191,7 +1195,7 @@ function SettingsApp() {
 
       <footer className="version-bar">
         <div className="version-left">
-          <span className="version-label">{activePetTheme.characterName}</span>
+          <span className="version-label">{petChromeActive ? activePetTheme.characterName : APP_DISPLAY_NAME}</span>
           <button
             className="version-link"
             onClick={() => window.companion.openExternal("https://github.com/Renakoni/minatoaqua-code-pet")}

@@ -8,6 +8,22 @@ import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, PetEvent, PetState } from "../shared/events";
+import {
+  addCcSwitchProvider,
+  deleteCcSwitchProvider,
+  duplicateCcSwitchProvider,
+  getCcSwitchStatus,
+  getCommonConfigSnippet,
+  getCurrentCcSwitchProviderId,
+  listCcSwitchProviders,
+  reorderCcSwitchProviders,
+  stopWatchingCcSwitch,
+  switchCcSwitchProvider,
+  testClaudeEndpoint,
+  updateCcSwitchProvider,
+  watchCcSwitch,
+  type CcSwitchProvider
+} from "./ccSwitchStore";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2200,19 +2216,267 @@ function testClaudeRoute(routeId: string) {
   return { ok: Boolean(preview.activeRoute), preview, message: "Dry-run only: generated Claude Code route environment without sending a model request." };
 }
 
+const TERMINAL_ENV_KEYS = [
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_MODEL",
+  "ANTHROPIC_DEFAULT_SONNET_MODEL",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL",
+  "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+  "ANTHROPIC_DEFAULT_FABLE_MODEL"
+] as const;
+
 function openClaudeRouteTerminal(routeId: string) {
-  const previousRoute = companionSettings.activeClaudeRouteId;
-  const previousProvider = companionSettings.currentClaudeProviderId;
-  companionSettings = { ...companionSettings, activeClaudeRouteId: routeId, currentClaudeProviderId: routeId };
-  const preview = getClaudeRouteRuntimePreview() as any;
-  companionSettings = { ...companionSettings, activeClaudeRouteId: previousRoute, currentClaudeProviderId: previousProvider };
-  const prefix = preview.commandPrefix ? `${preview.commandPrefix}; ` : "";
-  const command = `${prefix}claude`;
+  const listed = listUnifiedProviders();
+  const provider = listed.providers.find(item => item.id === routeId);
+  if (!provider) return { ok: false, command: "", error: `Provider ${routeId} not found` };
+  const config = (provider.settingsConfig ?? {}) as Record<string, any>;
+  const env = config.env && typeof config.env === "object" ? config.env as Record<string, any> : {};
+  const pairs: string[] = [];
+  for (const key of TERMINAL_ENV_KEYS) {
+    const value = env[key];
+    if (typeof value === "string" && value) pairs.push(`$env:${key}=${JSON.stringify(value)}`);
+    else if (typeof value === "number") pairs.push(`$env:${key}=${JSON.stringify(String(value))}`);
+  }
+  const command = `${pairs.length > 0 ? `${pairs.join("; ")}; ` : ""}claude`;
   if (process.platform === "win32") {
     spawn("cmd.exe", ["/c", "start", "Claude Route", "powershell.exe", "-NoExit", "-Command", command], { detached: true, windowsHide: true, stdio: "ignore" }).unref();
     return { ok: true, command };
   }
   return { ok: false, command, error: "Terminal launch is only implemented on Windows in this build" };
+}
+
+/* ---------- unified Claude provider service (cc-switch db when present) ---------- */
+
+function ccSwitchModeActive() {
+  return getCcSwitchStatus().available;
+}
+
+function localProviderFromLegacyRoute(route: Record<string, any>, index: number): CcSwitchProvider {
+  const official = route.id === "claude-official" || /official/i.test(String(route.name ?? ""));
+  return {
+    id: String(route.id ?? `route-${index}`),
+    name: String(route.name ?? `Route ${index + 1}`),
+    category: official ? "official" : "third_party",
+    websiteUrl: typeof route.baseUrl === "string" ? route.baseUrl : undefined,
+    createdAt: Date.now() + index,
+    sortIndex: index,
+    icon: official ? "anthropic" : undefined,
+    iconColor: official ? "#d97757" : "#f97316",
+    settingsConfig: {
+      env: {
+        ...(typeof route.baseUrl === "string" && route.baseUrl ? { ANTHROPIC_BASE_URL: route.baseUrl } : {}),
+        ...(typeof route.apiKeyMasked === "string" && route.apiKeyMasked ? { ANTHROPIC_AUTH_TOKEN: route.apiKeyMasked } : {})
+      }
+    }
+  };
+}
+
+function localProviders(): Record<string, CcSwitchProvider> {
+  const stored = companionSettings.claudeProviders;
+  if (stored && typeof stored === "object" && Object.keys(stored).length > 0) {
+    return stored as Record<string, CcSwitchProvider>;
+  }
+  const routes = Array.isArray(companionSettings.claudeRoutes) ? companionSettings.claudeRoutes as Array<Record<string, any>> : [];
+  return Object.fromEntries(routes.map((route, index) => {
+    const provider = localProviderFromLegacyRoute(route, index);
+    return [provider.id, provider];
+  }));
+}
+
+function saveLocalProviders(next: Record<string, CcSwitchProvider>, currentId?: string) {
+  companionSettings = {
+    ...companionSettings,
+    claudeProviders: next,
+    ...(currentId !== undefined ? { currentClaudeProviderId: currentId, activeClaudeRouteId: currentId } : {}),
+    claudeRoutes: undefined
+  };
+  saveCompanionSettings(true);
+  broadcastCompanionSettings();
+}
+
+function localCurrentProviderId(providers: Record<string, CcSwitchProvider>) {
+  const pointer = typeof companionSettings.currentClaudeProviderId === "string"
+    ? companionSettings.currentClaudeProviderId
+    : typeof companionSettings.activeClaudeRouteId === "string" ? companionSettings.activeClaudeRouteId : "";
+  if (pointer && providers[pointer]) return pointer;
+  return Object.values(providers).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0))[0]?.id ?? "";
+}
+
+function listUnifiedProviders() {
+  const status = getCcSwitchStatus();
+  if (status.available) {
+    try {
+      const providers = listCcSwitchProviders();
+      return {
+        ok: true,
+        source: "cc-switch" as const,
+        dbPath: status.dbPath,
+        providers,
+        currentId: getCurrentCcSwitchProviderId(providers),
+        hasCommonConfig: getCommonConfigSnippet().trim().length > 0
+      };
+    } catch (error) {
+      const providers = localProviders();
+      return {
+        ok: true,
+        source: "local" as const,
+        dbPath: status.dbPath,
+        readError: error instanceof Error ? error.message : String(error),
+        providers: Object.values(providers),
+        currentId: localCurrentProviderId(providers),
+        hasCommonConfig: false
+      };
+    }
+  }
+  const providers = localProviders();
+  return {
+    ok: true,
+    source: "local" as const,
+    dbPath: status.dbPath,
+    providers: Object.values(providers),
+    currentId: localCurrentProviderId(providers),
+    hasCommonConfig: false
+  };
+}
+
+function saveUnifiedProvider(provider: CcSwitchProvider, originalId?: string) {
+  if (ccSwitchModeActive()) {
+    const exists = originalId
+      ? listCcSwitchProviders().some(item => item.id === originalId)
+      : listCcSwitchProviders().some(item => item.id === provider.id);
+    if (exists) {
+      updateCcSwitchProvider(provider, originalId);
+      return { ok: true, provider };
+    }
+    return { ok: true, provider: addCcSwitchProvider(provider) };
+  }
+  const providers = { ...localProviders() };
+  if (originalId && originalId !== provider.id) delete providers[originalId];
+  const record = { ...provider, id: provider.id?.trim() || `provider-${Date.now().toString(36)}` };
+  providers[record.id] = record;
+  const currentId = localCurrentProviderId(providers);
+  saveLocalProviders(providers, currentId === originalId ? record.id : currentId);
+  return { ok: true, provider: record };
+}
+
+function deleteUnifiedProvider(id: string) {
+  if (ccSwitchModeActive()) {
+    deleteCcSwitchProvider(id);
+    return { ok: true };
+  }
+  const providers = { ...localProviders() };
+  if (Object.keys(providers).length <= 1) return { ok: false, error: "At least one provider is required" };
+  delete providers[id];
+  const fallback = Object.values(providers).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0))[0]?.id ?? "";
+  const currentId = localCurrentProviderId(providers);
+  saveLocalProviders(providers, currentId === id ? fallback : currentId);
+  return { ok: true };
+}
+
+function duplicateUnifiedProvider(id: string) {
+  if (ccSwitchModeActive()) {
+    return { ok: true, provider: duplicateCcSwitchProvider(id) };
+  }
+  const providers = { ...localProviders() };
+  const source = providers[id];
+  if (!source) return { ok: false, error: `Provider ${id} not found` };
+  const copy: CcSwitchProvider = {
+    ...JSON.parse(JSON.stringify(source)) as CcSwitchProvider,
+    id: `provider-${Date.now().toString(36)}`,
+    name: `${source.name} copy`,
+    createdAt: Date.now(),
+    sortIndex: Object.keys(providers).length
+  };
+  providers[copy.id] = copy;
+  saveLocalProviders(providers);
+  return { ok: true, provider: copy };
+}
+
+function reorderUnifiedProviders(orderedIds: string[]) {
+  if (ccSwitchModeActive()) {
+    reorderCcSwitchProviders(orderedIds);
+    return { ok: true };
+  }
+  const providers = { ...localProviders() };
+  orderedIds.forEach((id, index) => {
+    if (providers[id]) providers[id] = { ...providers[id], sortIndex: index };
+  });
+  saveLocalProviders(providers);
+  return { ok: true };
+}
+
+function switchUnifiedProvider(id: string) {
+  if (ccSwitchModeActive()) {
+    const outcome = switchCcSwitchProvider(id);
+    if (outcome.ok) {
+      // Mirror the pointer locally so terminal launch and legacy previews follow.
+      const providers = listCcSwitchProviders();
+      const target = providers.find(provider => provider.id === id);
+      if (target) {
+        companionSettings = {
+          ...companionSettings,
+          claudeProviders: Object.fromEntries(providers.map(provider => [provider.id, provider])),
+          currentClaudeProviderId: id,
+          activeClaudeRouteId: id
+        };
+        saveCompanionSettings(true);
+        broadcastCompanionSettings();
+      }
+    }
+    return outcome;
+  }
+
+  // Local fallback keeps cc-switch semantics: backfill the outgoing record,
+  // then replace the live file with the incoming provider's settings.
+  const providers = { ...localProviders() };
+  const target = providers[id];
+  if (!target) return { ok: false, warnings: [], error: `Provider ${id} not found` };
+  const warnings: string[] = [];
+  const livePath = getClaudeSettingsPath();
+  const currentId = localCurrentProviderId(providers);
+  if (currentId && currentId !== id && providers[currentId]) {
+    const live = readLiveJsonObject(livePath);
+    if (Object.keys(live).length > 0) {
+      providers[currentId] = { ...providers[currentId], settingsConfig: live };
+    }
+  }
+  let backupPath: string | null = null;
+  try {
+    mkdirSync(join(homedir(), ".claude"), { recursive: true });
+    backupPath = backupFile(livePath);
+    const effective = sanitizeClaudeSettingsConfig((target.settingsConfig ?? {}) as Record<string, any>);
+    writeFileSync(livePath, `${JSON.stringify(effective, null, 2)}\n`, "utf-8");
+  } catch (error) {
+    return { ok: false, warnings, error: error instanceof Error ? error.message : String(error) };
+  }
+  saveLocalProviders(providers, id);
+  return { ok: true, path: livePath, backupPath, warnings };
+}
+
+async function testUnifiedProvider(payload: { id?: string; baseUrl?: string; apiKey?: string }) {
+  let baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl : "";
+  let apiKey = typeof payload?.apiKey === "string" ? payload.apiKey : "";
+  if (payload?.id && !baseUrl) {
+    const listed = listUnifiedProviders();
+    const provider = listed.providers.find(item => item.id === payload.id);
+    const env = provider?.settingsConfig && typeof provider.settingsConfig === "object"
+      ? (provider.settingsConfig as Record<string, any>).env as Record<string, any> | undefined
+      : undefined;
+    baseUrl = typeof env?.ANTHROPIC_BASE_URL === "string" ? env.ANTHROPIC_BASE_URL : "";
+    if (!apiKey) {
+      const token = env?.ANTHROPIC_AUTH_TOKEN ?? env?.ANTHROPIC_API_KEY;
+      apiKey = typeof token === "string" ? token : "";
+    }
+  }
+  return testClaudeEndpoint(baseUrl, apiKey || undefined);
+}
+
+function broadcastCcSwitchChanged() {
+  for (const target of [panelWindow, petWindow]) {
+    if (target && !target.isDestroyed()) target.webContents.send("companion:ccswitch-changed", { at: Date.now() });
+  }
 }
 
 function getConnectionStatus() {
@@ -2754,6 +3018,7 @@ if (singleInstanceLock) {
 app.whenReady().then(() => {
   loadCompanionSettings();
   loadRuntimeStats();
+  watchCcSwitch(broadcastCcSwitchChanged);
   ipcMain.handle("pet:get-event-port", () => eventPort);
   ipcMain.handle("pet:get-snapshot", () => getSnapshot());
   ipcMain.handle("pet:minimize-panel", () => panelWindow?.minimize());
@@ -2813,6 +3078,27 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:apply-claude-route", (_, routeId: string) => applyClaudeRoute(routeId));
   ipcMain.handle("companion:test-claude-route", (_, routeId: string) => testClaudeRoute(routeId));
   ipcMain.handle("companion:open-claude-route-terminal", (_, routeId: string) => openClaudeRouteTerminal(routeId));
+  ipcMain.handle("companion:providers-list", () => {
+    try { return listUnifiedProviders(); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
+  });
+  ipcMain.handle("companion:providers-save", (_, provider: CcSwitchProvider, originalId?: string) => {
+    try { return saveUnifiedProvider(provider, originalId); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
+  });
+  ipcMain.handle("companion:providers-delete", (_, id: string) => {
+    try { return deleteUnifiedProvider(id); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
+  });
+  ipcMain.handle("companion:providers-duplicate", (_, id: string) => {
+    try { return duplicateUnifiedProvider(id); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
+  });
+  ipcMain.handle("companion:providers-reorder", (_, orderedIds: string[]) => {
+    try { return reorderUnifiedProviders(Array.isArray(orderedIds) ? orderedIds.map(String) : []); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
+  });
+  ipcMain.handle("companion:providers-switch", (_, id: string) => {
+    try { return switchUnifiedProvider(id); } catch (error) { return { ok: false, warnings: [], error: error instanceof Error ? error.message : String(error) }; }
+  });
+  ipcMain.handle("companion:providers-test", async (_, payload: { id?: string; baseUrl?: string; apiKey?: string }) => {
+    try { return await testUnifiedProvider(payload ?? {}); } catch (error) { return { ok: false, reachable: false, url: "", error: error instanceof Error ? error.message : String(error) }; }
+  });
   ipcMain.handle("companion:get-update-status", () => getUpdateStatus());
   ipcMain.handle("companion:check-for-updates", () => checkForUpdates());
   ipcMain.handle("companion:install-update", () => installUpdate());
@@ -2907,6 +3193,7 @@ app.on("before-quit", () => {
     clearTimeout(startupWarmupTimer);
     startupWarmupTimer = null;
   }
+  stopWatchingCcSwitch();
   saveCompanionSettings(true);
   if (runtimeStats) {
     runtimeStats.totalRuntime = (runtimeStats.totalRuntime ?? 0) + (Date.now() - appStartedAt);

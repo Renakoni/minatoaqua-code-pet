@@ -1,16 +1,17 @@
-import { useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Plus } from "lucide-react";
-import type { CompanionSettings } from "../../../shared/events";
+import type { ClaudeProviderListResult, ClaudeProviderTestResult } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { SortableClaudeProviderCard } from "./ProviderCard";
-import { ProviderEditPanel } from "./ProviderEditPanel";
-import type { ClaudeProvider, LegacyRoute } from "./types";
+import type { ClaudeProvider } from "./types";
 
-type ClaudeRouteCompanionApi = typeof window.companion & {
-  applyClaudeRoute?: (routeId: string) => Promise<unknown>;
-  testClaudeRoute?: (routeId: string) => Promise<unknown>;
+// The editor pulls in CodeMirror and the preset catalog; load it on demand.
+const ProviderEditPanel = lazy(() => import("./ProviderEditPanel").then(module => ({ default: module.ProviderEditPanel })));
+
+type LegacyTerminalApi = typeof window.companion & {
   openClaudeRouteTerminal?: (routeId: string) => Promise<unknown>;
 };
 
@@ -18,77 +19,75 @@ function formatI18n(template: string, values: Record<string, string | number>) {
   return Object.entries(values).reduce((text, [key, value]) => text.split(`{${key}}`).join(String(value)), template);
 }
 
-export function ClaudeRoutingPanel({
-  settings,
-  updateSettings
-}: {
-  settings: CompanionSettings;
-  updateSettings: (next: Partial<CompanionSettings>) => void;
-  connection?: unknown;
-}) {
+function createEmptyProvider(sortIndex: number, name: string): ClaudeProvider {
+  return {
+    id: "",
+    name,
+    category: "custom",
+    createdAt: Date.now(),
+    sortIndex,
+    iconColor: "#f97316",
+    settingsConfig: { env: { ANTHROPIC_BASE_URL: "", ANTHROPIC_AUTH_TOKEN: "" } }
+  };
+}
+
+export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?: unknown; connection?: unknown } = {}) {
   const { t, locale } = useI18n();
-  const legacyRoutes = ((settings.claudeRoutes ?? []) as LegacyRoute[]);
-  const storedProviders = (settings.claudeProviders ?? null) as Record<string, ClaudeProvider> | null;
-  const currentProviderId = (settings.currentClaudeProviderId ?? settings.activeClaudeRouteId ?? "") as string;
+  const companion = window.companion;
+  const [listing, setListing] = useState<ClaudeProviderListResult | null>(null);
+  const [orderOverride, setOrderOverride] = useState<string[] | null>(null);
   const [editingProvider, setEditingProvider] = useState<ClaudeProvider | null>(null);
   const [creating, setCreating] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<ClaudeProvider | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const companion = window.companion as ClaudeRouteCompanionApi;
 
-  function providerFromLegacy(route: LegacyRoute, index: number): ClaudeProvider {
-    const official = route.id === "claude-official" || /official/i.test(route.name);
-    return {
-      id: route.id,
-      name: route.name,
-      category: official ? "official" : "third_party",
-      websiteUrl: route.baseUrl,
-      notes: route.baseUrl,
-      createdAt: Date.now() + index,
-      sortIndex: index,
-      icon: official ? "anthropic" : undefined,
-      iconColor: official ? "#d97757" : "#f97316",
-      settingsConfig: {
-        env: {
-          ANTHROPIC_BASE_URL: route.baseUrl,
-          ANTHROPIC_AUTH_TOKEN: route.apiKeyMasked
-        }
-      }
-    };
-  }
+  const refresh = useCallback(async () => {
+    try {
+      const result = await companion.listClaudeProviders();
+      setListing(result);
+      setOrderOverride(null);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  }, [companion]);
 
-  function normalizeProviders() {
-    if (storedProviders && Object.keys(storedProviders).length > 0) return storedProviders;
-    return Object.fromEntries(legacyRoutes.map((route, index) => [route.id, providerFromLegacy(route, index)])) as Record<string, ClaudeProvider>;
-  }
+  useEffect(() => {
+    void refresh();
+    const unsubscribe = companion.onCcSwitchChanged?.(() => { void refresh(); });
+    return () => { unsubscribe?.(); };
+  }, [companion, refresh]);
 
-  const providers = normalizeProviders();
-  const sortedProviders = useMemo(() => Object.values(providers).sort((a, b) => {
-    if (a.sortIndex !== undefined && b.sortIndex !== undefined) return a.sortIndex - b.sortIndex;
-    if (a.sortIndex !== undefined) return -1;
-    if (b.sortIndex !== undefined) return 1;
-    const timeA = a.createdAt ?? 0;
-    const timeB = b.createdAt ?? 0;
-    if (timeA && timeB && timeA !== timeB) return timeA - timeB;
-    return a.name.localeCompare(b.name, locale === "zh" ? "zh-CN" : "en-US");
-  }), [providers, locale]);
-  const effectiveCurrentId = currentProviderId || sortedProviders[0]?.id || "";
-  const currentProvider = providers[effectiveCurrentId] ?? sortedProviders[0];
+  const providers = useMemo(() => listing?.providers ?? [], [listing]);
+  const currentId = listing?.currentId ?? "";
+  const isCcSwitch = listing?.source === "cc-switch";
+
+  const sortedProviders = useMemo(() => {
+    const base = [...providers].sort((a, b) => {
+      if (a.sortIndex !== undefined && b.sortIndex !== undefined && a.sortIndex !== b.sortIndex) return a.sortIndex - b.sortIndex;
+      if (a.sortIndex !== undefined && b.sortIndex === undefined) return -1;
+      if (a.sortIndex === undefined && b.sortIndex !== undefined) return 1;
+      const timeA = a.createdAt ?? 0;
+      const timeB = b.createdAt ?? 0;
+      if (timeA && timeB && timeA !== timeB) return timeA - timeB;
+      return a.name.localeCompare(b.name, locale === "zh" ? "zh-CN" : "en-US");
+    });
+    if (!orderOverride) return base;
+    const byId = new Map(base.map(provider => [provider.id, provider]));
+    const ordered = orderOverride.map(id => byId.get(id)).filter((provider): provider is ClaudeProvider => Boolean(provider));
+    for (const provider of base) if (!orderOverride.includes(provider.id)) ordered.push(provider);
+    return ordered;
+  }, [providers, orderOverride, locale]);
+
+  const currentProvider = providers.find(provider => provider.id === currentId) ?? sortedProviders[0];
   const providerSummary = currentProvider
-    ? formatI18n(t("routing.providerCountCurrent", "{count} providers · Current {name}"), { count: sortedProviders.length, name: currentProvider.name })
-    : formatI18n(t("routing.providerCount", "{count} providers"), { count: sortedProviders.length });
+    ? formatI18n(t("routing.providerCountCurrent", "{count} 个供应商 · 当前 {name}"), { count: sortedProviders.length, name: currentProvider.name })
+    : formatI18n(t("routing.providerCount", "{count} 个供应商"), { count: sortedProviders.length });
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
-
-  function saveProviders(nextProviders: Record<string, ClaudeProvider>, nextCurrentId = effectiveCurrentId) {
-    updateSettings({
-      claudeProviders: nextProviders,
-      currentClaudeProviderId: nextCurrentId,
-      claudeRoutes: undefined,
-      activeClaudeRouteId: undefined
-    });
-  }
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -96,26 +95,13 @@ export function ClaudeRoutingPanel({
     const oldIndex = sortedProviders.findIndex(provider => provider.id === active.id);
     const newIndex = sortedProviders.findIndex(provider => provider.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
-    const reordered = arrayMove(sortedProviders, oldIndex, newIndex);
-    const next = { ...providers };
-    reordered.forEach((provider, index) => {
-      next[provider.id] = { ...next[provider.id], sortIndex: index };
+    const reordered = arrayMove(sortedProviders, oldIndex, newIndex).map(provider => provider.id);
+    setOrderOverride(reordered);
+    void companion.reorderClaudeProviders(reordered).then(result => {
+      if (!result?.ok) setStatus(result?.error ?? t("routing.orderFailed", "排序保存失败"));
+      else setStatus(t("routing.orderUpdated", "已更新排序"));
+      void refresh();
     });
-    saveProviders(next);
-    setStatus(t("routing.orderUpdated", "Order updated"));
-  }
-
-  function createEmptyProvider(): ClaudeProvider {
-    const now = Date.now();
-    return {
-      id: `provider-${now.toString(36)}`,
-      name: t("routing.newProvider", "New provider"),
-      category: "custom",
-      createdAt: now,
-      sortIndex: sortedProviders.length,
-      iconColor: "#f97316",
-      settingsConfig: { env: { ANTHROPIC_BASE_URL: "" } }
-    };
   }
 
   function closeEditor() {
@@ -123,53 +109,89 @@ export function ClaudeRoutingPanel({
     setEditingProvider(null);
   }
 
-  function saveProvider(provider: ClaudeProvider, originalId?: string) {
-    const next = { ...providers };
-    if (originalId && originalId !== provider.id) delete next[originalId];
-    next[provider.id] = provider;
-    saveProviders(next, effectiveCurrentId === originalId ? provider.id : effectiveCurrentId || provider.id);
+  async function saveProvider(provider: ClaudeProvider, originalId?: string) {
+    const result = await companion.saveClaudeProvider(provider, originalId);
+    if (!result.ok) {
+      setStatus(result.error ?? t("routing.saveFailed", "保存失败"));
+      return;
+    }
+    setStatus(originalId ? t("routing.providerUpdated", "供应商已更新") : t("routing.providerAdded", "供应商已添加"));
     closeEditor();
+    void refresh();
   }
 
-  function removeProvider(provider: ClaudeProvider) {
-    if (sortedProviders.length <= 1) return;
-    const next = { ...providers };
-    delete next[provider.id];
-    const fallback = sortedProviders.find(item => item.id !== provider.id)?.id || "";
-    saveProviders(next, effectiveCurrentId === provider.id ? fallback : effectiveCurrentId);
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    const result = await companion.deleteClaudeProvider(pendingDelete.id);
+    setStatus(result.ok ? t("routing.providerDeleted", "供应商已删除") : result.error ?? t("routing.deleteFailed", "删除失败"));
+    setPendingDelete(null);
+    void refresh();
+  }
+
+  async function handleDuplicate(provider: ClaudeProvider) {
+    const result = await companion.duplicateClaudeProvider(provider.id);
+    setStatus(result.ok ? t("routing.providerDuplicated", "已复制供应商") : result.error ?? t("routing.duplicateFailed", "复制失败"));
+    void refresh();
   }
 
   async function handleSwitch(provider: ClaudeProvider) {
-    const result = await companion.applyClaudeRoute?.(provider.id);
-    if ((result as any)?.liveApply?.ok === false) {
-      setStatus((result as any).liveApply.error ?? t("routing.applyFailed", "Apply failed"));
+    const result = await companion.switchClaudeProvider(provider.id);
+    if (!result.ok) {
+      setStatus(result.error ?? t("routing.applyFailed", "切换失败"));
       return;
     }
-    saveProviders(providers, provider.id);
-    setStatus((result as any)?.liveApply?.path ? t("routing.wroteGlobalSettings", "Wrote Claude Code global settings") : (result as any)?.activeRoute ? t("routing.switched", "Switched") : t("routing.setCurrent", "Set as current provider"));
+    const warningText = result.warnings && result.warnings.length > 0 ? ` (${result.warnings.join(", ")})` : "";
+    setStatus(`${formatI18n(t("routing.switchedTo", "已切换到 {name}，已写入 Claude Code 全局配置"), { name: provider.name })}${warningText}`);
+    void refresh();
+  }
+
+  function describeTest(result: ClaudeProviderTestResult) {
+    if (!result.reachable) {
+      return `${t("routing.testUnreachable", "无法连接")}${result.error ? `: ${result.error}` : ""}`;
+    }
+    const latency = typeof result.latencyMs === "number" ? `${result.latencyMs} ms` : "";
+    if (result.authorized) return `${t("routing.testOk", "连接正常")} · ${latency} · HTTP ${result.status}`;
+    return `${t("routing.testReachable", "可达（鉴权未通过）")} · ${latency} · HTTP ${result.status}`;
   }
 
   async function handleTest(provider: ClaudeProvider) {
-    const result = await companion.testClaudeRoute?.(provider.id);
-    setStatus((result as any)?.message ?? ((result as any)?.ok ? t("routing.testComplete", "Test complete") : t("routing.testFailed", "Test failed")));
+    setTestingId(provider.id);
+    try {
+      const result = await companion.testClaudeProvider({ id: provider.id });
+      setStatus(`${provider.name}: ${describeTest(result)}`);
+    } finally {
+      setTestingId(null);
+    }
   }
 
   async function handleTerminal(provider: ClaudeProvider) {
-    const result = await companion.openClaudeRouteTerminal?.(provider.id);
-    setStatus((result as any)?.ok ? t("routing.terminalOpened", "Terminal opened") : (result as any)?.error ?? t("routing.terminalFailed", "Failed to open terminal"));
+    const legacy = companion as LegacyTerminalApi;
+    const result = await legacy.openClaudeRouteTerminal?.(provider.id);
+    setStatus((result as { ok?: boolean; error?: string })?.ok ? t("routing.terminalOpened", "已打开终端") : (result as { error?: string })?.error ?? t("routing.terminalFailed", "打开终端失败"));
   }
 
   return (
     <section className="ccs-provider-board">
       <header className="ccs-provider-board-header">
         <div className="ccs-provider-board-title">
-          <h3>{t("routing.title", "Claude Code routing")}</h3>
+          <h3>
+            {t("routing.title", "Claude Code 路由")}
+            {isCcSwitch ? (
+              <em className="ccs-source-badge" title={listing?.dbPath ?? ""}>cc-switch</em>
+            ) : null}
+          </h3>
           <p>{providerSummary}</p>
         </div>
-        <button className="cc-switch-add" onClick={() => { setCreating(true); setEditingProvider(null); }} title={t("routing.addProvider", "Add provider")} aria-label={t("routing.addProvider", "Add provider")}><Plus size={18} /></button>
+        <button
+          className="cc-switch-add"
+          onClick={() => { setCreating(true); setEditingProvider(null); }}
+          title={t("routing.addProvider", "添加供应商")}
+          aria-label={t("routing.addProvider", "添加供应商")}
+        ><Plus size={18} /></button>
       </header>
 
       {status ? <div className="ccs-provider-status">{status}</div> : null}
+      {listing?.readError ? <div className="ccs-provider-status">{t("routing.dbReadError", "读取 cc-switch 数据库失败")}: {listing.readError}</div> : null}
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={sortedProviders.map(provider => provider.id)} strategy={verticalListSortingStrategy}>
@@ -178,21 +200,49 @@ export function ClaudeRoutingPanel({
               <SortableClaudeProviderCard
                 key={provider.id}
                 provider={provider}
-                isCurrent={provider.id === effectiveCurrentId}
-                canRemove={sortedProviders.length > 1}
+                isCurrent={provider.id === currentId}
+                canRemove={sortedProviders.length > 1 && provider.id !== currentId}
+                testing={testingId === provider.id}
                 onSwitch={handleSwitch}
                 onEdit={setEditingProvider}
+                onDuplicate={handleDuplicate}
                 onTest={handleTest}
                 onTerminal={handleTerminal}
-                onRemove={removeProvider}
+                onRemove={setPendingDelete}
               />
             ))}
+            {sortedProviders.length === 0 && listing ? (
+              <div className="ccs-provider-empty">{t("routing.noProviders", "还没有供应商，点击右上角添加")}</div>
+            ) : null}
           </div>
         </SortableContext>
       </DndContext>
 
-      {creating ? <ProviderEditPanel provider={createEmptyProvider()} mode="add" onSave={saveProvider} onClose={closeEditor} /> : null}
-      {editingProvider ? <ProviderEditPanel provider={editingProvider} mode="edit" onSave={saveProvider} onClose={closeEditor} /> : null}
+      {creating || editingProvider ? (
+        <Suspense fallback={null}>
+          <ProviderEditPanel
+            provider={editingProvider ?? createEmptyProvider(sortedProviders.length, t("routing.newProvider", "新供应商"))}
+            mode={editingProvider ? "edit" : "add"}
+            hasCommonConfig={listing?.hasCommonConfig}
+            onSave={(provider, originalId) => { void saveProvider(provider, originalId); }}
+            onClose={closeEditor}
+            onTestEndpoint={(baseUrl, apiKey) => companion.testClaudeProvider({ baseUrl, apiKey })}
+          />
+        </Suspense>
+      ) : null}
+
+      {pendingDelete ? (
+        <ConfirmDialog
+          title={t("routing.deleteProvider", "删除供应商")}
+          cancelLabel={t("common.cancel", "取消")}
+          confirmLabel={t("common.delete", "删除")}
+          danger
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => { void confirmDelete(); }}
+        >
+          <p>{formatI18n(t("routing.deleteProviderMessage", '确定要删除供应商 "{name}" 吗？此操作无法撤销。'), { name: pendingDelete.name })}</p>
+        </ConfirmDialog>
+      ) : null}
     </section>
   );
 }

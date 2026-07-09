@@ -8,6 +8,7 @@
 @import './styles/70-settings-layout-refresh.css';
 @import './styles/80-settings-animations.css';
 @import './styles/90-routing.css';
+@import './styles/95-claude-provider-editor.css';
 @import './styles/100-token-sound-git.css';
 @import './styles/110-liquid-ui.css';
 @import './styles/120-dark-theme.css';
