@@ -17,9 +17,9 @@ import {
   getCurrentCcSwitchProviderId,
   listCcSwitchProviders,
   reorderCcSwitchProviders,
+  probeClaudeEndpoint,
   stopWatchingCcSwitch,
   switchCcSwitchProvider,
-  testClaudeEndpoint,
   updateCcSwitchProvider,
   watchCcSwitch,
   type CcSwitchProvider
@@ -2382,12 +2382,21 @@ function duplicateUnifiedProvider(id: string) {
   const providers = { ...localProviders() };
   const source = providers[id];
   if (!source) return { ok: false, error: `Provider ${id} not found` };
+  // Same placement as cc-switch: the copy sits right below the original.
+  const newSortIndex = source.sortIndex !== undefined ? source.sortIndex + 1 : Object.keys(providers).length;
+  if (source.sortIndex !== undefined) {
+    for (const [key, provider] of Object.entries(providers)) {
+      if (key !== id && provider.sortIndex !== undefined && provider.sortIndex >= newSortIndex) {
+        providers[key] = { ...provider, sortIndex: provider.sortIndex + 1 };
+      }
+    }
+  }
   const copy: CcSwitchProvider = {
     ...JSON.parse(JSON.stringify(source)) as CcSwitchProvider,
     id: `provider-${Date.now().toString(36)}`,
     name: `${source.name} copy`,
     createdAt: Date.now(),
-    sortIndex: Object.keys(providers).length
+    sortIndex: newSortIndex
   };
   providers[copy.id] = copy;
   saveLocalProviders(providers);
@@ -2455,22 +2464,36 @@ function switchUnifiedProvider(id: string) {
   return { ok: true, path: livePath, backupPath, warnings };
 }
 
-async function testUnifiedProvider(payload: { id?: string; baseUrl?: string; apiKey?: string }) {
+/**
+ * Reachability check matching cc-switch's stream check: probes base_url
+ * only (no auth), honoring the provider's custom User-Agent and optional
+ * per-provider meta.testConfig overrides when enabled.
+ */
+async function testUnifiedProvider(payload: { id?: string; baseUrl?: string }) {
   let baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl : "";
-  let apiKey = typeof payload?.apiKey === "string" ? payload.apiKey : "";
-  if (payload?.id && !baseUrl) {
+  let userAgent: string | undefined;
+  let timeoutMs: number | undefined;
+  let maxRetries: number | undefined;
+  let degradedThresholdMs: number | undefined;
+  if (payload?.id) {
     const listed = listUnifiedProviders();
     const provider = listed.providers.find(item => item.id === payload.id);
-    const env = provider?.settingsConfig && typeof provider.settingsConfig === "object"
-      ? (provider.settingsConfig as Record<string, any>).env as Record<string, any> | undefined
-      : undefined;
-    baseUrl = typeof env?.ANTHROPIC_BASE_URL === "string" ? env.ANTHROPIC_BASE_URL : "";
-    if (!apiKey) {
-      const token = env?.ANTHROPIC_AUTH_TOKEN ?? env?.ANTHROPIC_API_KEY;
-      apiKey = typeof token === "string" ? token : "";
+    if (!baseUrl) {
+      const env = provider?.settingsConfig && typeof provider.settingsConfig === "object"
+        ? (provider.settingsConfig as Record<string, any>).env as Record<string, any> | undefined
+        : undefined;
+      baseUrl = typeof env?.ANTHROPIC_BASE_URL === "string" ? env.ANTHROPIC_BASE_URL : "";
+    }
+    const meta = provider?.meta as Record<string, any> | undefined;
+    if (typeof meta?.customUserAgent === "string" && meta.customUserAgent.trim()) userAgent = meta.customUserAgent.trim();
+    const testConfig = meta?.testConfig as Record<string, any> | undefined;
+    if (testConfig?.enabled) {
+      if (typeof testConfig.timeoutSecs === "number") timeoutMs = testConfig.timeoutSecs * 1000;
+      if (typeof testConfig.maxRetries === "number") maxRetries = testConfig.maxRetries;
+      if (typeof testConfig.degradedThresholdMs === "number") degradedThresholdMs = testConfig.degradedThresholdMs;
     }
   }
-  return testClaudeEndpoint(baseUrl, apiKey || undefined);
+  return probeClaudeEndpoint(baseUrl, { userAgent, timeoutMs, maxRetries, degradedThresholdMs });
 }
 
 function broadcastCcSwitchChanged() {
@@ -3096,8 +3119,12 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:providers-switch", (_, id: string) => {
     try { return switchUnifiedProvider(id); } catch (error) { return { ok: false, warnings: [], error: error instanceof Error ? error.message : String(error) }; }
   });
-  ipcMain.handle("companion:providers-test", async (_, payload: { id?: string; baseUrl?: string; apiKey?: string }) => {
-    try { return await testUnifiedProvider(payload ?? {}); } catch (error) { return { ok: false, reachable: false, url: "", error: error instanceof Error ? error.message : String(error) }; }
+  ipcMain.handle("companion:providers-test", async (_, payload: { id?: string; baseUrl?: string }) => {
+    try {
+      return await testUnifiedProvider(payload ?? {});
+    } catch (error) {
+      return { status: "failed", success: false, message: error instanceof Error ? error.message : String(error), url: "" };
+    }
   });
   ipcMain.handle("companion:get-update-status", () => getUpdateStatus());
   ipcMain.handle("companion:check-for-updates", () => checkForUpdates());

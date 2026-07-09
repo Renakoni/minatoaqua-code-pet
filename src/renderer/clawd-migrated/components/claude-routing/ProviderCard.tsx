@@ -51,6 +51,9 @@ function ClaudeProviderActions({
   testing?: boolean;
 } & ProviderActionHandlers) {
   const { t } = useI18n();
+  // cc-switch hides connectivity checks for official providers: their
+  // base_url is intentionally empty, so there is nothing to probe.
+  const canTest = provider.category !== "official";
 
   return (
     <div className="ccs-provider-actions-inner">
@@ -63,7 +66,11 @@ function ClaudeProviderActions({
       <div className="ccs-provider-icon-actions">
         <button onClick={() => onEdit(provider)} title={t("common.edit", "编辑")}><Pencil size={16} /></button>
         <button onClick={() => onDuplicate(provider)} title={t("routing.duplicate", "复制")}><Copy size={16} /></button>
-        <button onClick={() => onTest(provider)} disabled={testing} title={t("routing.testConnection", "测试连接")}>
+        <button
+          onClick={() => { if (canTest) onTest(provider); }}
+          disabled={testing || !canTest}
+          title={canTest ? t("routing.testConnection", "检测连通") : t("routing.testOfficialHidden", "官方供应商无需检测")}
+        >
           {testing ? <Loader2 size={16} className="ccs-spin" /> : <Activity size={16} />}
         </button>
         <button onClick={() => onTerminal(provider)} title={t("routing.openTerminal", "打开终端")}><Terminal size={16} /></button>

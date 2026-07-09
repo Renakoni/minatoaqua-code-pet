@@ -229,14 +229,14 @@ export interface ClaudeProviderSwitchResult {
   error?: string;
 }
 
+/** Reachability probe result, cc-switch StreamCheckResult compatible. */
 export interface ClaudeProviderTestResult {
-  ok: boolean;
-  reachable: boolean;
-  authorized?: boolean;
-  status?: number;
-  latencyMs?: number;
+  status: "operational" | "degraded" | "failed";
+  success: boolean;
+  message: string;
+  responseTimeMs?: number;
+  httpStatus?: number;
   url: string;
-  error?: string;
 }
 
 export interface ClaudeProviderSaveResult {

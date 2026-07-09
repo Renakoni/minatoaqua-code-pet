@@ -360,17 +360,41 @@ export function deleteCcSwitchProvider(id: string): void {
   });
 }
 
+/**
+ * Duplicate mirrors cc-switch's handleDuplicateProvider: the copy lands
+ * directly below the original (sortIndex + 1) and every later provider
+ * shifts down by one; a source without sortIndex appends at the end.
+ */
 export function duplicateCcSwitchProvider(id: string): CcSwitchProvider {
   const source = listCcSwitchProviders().find(provider => provider.id === id);
   if (!source) throw new Error(`Provider ${id} not found in cc-switch database`);
-  return addCcSwitchProvider({
+  const record: CcSwitchProvider = {
     ...structuredClone(source),
     id: randomUUID(),
     name: `${source.name} copy`,
     createdAt: Date.now(),
-    sortIndex: undefined,
+    sortIndex: source.sortIndex !== undefined ? source.sortIndex + 1 : undefined,
     isCurrent: false
+  };
+  withDb(false, db => {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      if (record.sortIndex !== undefined) {
+        db.prepare("UPDATE providers SET sort_index = sort_index + 1 WHERE app_type = ? AND sort_index >= ? AND id != ?")
+          .run(APP_TYPE, record.sortIndex, source.id);
+      } else {
+        const row = db.prepare("SELECT MAX(sort_index) AS maxIndex, COUNT(*) AS total FROM providers WHERE app_type = ?").get(APP_TYPE) as JsonObject;
+        const maxIndex = typeof row?.maxIndex === "number" ? row.maxIndex : null;
+        record.sortIndex = maxIndex !== null ? maxIndex + 1 : Number(row?.total ?? 0);
+      }
+      db.prepare(PROVIDER_INSERT_SQL).run(record.id, APP_TYPE, ...providerWriteParams(record));
+      db.exec("COMMIT");
+    } catch (error) {
+      try { db.exec("ROLLBACK"); } catch { /* already rolled back */ }
+      throw error;
+    }
   });
+  return record;
 }
 
 export function reorderCcSwitchProviders(orderedIds: string[]): void {
@@ -470,45 +494,81 @@ export function switchCcSwitchProvider(id: string): SwitchOutcome {
   return { ok: true, path: livePath, backupPath, warnings };
 }
 
-/* ---------- connectivity test ---------- */
+/* ---------- connectivity check (cc-switch stream_check semantics) ---------- */
 
+/**
+ * Reachability-only probe, ported from cc-switch's StreamCheckService:
+ * GET the base_url itself — any HTTP response (200/4xx/5xx) counts as
+ * reachable; only network-level failures (DNS, refused, TLS, timeout)
+ * fail. Deliberately no auth validation: reachable != correctly
+ * configured, and auth walls must not read as "down". Latency is TTFB.
+ * Timeout-class failures retry once; hard failures return immediately.
+ */
 export interface EndpointTestResult {
-  ok: boolean;
-  reachable: boolean;
-  authorized?: boolean;
-  status?: number;
-  latencyMs?: number;
+  status: "operational" | "degraded" | "failed";
+  success: boolean;
+  message: string;
+  responseTimeMs?: number;
+  httpStatus?: number;
   url: string;
-  error?: string;
 }
 
-export async function testClaudeEndpoint(baseUrl: string, apiKey?: string, timeoutMs = 8000): Promise<EndpointTestResult> {
-  const base = (baseUrl || "https://api.anthropic.com").trim().replace(/\/+$/, "");
-  const url = `${base}/v1/models`;
+export interface EndpointProbeOptions {
+  timeoutMs?: number;
+  degradedThresholdMs?: number;
+  maxRetries?: number;
+  userAgent?: string;
+}
+
+function isTimeoutMessage(message: string) {
+  const lower = message.toLowerCase();
+  return lower.includes("timeout") || lower.includes("timed out") || lower.includes("abort");
+}
+
+async function probeOnce(url: string, timeoutMs: number, userAgent?: string): Promise<{ httpStatus: number } | { error: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const startedAt = Date.now();
   try {
-    const headers: Record<string, string> = { "anthropic-version": "2023-06-01" };
-    if (apiKey) {
-      headers.Authorization = `Bearer ${apiKey}`;
-      headers["x-api-key"] = apiKey;
-    }
+    const headers: Record<string, string> = { accept: "*/*", "accept-encoding": "identity" };
+    if (userAgent) headers["user-agent"] = userAgent;
     const response = await fetch(url, { method: "GET", headers, signal: controller.signal });
-    const latencyMs = Date.now() - startedAt;
-    const authorized = response.ok;
-    return { ok: response.ok, reachable: true, authorized, status: response.status, latencyMs, url };
+    return { httpStatus: response.status };
   } catch (error) {
-    return {
-      ok: false,
-      reachable: false,
-      url,
-      latencyMs: Date.now() - startedAt,
-      error: error instanceof Error ? (error.name === "AbortError" ? "timeout" : error.message) : String(error)
-    };
+    if (error instanceof Error && error.name === "AbortError") return { error: "timeout" };
+    const causeValue = error instanceof Error ? (error as Error & { cause?: unknown }).cause : undefined;
+    const cause = causeValue instanceof Error ? `: ${causeValue.message}` : "";
+    return { error: error instanceof Error ? `${error.message}${cause}` : String(error) };
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function probeClaudeEndpoint(baseUrl: string, options: EndpointProbeOptions = {}): Promise<EndpointTestResult> {
+  const url = (baseUrl ?? "").trim();
+  const timeoutMs = options.timeoutMs ?? 8000;
+  const degradedThresholdMs = options.degradedThresholdMs ?? 6000;
+  const maxRetries = options.maxRetries ?? 1;
+  if (!url) return { status: "failed", success: false, message: "base_url 为空", url };
+
+  let last: EndpointTestResult = { status: "failed", success: false, message: "Check failed", url };
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const startedAt = Date.now();
+    const result = await probeOnce(url, timeoutMs, options.userAgent);
+    const responseTimeMs = Date.now() - startedAt;
+    if ("httpStatus" in result) {
+      return {
+        status: responseTimeMs > degradedThresholdMs ? "degraded" : "operational",
+        success: true,
+        message: "Reachable",
+        responseTimeMs,
+        httpStatus: result.httpStatus,
+        url
+      };
+    }
+    last = { status: "failed", success: false, message: result.error, responseTimeMs, url };
+    if (!isTimeoutMessage(result.error)) return last;
+  }
+  return last;
 }
 
 /* ---------- external change watching ---------- */
