@@ -1090,7 +1090,9 @@
   background: var(--resource-surface);
 }
 
-.ccs-fullscreen-panel {
+/* Confirm dialogs portal to <body>, so they need the same token scope. */
+.ccs-fullscreen-panel,
+.ccs-confirm-backdrop {
   --ccs-editor-ink: oklch(23% 0.011 75);
   --ccs-editor-muted: oklch(50% 0.011 75);
   --ccs-editor-faint: oklch(62% 0.01 75);
@@ -1105,11 +1107,15 @@
   --ccs-editor-primary-hover: oklch(78% 0.12 82);
   --ccs-editor-primary-ink: oklch(24% 0.01 75);
   --ccs-editor-shadow: 0 18px 50px oklch(34% 0.012 75 / 0.12);
+}
+
+.ccs-fullscreen-panel {
   color: var(--ccs-editor-ink);
   background: var(--ccs-editor-bg);
 }
 
-[data-theme=dark] .ccs-fullscreen-panel {
+[data-theme=dark] .ccs-fullscreen-panel,
+[data-theme=dark] .ccs-confirm-backdrop {
   --ccs-editor-ink: #f4efe7;
   --ccs-editor-muted: rgba(244,239,231,.72);
   --ccs-editor-faint: rgba(244,239,231,.48);
