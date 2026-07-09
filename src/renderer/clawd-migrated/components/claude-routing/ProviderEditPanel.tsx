@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Gauge, Plus, Save } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import type { ClaudeProviderTestResult } from "../../../shared/events";
@@ -6,6 +7,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { IconPicker } from "./IconPicker";
 import { JsonConfigEditor } from "./JsonConfigEditor";
 import { ProviderIcon } from "./ProviderIcon";
+import { getIconMetadata } from "./icons/metadata";
 import { addIconsToPresets } from "./iconInference";
 import { claudeProviderPresets, type ClaudeProviderPreset } from "./presets";
 import type { ClaudeProvider } from "./types";
@@ -23,8 +25,6 @@ const MODEL_ROLES = [
   { role: "Fable", envKey: "ANTHROPIC_DEFAULT_FABLE_MODEL" },
   { role: "Haiku", envKey: "ANTHROPIC_DEFAULT_HAIKU_MODEL" }
 ] as const;
-
-const ICON_COLORS = ["#D4915D", "#f97316", "#3b82f6", "#38bdf8", "#ec4899", "#8b5cf6", "#10b981", "#64748b"];
 
 function parseConfig(text: string): SettingsConfig | null {
   try {
@@ -73,7 +73,7 @@ export function ProviderEditPanel({
   const [websiteUrl, setWebsiteUrl] = useState(provider.websiteUrl ?? "");
   const [apiKeyUrl, setApiKeyUrl] = useState("");
   const [category, setCategory] = useState<string>(provider.category ?? "custom");
-  const [iconColor, setIconColor] = useState(provider.iconColor ?? "#f97316");
+  const [iconColor, setIconColor] = useState(provider.iconColor ?? "");
   const [icon, setIcon] = useState(provider.icon);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [configText, setConfigText] = useState(serializeConfig(provider.settingsConfig ?? { env: {} }));
@@ -204,7 +204,7 @@ export function ProviderEditPanel({
       websiteUrl: websiteUrl.trim() || undefined,
       category,
       icon,
-      iconColor,
+      iconColor: iconColor || undefined,
       meta: Object.keys(meta).length > 0 ? meta : undefined,
       settingsConfig
     };
@@ -259,7 +259,9 @@ export function ProviderEditPanel({
     || commonConfigEnabled;
   const [advancedOpen, setAdvancedOpen] = useState(advancedActive);
 
-  return (
+  // Portal to <body>: ancestors with backdrop-filter/transform would otherwise
+  // trap position:fixed and the footer could scroll out of view.
+  return createPortal(
     <div className="ccs-fullscreen-panel">
       <header className="ccs-fullscreen-header">
         <button className="ccs-back-button" type="button" onClick={onClose} aria-label={t("common.back", "返回")} title={t("common.back", "返回")}><ArrowLeft size={18} /></button>
@@ -318,56 +320,30 @@ export function ProviderEditPanel({
           ) : null}
 
           <section className="ccs-form-card">
-            <div className="ccs-form-section-heading">
-              <div>
-                <h3>{t("routing.basicInfo", "基本信息")}</h3>
-              </div>
-              <div className="ccs-icon-swatches" role="group" aria-label={t("routing.iconColor", "图标颜色")}>
-                <button
-                  type="button"
-                  className="ccs-icon-preview"
-                  onClick={() => setIconPickerOpen(true)}
-                  title={t("routing.iconPickerTitle", "选择图标")}
-                  aria-label={t("routing.iconPickerTitle", "选择图标")}
-                >
-                  <ProviderIcon icon={icon} name={name || "?"} color={iconColor} size={20} />
-                </button>
-                {ICON_COLORS.map(color => (
-                  <button
-                    key={color}
-                    type="button"
-                    className={`ccs-icon-swatch ${iconColor === color ? "active" : ""}`}
-                    style={{ background: color }}
-                    onClick={() => setIconColor(color)}
-                    aria-label={color}
-                  />
-                ))}
-              </div>
+            <div className="ccs-icon-block">
+              <button
+                type="button"
+                onClick={() => setIconPickerOpen(true)}
+                title={icon ? t("routing.iconClickToChange", "点击更换图标") : t("routing.iconClickToSelect", "点击选择图标")}
+                aria-label={t("routing.iconPickerTitle", "选择图标")}
+              >
+                <ProviderIcon icon={icon} name={name || "Provider"} color={iconColor} size={48} />
+              </button>
             </div>
             <div className="ccs-form-grid two">
               <label>
-                <span>{t("routing.providerName", "供应商名称")} *</span>
+                <span>{t("routing.providerName", "供应商名称")}</span>
                 <input value={name} onChange={event => setName(event.target.value)} placeholder={t("routing.namePlaceholder", "例如：Claude 官方")} />
               </label>
               <label>
                 <span>{t("routing.notes", "备注")}</span>
                 <input value={notes} onChange={event => setNotes(event.target.value)} placeholder={t("routing.notesPlaceholder", "例如：公司专用账号")} />
               </label>
-              <label>
-                <span>{t("routing.websiteUrl", "官网链接")}</span>
-                <input value={websiteUrl} onChange={event => setWebsiteUrl(event.target.value)} placeholder={t("routing.websitePlaceholder", "https://example.com（可选）")} />
-              </label>
-              <label>
-                <span>{t("routing.category", "分类")}</span>
-                <select value={category} onChange={event => setCategory(event.target.value)}>
-                  <option value="official">{t("routing.categoryOfficial", "官方")}</option>
-                  <option value="cn_official">{t("routing.categoryCnOfficial", "国产官方")}</option>
-                  <option value="aggregator">{t("routing.categoryAggregator", "聚合平台")}</option>
-                  <option value="third_party">{t("routing.categoryThirdParty", "第三方中转")}</option>
-                  <option value="custom">{t("routing.categoryCustom", "自定义")}</option>
-                </select>
-              </label>
             </div>
+            <label>
+              <span>{t("routing.websiteUrl", "官网链接")}</span>
+              <input value={websiteUrl} onChange={event => setWebsiteUrl(event.target.value)} placeholder={t("routing.websitePlaceholder", "https://example.com（可选）")} />
+            </label>
           </section>
 
           {templateBase && activePreset?.templateValues ? (
@@ -581,7 +557,10 @@ export function ProviderEditPanel({
       {iconPickerOpen ? (
         <IconPicker
           value={icon}
-          onSelect={nextIcon => setIcon(nextIcon)}
+          onSelect={nextIcon => {
+            setIcon(nextIcon);
+            setIconColor(getIconMetadata(nextIcon)?.defaultColor ?? "");
+          }}
           onClose={() => setIconPickerOpen(false)}
         />
       ) : null}
@@ -599,6 +578,7 @@ export function ProviderEditPanel({
           </ul>
         </ConfirmDialog>
       ) : null}
-    </div>
+    </div>,
+    document.body
   );
 }
