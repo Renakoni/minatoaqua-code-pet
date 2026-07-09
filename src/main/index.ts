@@ -24,6 +24,7 @@ import {
   watchCcSwitch,
   type CcSwitchProvider
 } from "./ccSwitchStore";
+import { PermissionBroker, type PendingPermission, type PermissionPollResult } from "./permissionBroker";
 
 type DailyRuntimeStats = {
   events: number;
@@ -76,7 +77,6 @@ let runtimeStats: RuntimeStats | null = null;
 let runtimeStatsDirty = false;
 let runtimeStatsSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let companionSettingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
-const activePermissionIds = new Set<string>();
 let autoUpdaterConfigured = false;
 let updateStatus: UpdateStatus = {
   checking: false,
@@ -2734,6 +2734,71 @@ function recordPermissionDecision(decision?: string) {
   saveRuntimeStats();
 }
 
+/**
+ * Owns pending permission requests posted to /permission by the hook
+ * forwarder. When a request settles (user decision, timeout, or quit) the
+ * onSettled callback tells every window to dismiss its permission card.
+ */
+const permissionBroker = new PermissionBroker({
+  onSettled: (pending, result) => {
+    recordPermissionDecision(result.decision);
+    for (const target of [petWindow, panelWindow]) {
+      if (target && !target.isDestroyed()) target.webContents.send("companion:permission-resolved", { id: pending.id, decision: result.decision });
+    }
+    updateTrayMenu();
+  }
+});
+
+/**
+ * Surface a new permission request: show the card in both windows and fire
+ * exactly one notification/sound (respecting notificationRules). This is the
+ * ONLY place a permission alert originates — tool events never alert.
+ */
+function announcePermissionRequest(pending: PendingPermission) {
+  for (const target of [petWindow, panelWindow]) {
+    if (target && !target.isDestroyed()) {
+      target.webContents.send("companion:permission-request", {
+        id: pending.id,
+        toolName: normalizeTool(pending.toolName),
+        toolDetail: pending.toolDetail,
+        sessionId: pending.sessionId,
+        timestamp: pending.timestamp,
+        rawPayload: {}
+      });
+    }
+  }
+  handleCompanionAlerts({
+    id: pending.id,
+    source: "manual",
+    event: "permission_wait",
+    sessionId: pending.sessionId,
+    clientType: "cli",
+    clientLabel: "Claude Code",
+    tool: normalizeTool(pending.toolName),
+    title: pending.toolName ? `${pending.toolName} 需要确认` : "需要确认",
+    message: pending.toolDetail ?? "Claude Code 正在等待你的授权",
+    detail: pending.toolDetail,
+    timestamp: pending.timestamp
+  });
+  updateTrayMenu();
+}
+
+function handlePermissionRequest(payload: unknown): { id: string } {
+  const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const pending = permissionBroker.create({
+    toolName: typeof body.toolName === "string" ? body.toolName : "Unknown",
+    toolDetail: typeof body.toolDetail === "string" ? body.toolDetail : undefined,
+    sessionId: typeof body.sessionId === "string" ? body.sessionId : undefined,
+    rawPayload: body.rawPayload && typeof body.rawPayload === "object" ? body.rawPayload as Record<string, unknown> : {}
+  });
+  announcePermissionRequest(pending);
+  return { id: pending.id };
+}
+
+function respondPermission(id: string, decision: "allow" | "deny", reason?: string) {
+  return permissionBroker.respond({ id, decision, reason });
+}
+
 function getStats() {
   const persisted = loadRuntimeStats();
   const stats = { ...persisted, totalRuntime: (persisted.totalRuntime ?? 0) + (Date.now() - appStartedAt) };
@@ -2972,27 +3037,10 @@ function getDoctorReport() {
 }
 
 function broadcastCompanionEvent(event: CompanionEvent) {
+  // Permission requests are owned by the PermissionBroker (/permission flow);
+  // regular events just fan out to the panel for the activity feed.
   panelWindow?.webContents.send("companion:event", event);
   panelWindow?.webContents.send("companion:connection", getConnectionStatus());
-  if (event.event === "permission_wait") {
-    activePermissionIds.add(event.id);
-    panelWindow?.webContents.send("companion:permission-request", {
-      id: event.id,
-      toolName: normalizeTool(event.tool),
-      toolDetail: event.detail ?? event.message,
-      sessionId,
-      timestamp: event.timestamp,
-      rawPayload: {}
-    });
-    return;
-  }
-
-  if (activePermissionIds.size > 0 && ["tool_start", "tool_end", "prompt_submit", "done", "error"].includes(event.event)) {
-    for (const id of activePermissionIds) {
-      panelWindow?.webContents.send("companion:permission-resolved", { id });
-    }
-    activePermissionIds.clear();
-  }
 }
 
 function publishPetEvent(event: PetEvent) {
@@ -3008,10 +3056,31 @@ function publishPetEvent(event: PetEvent) {
   updateTrayMenu();
 }
 
+const PERMISSION_ID_PATTERN = /^\/permission\/([A-Za-z0-9-]+)$/;
+
 function startEventServer() {
   eventServer = createServer(async (req, res) => {
     if (req.method === "OPTIONS") {
       sendJson(res, 204, {});
+      return;
+    }
+
+    // Blocking permission flow: the hook forwarder POSTs a request, then
+    // long-polls the GET until the user decides (or it times out).
+    if (req.method === "POST" && req.url === "/permission") {
+      try {
+        const body = await readJson(req);
+        sendJson(res, 200, handlePermissionRequest(body));
+      } catch {
+        sendJson(res, 400, { status: "error", reason: "invalid_json" });
+      }
+      return;
+    }
+
+    const permissionMatch = req.method === "GET" && req.url ? req.url.match(PERMISSION_ID_PATTERN) : null;
+    if (permissionMatch) {
+      const result: PermissionPollResult = await permissionBroker.wait(permissionMatch[1]);
+      sendJson(res, 200, result);
       return;
     }
 
@@ -3093,9 +3162,11 @@ app.whenReady().then(() => {
     const [x, y] = petWindow.getPosition();
     petWindow.setPosition(x + delta.x, y + delta.y);
   });
-  ipcMain.handle("companion:respond-permission", (_, response: { id: string; decision?: string }) => {
-    recordPermissionDecision(response.decision);
-    panelWindow?.webContents.send("companion:permission-resolved", { id: response.id });
+  ipcMain.handle("companion:respond-permission", (_, response: { id: string; decision?: string; reason?: string }) => {
+    if (response.decision !== "allow" && response.decision !== "deny") return { ok: false };
+    // The broker's onSettled records the stat, dismisses the card in both
+    // windows, and unblocks the waiting hook so Claude Code gets the decision.
+    return respondPermission(response.id, response.decision, response.reason);
   });
   ipcMain.handle("companion:get-claude-route-runtime", () => getClaudeRouteRuntimePreview());
   ipcMain.handle("companion:apply-claude-route", (_, routeId: string) => applyClaudeRoute(routeId));
@@ -3221,6 +3292,7 @@ app.on("before-quit", () => {
     startupWarmupTimer = null;
   }
   stopWatchingCcSwitch();
+  permissionBroker.shutdown();
   saveCompanionSettings(true);
   if (runtimeStats) {
     runtimeStats.totalRuntime = (runtimeStats.totalRuntime ?? 0) + (Date.now() - appStartedAt);

@@ -109,9 +109,45 @@ function pickDetail(payload) {
   );
 }
 
-function isPermissionLike(hook, toolName, payload) {
-  const combined = `${hook} ${toolName ?? ""} ${payload.permission ?? ""} ${payload.approval ?? ""} ${payload.requires_permission ?? ""}`.toLowerCase();
-  return /permission|approval|approve|notification|bash|shell|powershell|cmd|edit|write|notebookedit/.test(combined);
+// Tools Claude Code auto-approves in acceptEdits mode — never a permission gate there.
+const EDIT_FAMILY_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Update"]);
+
+// Permission modes that never require manual confirmation (Claude auto-approves
+// or does not execute), so the hook must not intercept them.
+const AUTO_APPROVE_MODES = new Set(["bypassPermissions", "dontAsk", "auto", "plan"]);
+
+/**
+ * Decide whether a hook payload is a permission gate that needs human
+ * authorization. Mirrors Claude Code's own logic: PreToolUse fires for EVERY
+ * tool regardless of mode, so we rely on `permission_mode` to tell an
+ * auto-approved call apart from one that genuinely blocks on the user.
+ *
+ * - Only PreToolUse can carry a permission decision back to Claude Code.
+ * - When `permission_mode` is absent (e.g. subagent dispatch) we stay out of
+ *   the way and let the CLI use its native flow.
+ * - bypassPermissions / dontAsk / auto / plan are auto-approved → skip.
+ * - acceptEdits auto-approves edit-family tools only → skip those, gate the rest.
+ */
+function isPermissionEvent(hook, payload) {
+  if (hook !== "PreToolUse") return false;
+  const permMode = typeof payload.permission_mode === "string"
+    ? payload.permission_mode
+    : typeof payload.permissionMode === "string" ? payload.permissionMode : "";
+  if (!permMode) return false;
+  if (AUTO_APPROVE_MODES.has(permMode)) return false;
+  if (permMode === "acceptEdits" && EDIT_FAMILY_TOOLS.has(pickToolName(payload) ?? "")) return false;
+  return true;
+}
+
+function formatPermissionDecision(decision, reason) {
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: decision,
+      permissionDecisionReason: reason ?? (decision === "allow" ? "Approved via Minato Aqua Code Pet" : "Denied via Minato Aqua Code Pet")
+    },
+    continue: true
+  });
 }
 
 function nestedValue(payload, path) {
@@ -155,9 +191,8 @@ function mapHookToPetEvent(hook, payload) {
     case "UserPromptSubmit":
       return { event: "running", title: "Working", message: "Handling prompt" };
     case "PreToolUse":
-      if (isPermissionLike(hook, tool, payload)) {
-        return { event: "permission-prompt", title: "Permission needed", tool, detail };
-      }
+      // Permission gates are handled by the blocking /permission flow before
+      // we get here; a PreToolUse that reaches this point is just tool activity.
       return { event: "running", title: "Using tool", tool, detail };
     case "PostToolUse":
       if (isError) {
@@ -165,7 +200,9 @@ function mapHookToPetEvent(hook, payload) {
       }
       return { event: "running", title: "Tool completed", tool, detail };
     case "Notification":
-      return { event: "permission-prompt", title: "Permission needed", tool, detail: detail ?? "Claude Code needs attention" };
+      // Fires when the CLI wants attention (e.g. native permission fallback or
+      // idle input). Informational only — no permission card, no alert sound.
+      return { event: "running", title: "Claude needs your attention", tool, detail: detail ?? "Claude Code is waiting for you" };
     case "Stop":
       if (isError) {
         return { event: "error", title: "Claude Code error", message: detail ?? "Claude Code reported an error.", tool, detail };
@@ -219,6 +256,52 @@ function postPetEvent(event, timeout = 800) {
     req.on("error", () => finish(false));
     req.end(body);
   });
+}
+
+function httpJson(options, body, timeout) {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = value => { if (!settled) { settled = true; resolve(value); } };
+    const req = http.request({ host: "127.0.0.1", port: eventPort, timeout, ...options }, res => {
+      let data = "";
+      res.setEncoding("utf8");
+      res.on("data", chunk => { data += chunk; });
+      res.on("end", () => {
+        try { finish(JSON.parse(data)); } catch { finish(null); }
+      });
+    });
+    req.on("timeout", () => { req.destroy(); finish(null); });
+    req.on("error", () => finish(null));
+    if (body !== undefined) req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * Ask the companion app for a permission decision and block until the user
+ * responds (or it times out). Returns "allow" | "deny", or null to fall back
+ * to Claude Code's native permission prompt.
+ */
+async function requestPermissionDecision(payload) {
+  const body = JSON.stringify({
+    toolName: pickToolName(payload) ?? "Unknown",
+    toolDetail: pickDetail(payload),
+    sessionId: payload.session_id ?? payload.sessionId,
+    rawPayload: {}
+  });
+
+  const created = await httpJson(
+    { path: "/permission", method: "POST", headers: { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body) } },
+    body,
+    5000
+  );
+  if (!created || typeof created.id !== "string") return null;
+
+  const result = await httpJson({ path: `/permission/${created.id}`, method: "GET" }, undefined, 120000);
+  if (result && (result.decision === "allow" || result.decision === "deny")) {
+    return { decision: result.decision, reason: result.reason };
+  }
+  return null;
 }
 
 function unique(values) {
@@ -369,6 +452,15 @@ async function retryPostPetEvent(event) {
 async function main() {
   const payload = parsePayload(await readStdin());
   const hook = pickHookName(payload);
+
+  // A permission gate blocks Claude Code until the user decides in the app.
+  // On any failure we write nothing to stdout, so the CLI uses its native flow.
+  if (isPermissionEvent(hook, payload)) {
+    const decision = await requestPermissionDecision(payload);
+    if (decision) process.stdout.write(formatPermissionDecision(decision.decision, decision.reason));
+    return;
+  }
+
   const event = mapHookToPetEvent(hook, payload);
   if (await postPetEvent(event)) return;
   if (!shouldAutoStartWithCli()) return;

@@ -219,6 +219,13 @@ button {
   -webkit-line-clamp: 2;
 }
 
+.permission-queue {
+  margin-top: 5px;
+  color: #ffd08a;
+  font-size: 9px;
+  font-weight: 700;
+}
+
 .permission-actions {
   display: flex;
   justify-content: flex-end;
@@ -227,8 +234,31 @@ button {
 }
 
 .permission-actions button {
-  cursor: default;
-  opacity: 0.55;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 750;
+  transition: filter 120ms ease, background-color 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.permission-actions button:hover {
+  filter: brightness(1.08);
+}
+
+.permission-actions .permission-deny {
+  color: #ffd7d1;
+  border-color: rgba(255, 107, 107, 0.5);
+  background: rgba(255, 107, 107, 0.16);
+}
+
+.permission-actions .permission-allow {
+  color: #18120c;
+  background: #8ee6a8;
 }
 
 .debug-panel {
