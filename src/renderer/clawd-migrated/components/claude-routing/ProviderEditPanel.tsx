@@ -1,11 +1,16 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Gauge, Plus, Save } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import type { ClaudeProviderTestResult } from "../../../shared/events";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { IconPicker } from "./IconPicker";
 import { JsonConfigEditor } from "./JsonConfigEditor";
+import { ProviderIcon } from "./ProviderIcon";
+import { addIconsToPresets } from "./iconInference";
 import { claudeProviderPresets, type ClaudeProviderPreset } from "./presets";
 import type { ClaudeProvider } from "./types";
+
+const presetsWithIcons = addIconsToPresets(claudeProviderPresets);
 
 type SettingsConfig = ClaudeProvider["settingsConfig"];
 
@@ -69,7 +74,8 @@ export function ProviderEditPanel({
   const [apiKeyUrl, setApiKeyUrl] = useState("");
   const [category, setCategory] = useState<string>(provider.category ?? "custom");
   const [iconColor, setIconColor] = useState(provider.iconColor ?? "#f97316");
-  const iconRef = useRef(provider.icon);
+  const [icon, setIcon] = useState(provider.icon);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [configText, setConfigText] = useState(serializeConfig(provider.settingsConfig ?? { env: {} }));
   const [apiFormat, setApiFormat] = useState<string>(String(provider.meta?.apiFormat ?? "anthropic"));
   const [apiKeyField, setApiKeyField] = useState<AuthField>(
@@ -88,7 +94,7 @@ export function ProviderEditPanel({
   const [softIssues, setSoftIssues] = useState<string[] | null>(null);
   const [hardError, setHardError] = useState<string | null>(null);
 
-  const activePreset: ClaudeProviderPreset | null = presetIndex === "custom" ? null : claudeProviderPresets[presetIndex] ?? null;
+  const activePreset: ClaudeProviderPreset | null = presetIndex === "custom" ? null : presetsWithIcons[presetIndex] ?? null;
   const parsedConfig = useMemo(() => parseConfig(configText), [configText]);
   const configInvalid = parsedConfig === null;
   const env = envOf(parsedConfig);
@@ -98,7 +104,7 @@ export function ProviderEditPanel({
 
   const visiblePresets = useMemo(() => {
     const query = presetSearch.trim().toLowerCase();
-    let list = claudeProviderPresets.map((preset, index) => ({ preset, index }));
+    let list = presetsWithIcons.map((preset, index) => ({ preset, index }));
     if (query) list = list.filter(({ preset }) => preset.name.toLowerCase().includes(query));
     if (presetSorted) list = [...list].sort((a, b) => a.preset.name.localeCompare(b.preset.name, "zh-CN"));
     return list;
@@ -141,14 +147,14 @@ export function ProviderEditPanel({
       setEndpointCandidates([]);
       return;
     }
-    const preset = claudeProviderPresets[index];
+    const preset = presetsWithIcons[index];
     if (!preset) return;
     setName(preset.name);
     setWebsiteUrl(preset.websiteUrl ?? "");
     setApiKeyUrl(preset.apiKeyUrl ?? "");
     setCategory(preset.category ?? (preset.isOfficial ? "official" : "third_party"));
     if (preset.iconColor) setIconColor(preset.iconColor);
-    iconRef.current = preset.icon ?? iconRef.current;
+    if (preset.icon) setIcon(preset.icon);
     setApiFormat(preset.apiFormat ?? "anthropic");
     setApiKeyField(preset.apiKeyField === "ANTHROPIC_API_KEY" ? "ANTHROPIC_API_KEY" : "ANTHROPIC_AUTH_TOKEN");
     setEndpointCandidates(preset.endpointCandidates ?? []);
@@ -197,7 +203,7 @@ export function ProviderEditPanel({
       notes: notes.trim() || undefined,
       websiteUrl: websiteUrl.trim() || undefined,
       category,
-      icon: iconRef.current,
+      icon,
       iconColor,
       meta: Object.keys(meta).length > 0 ? meta : undefined,
       settingsConfig
@@ -302,7 +308,7 @@ export function ProviderEditPanel({
                     onClick={() => applyPreset(index)}
                     title={preset.websiteUrl}
                   >
-                    <i style={{ background: preset.iconColor || "#94a3b8" }} />
+                    <ProviderIcon icon={preset.icon} name={preset.name} color={preset.iconColor} size={16} />
                     <span>{preset.name}</span>
                     {preset.isPartner ? <em title={t("routing.presetPartner", "合作伙伴")}>★</em> : null}
                   </button>
@@ -316,8 +322,16 @@ export function ProviderEditPanel({
               <div>
                 <h3>{t("routing.basicInfo", "基本信息")}</h3>
               </div>
-              <div className="ccs-icon-swatches" role="radiogroup" aria-label={t("routing.iconColor", "图标颜色")}>
-                <span className="ccs-icon-preview" style={{ background: iconColor }}>{(name || "?").slice(0, 1).toUpperCase()}</span>
+              <div className="ccs-icon-swatches" role="group" aria-label={t("routing.iconColor", "图标颜色")}>
+                <button
+                  type="button"
+                  className="ccs-icon-preview"
+                  onClick={() => setIconPickerOpen(true)}
+                  title={t("routing.iconPickerTitle", "选择图标")}
+                  aria-label={t("routing.iconPickerTitle", "选择图标")}
+                >
+                  <ProviderIcon icon={icon} name={name || "?"} color={iconColor} size={20} />
+                </button>
                 {ICON_COLORS.map(color => (
                   <button
                     key={color}
@@ -563,6 +577,14 @@ export function ProviderEditPanel({
           {mode === "edit" ? t("common.save", "保存") : t("common.add", "添加")}
         </button>
       </footer>
+
+      {iconPickerOpen ? (
+        <IconPicker
+          value={icon}
+          onSelect={nextIcon => setIcon(nextIcon)}
+          onClose={() => setIconPickerOpen(false)}
+        />
+      ) : null}
 
       {softIssues ? (
         <ConfirmDialog

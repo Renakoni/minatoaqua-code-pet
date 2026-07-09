@@ -3,6 +3,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useSortable } from "@dnd-kit/sortable";
 import { Activity, Check, Copy, GripVertical, Loader2, Pencil, Play, Terminal, Trash2 } from "lucide-react";
 import { useI18n } from "../../useI18n";
+import { ProviderIcon } from "./ProviderIcon";
 import type { ClaudeProvider, DragHandleProps } from "./types";
 
 type ProviderActionHandlers = {
@@ -15,12 +16,21 @@ type ProviderActionHandlers = {
 };
 
 function ProviderIconBlock({ provider }: { provider: ClaudeProvider }) {
-  const label = provider.icon === "anthropic" ? "AI" : provider.name.slice(0, 1).toUpperCase();
   return (
-    <div className="ccs-provider-icon" style={{ color: provider.iconColor || undefined }}>
-      {label}
+    <div className="ccs-provider-icon">
+      <ProviderIcon icon={provider.icon} name={provider.name} color={provider.iconColor} size={20} />
     </div>
   );
+}
+
+/** Display URL priority ported from cc-switch's extractApiUrl: notes > websiteUrl > base URL. */
+function extractDisplayUrl(provider: ClaudeProvider, fallbackText: string) {
+  const notes = provider.notes?.trim();
+  if (notes) return { text: notes, clickable: false };
+  if (provider.websiteUrl) return { text: provider.websiteUrl, clickable: true };
+  const envBase = provider.settingsConfig?.env?.ANTHROPIC_BASE_URL;
+  if (typeof envBase === "string" && envBase.trim()) return { text: envBase, clickable: true };
+  return { text: fallbackText, clickable: false };
 }
 
 function ClaudeProviderActions({
@@ -84,8 +94,8 @@ function ClaudeProviderCard({
 } & ProviderActionHandlers) {
   const { t } = useI18n();
   const env = provider.settingsConfig?.env ?? {};
-  const displayUrl = env.ANTHROPIC_BASE_URL || provider.websiteUrl || t("routing.noEndpoint", "未配置请求地址");
   const isOfficial = provider.category === "official";
+  const { text: displayUrl, clickable: urlClickable } = extractDisplayUrl(provider, t("routing.noEndpoint", "未配置请求地址"));
   const categoryLabel = isOfficial
     ? t("routing.categoryOfficial", "官方")
     : provider.category === "cn_official"
@@ -109,13 +119,13 @@ function ClaudeProviderCard({
             <div className="ccs-provider-titleline">
               <h3>{provider.name}</h3>
               <span>{categoryLabel}</span>
-              {provider.notes ? <small className="ccs-provider-notes" title={provider.notes}>{provider.notes}</small> : null}
             </div>
             <button
-              className="ccs-provider-url"
+              className={`ccs-provider-url ${urlClickable ? "clickable" : ""}`}
               type="button"
               title={displayUrl}
-              onClick={() => { if (provider.websiteUrl) void window.companion.openExternal(provider.websiteUrl); }}
+              disabled={!urlClickable}
+              onClick={() => { if (urlClickable) void window.companion.openExternal(displayUrl); }}
             >{displayUrl}</button>
           </div>
         </div>
