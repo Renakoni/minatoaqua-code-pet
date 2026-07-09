@@ -51,7 +51,9 @@ Current event mapping:
 
 - `SessionStart` -> `idle`
 - `UserPromptSubmit` -> `running`
-- `PreToolUse` -> `running` or `permission-prompt` for permission-like/dangerous tools
+- `PreToolUse` -> `running`, or the blocking `/permission` broker when user approval is required
 - `PostToolUse` -> `running`
-- `Notification` -> `permission-prompt`
+- `Notification` idle prompt -> `idle`
+- `Notification` permission/elicitation -> non-working attention notification
+- Other `Notification` values -> transient notification without changing the active pet state
 - `Stop` -> `completed`

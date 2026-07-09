@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.preload.json --noEmit",
     "build": "npm run build:electron && vite build",
     "start": "electron .",
+    "test": "vitest run",
     "hook:forward": "node scripts/hook-forwarder.js",
     "hook:doctor": "node scripts/hook-doctor.js"
   },
@@ -35,6 +36,7 @@
     "cross-env": "^7.0.3",
     "typescript": "^5.8.3",
     "vite": "^6.3.2",
+    "vitest": "^4.1.10",
     "wait-on": "^8.0.3"
   }
 }

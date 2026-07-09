@@ -25,6 +25,10 @@ function applyTheme(theme: CompanionSettings["theme"], petTheme: CompanionSettin
   document.documentElement.setAttribute("data-theme", "light");
 }
 
+function isInformationalNotification(event: CompanionEvent) {
+  return event.event === "notification" && event.notificationKind === "info";
+}
+
 function applyUiStyle(uiStyle: CompanionSettings["uiStyle"]) {
   document.documentElement.setAttribute("data-ui-style", uiStyle);
 }
@@ -106,9 +110,14 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
       applyUiStyle(next.uiStyle);
     });
     const offConnection = window.companion.onConnection(setConnection);
+    const showEvent = (event: CompanionEvent) => {
+      setCurrentEvent(event);
+      if (!isInformationalNotification(event)) setPetState(stateFromEvent(event));
+    };
     const offEvent = window.companion.onEvent(event => {
       const sid = event.sessionId;
       const isDone = event.event === "done" || event.event === "error";
+      const displayOnly = isInformationalNotification(event);
       let sessionsChanged = false;
       if (sid) {
         const existing = sessionsRef.current.get(sid);
@@ -128,15 +137,15 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
         const session: CompanionSession = {
           sessionId: sid,
           title: title || existing?.title || sid.slice(0, 6),
-          state: stateFromEvent(event),
+          state: displayOnly ? (existing?.state ?? "idle") : stateFromEvent(event),
           lastEvent: event,
           lastEventTime: Date.now(),
-          isActive: !isDone,
+          isActive: displayOnly ? (existing?.isActive ?? true) : !isDone,
           eventCount: (existing?.eventCount ?? 0) + 1
         };
         sessionsRef.current.set(sid, session);
         sessionsChanged = true;
-        if (!wasActive && !isDone) updateExitingSessions(prev => { const next = new Set(prev); next.delete(sid); return next; });
+        if (!displayOnly && !wasActive && !isDone) updateExitingSessions(prev => { const next = new Set(prev); next.delete(sid); return next; });
         if (wasActive && isDone) {
           updateExitingSessions(prev => new Set(prev).add(sid));
           const exitId = sid;
@@ -203,18 +212,14 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
             eventThrottleRef.current.lastFlush = Date.now();
             if (keepEventList) setEvents(previous => [...pending.reverse(), ...previous].slice(0, settingsRef.current.eventHistoryLimit));
             const stateEvent = pending.find(e => e.event === "tool_start") ?? pending.find(e => e.event !== "tool_end" && e.event !== "git_operation");
-            if (stateEvent) {
-              setPetState(stateFromEvent(stateEvent));
-              setCurrentEvent(stateEvent);
-            }
+            if (stateEvent) showEvent(stateEvent);
           }, 100 - (now - eventThrottleRef.current.lastFlush));
         }
       } else {
         eventThrottleRef.current.lastFlush = now;
         if (keepEventList) setEvents(previous => [event, ...previous].slice(0, settingsRef.current.eventHistoryLimit));
         if (event.event !== "tool_end" && event.event !== "git_operation") {
-          setPetState(stateFromEvent(event));
-          setCurrentEvent(event);
+          showEvent(event);
         }
       }
 
@@ -261,7 +266,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
 
       const timeout = (event.event === "done" || event.event === "error" ? 5.2 : settingsRef.current.bubbleDuration) * 1000;
       window.setTimeout(() => {
-        setPetState(current => current === stateFromEvent(event) ? "idle" : current);
+        if (!displayOnly) setPetState(current => current === stateFromEvent(event) ? "idle" : current);
         setCurrentEvent(current => current?.id === event.id ? null : current);
       }, timeout);
     });

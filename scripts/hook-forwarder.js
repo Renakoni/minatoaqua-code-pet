@@ -197,10 +197,83 @@ function payloadIndicatesError(payload) {
   return Boolean(payload.error || payload.exception || nestedValue(payload, ["tool_response", "error"]) || nestedValue(payload, ["toolResponse", "error"]));
 }
 
+function readableError(value) {
+  if (typeof value === "string" && value.trim()) return shorten(value.trim(), 2000);
+  if (value && typeof value === "object") {
+    if (typeof value.message === "string" && value.message.trim()) return shorten(value.message.trim(), 2000);
+    return shorten(value, 2000);
+  }
+  return undefined;
+}
+
+function pickErrorMessage(payload) {
+  const candidates = [
+    payload.error,
+    payload.exception,
+    nestedValue(payload, ["tool_response", "error"]),
+    nestedValue(payload, ["toolResponse", "error"]),
+    nestedValue(payload, ["tool_response", "stderr"]),
+    nestedValue(payload, ["toolResponse", "stderr"]),
+    payload.stderr,
+    payload.message
+  ];
+  for (const candidate of candidates) {
+    const message = readableError(candidate);
+    if (message) return message;
+  }
+
+  const exitCode = [
+    payload.exit_code,
+    payload.exitCode,
+    nestedValue(payload, ["tool_response", "exit_code"]),
+    nestedValue(payload, ["toolResponse", "exitCode"])
+  ].find(value => Number.isFinite(Number(value)) && Number(value) !== 0);
+  return exitCode === undefined ? undefined : `Exited with code ${Number(exitCode)}`;
+}
+
+/**
+ * Classify a Notification hook by intent. Current Claude Code payloads carry a
+ * structured `notification_type`; the human-readable `message` is the fallback
+ * for older or unknown payloads.
+ *
+ *   - "idle"      Claude finished and is waiting for the user's next message
+ *                 ("Claude is waiting for your input"). NOT active work.
+ *   - "attention" Claude needs the user to act now (a permission / elicitation
+ *                 prompt that reached the native fallback rather than the app's
+ *                 own permission card).
+ *   - "info"      any other transient notice.
+ *
+ * A Notification does not itself prove that Claude is executing a tool. Tool
+ * activity comes through PreToolUse/PostToolUse, so informational notices must
+ * not overwrite that independently tracked state.
+ */
+function classifyNotification(payload) {
+  // Prefer the documented matcher type when present.
+  const explicit = (typeof payload.notification_type === "string" ? payload.notification_type
+    : typeof payload.notificationType === "string" ? payload.notificationType
+    : typeof payload.type === "string" ? payload.type : "").toLowerCase();
+  if (explicit) {
+    if (explicit === "idle_prompt") return "idle";
+    if (explicit === "permission_prompt" || explicit === "elicitation_dialog") return "attention";
+    if (explicit === "auth_success" || explicit === "elicitation_complete" || explicit === "elicitation_response") return "info";
+  }
+
+  const message = typeof payload.message === "string" ? payload.message.toLowerCase() : "";
+  if (!message) return "info";
+  // Permission / elicitation prompts, including the native "needs your input"
+  // fallback. Check these before idle wording because a message can contain both.
+  if (/needs? (your )?(permission|approval|input|response|reply)|permission to use|waiting for your (permission|approval)|approve|elicit|confirm/.test(message)) return "attention";
+  // Idle prompt, e.g. "Claude is done and waiting for your next prompt" /
+  // "Claude is waiting for your input" — the session is paused for the user.
+  if (/waiting for (your |the )?(next )?(prompt|input|response|reply|message)|is (done|idle)|ready for your|awaiting (your )?(input|prompt)/.test(message)) return "idle";
+  return "info";
+}
+
 function mapHookToPetEvent(hook, payload) {
   const tool = pickToolName(payload);
   const detail = pickToolDetail(payload);
   const isError = payloadIndicatesError(payload);
+  const errorMessage = isError ? pickErrorMessage(payload) : undefined;
 
   switch (hook) {
     case "SessionStart":
@@ -213,21 +286,31 @@ function mapHookToPetEvent(hook, payload) {
       return { event: "running", title: "Using tool", tool, detail };
     case "PostToolUse":
       if (isError) {
-        return { event: "error", title: "Tool failed", message: detail ?? "Claude Code reported a tool error.", tool, detail };
+        return { event: "error", title: "Tool failed", message: errorMessage ?? "Claude Code reported a tool error.", tool, detail };
       }
       return { event: "running", title: "Tool completed", tool, detail };
-    case "Notification":
-      // Fires when the CLI wants attention (e.g. native permission fallback or
-      // idle input). Informational only — no permission card, no alert sound.
-      return { event: "running", title: "Claude needs your attention", tool, detail: detail ?? "Claude Code is waiting for you" };
+    case "Notification": {
+      // Tool activity is tracked by PreToolUse/PostToolUse. Idle and attention
+      // notifications pause the pet; informational notices are tagged so the
+      // renderers can display them without replacing the active state. Real
+      // tool-permission gates are owned by the blocking /permission flow.
+      const kind = classifyNotification(payload);
+      if (kind === "attention") {
+        return { event: "idle", notificationKind: "attention", title: "Claude needs your attention", message: detail ?? "Claude is waiting for your response" };
+      }
+      if (kind === "info") {
+        return { event: "idle", notificationKind: "info", title: "Claude Code notification", message: detail };
+      }
+      return { event: "idle", notificationKind: "idle", title: "Waiting for you" };
+    }
     case "Stop":
       if (isError) {
-        return { event: "error", title: "Claude Code error", message: detail ?? "Claude Code reported an error.", tool, detail };
+        return { event: "error", title: "Claude Code error", message: errorMessage ?? "Claude Code reported an error.", tool, detail };
       }
       return { event: "completed", title: "Completed", message: "Task finished" };
     default:
       if (isError) {
-        return { event: "error", title: hook ? `${hook} failed` : "Claude Code error", message: detail ?? "Claude Code reported an error.", tool, detail };
+        return { event: "error", title: hook ? `${hook} failed` : "Claude Code error", message: errorMessage ?? "Claude Code reported an error.", tool, detail };
       }
       return { event: "running", title: hook || "Claude Code event", tool, detail };
   }
@@ -478,7 +561,7 @@ async function main() {
     return;
   }
 
-  const event = mapHookToPetEvent(hook, payload);
+  const event = { ...mapHookToPetEvent(hook, payload), hook };
   if (await postPetEvent(event)) return;
   if (!shouldAutoStartWithCli()) return;
 
@@ -486,4 +569,18 @@ async function main() {
   await retryPostPetEvent(event);
 }
 
-main().finally(() => process.exit(0));
+// Pure helpers are exported for unit tests; the CLI side effects only run when
+// this file is invoked directly as a hook (`node hook-forwarder.js`).
+module.exports = {
+  mapHookToPetEvent,
+  classifyNotification,
+  isPermissionEvent,
+  payloadIndicatesError,
+  pickErrorMessage,
+  pickToolName,
+  pickToolDetail
+};
+
+if (require.main === module) {
+  main().finally(() => process.exit(0));
+}

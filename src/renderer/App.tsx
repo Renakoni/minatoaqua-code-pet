@@ -6,6 +6,7 @@ import { Pet } from "./components/Pet";
 import { nextPetState } from "./state/petStateMachine";
 
 const completedResetMs = 3000;
+const notificationDisplayMs = 3000;
 const showDebugPanel = import.meta.env.DEV;
 
 type PermissionRequestPayload = { id: string; toolName?: string; toolDetail?: string };
@@ -27,16 +28,39 @@ export default function App() {
   const [permissions, setPermissions] = useState<PermissionRequestView[]>([]);
   const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
   const resetTimer = useRef<number | null>(null);
+  const notificationTimer = useRef<number | null>(null);
+  const stableEvent = useRef<PetEvent | null>(null);
 
   function applyEvent(event: PetEvent) {
+    if (notificationTimer.current) {
+      window.clearTimeout(notificationTimer.current);
+      notificationTimer.current = null;
+    }
+
+    if (event.notificationKind === "info") {
+      const previous = stableEvent.current;
+      setLastEvent(event);
+      notificationTimer.current = window.setTimeout(() => {
+        setLastEvent(current => current?.id === event.id ? previous : current);
+        notificationTimer.current = null;
+      }, notificationDisplayMs);
+      return;
+    }
+
     setState(current => {
       const next = nextPetState(current, event);
-      if (next !== current || event.event === current) setLastEvent(event);
+      if (next !== current || event.event === current) {
+        stableEvent.current = event;
+        setLastEvent(event);
+      }
       return next;
     });
   }
 
   function applyDebugEvent(event: PetEvent) {
+    if (notificationTimer.current) window.clearTimeout(notificationTimer.current);
+    notificationTimer.current = null;
+    stableEvent.current = event;
     setLastEvent(event);
     setState(event.event);
   }
@@ -84,8 +108,10 @@ export default function App() {
 
     if (state === "completed") {
       resetTimer.current = window.setTimeout(() => {
+        const idleEvent = createPetEvent("idle", { title: "Idle" });
         setState("idle");
-        setLastEvent(createPetEvent("idle", { title: "Idle" }));
+        stableEvent.current = idleEvent;
+        setLastEvent(idleEvent);
       }, completedResetMs);
     }
 
@@ -93,6 +119,10 @@ export default function App() {
       if (resetTimer.current) window.clearTimeout(resetTimer.current);
     };
   }, [state]);
+
+  useEffect(() => () => {
+    if (notificationTimer.current) window.clearTimeout(notificationTimer.current);
+  }, []);
 
   const activePermission = permissions[0];
   const petState: PetState = activePermission ? "permission-prompt" : state;
@@ -116,6 +146,8 @@ export default function App() {
           <button onClick={() => applyDebugEvent(createPetEvent("running", { title: "Working", tool: "Read", detail: "src/renderer/components/PermissionCard.tsx" }))}>Running</button>
           <button onClick={() => setPermissions([{ id: `debug-${Date.now()}`, tool: "Bash", detail: "npm run build" }])}>Permission</button>
           <button onClick={() => applyDebugEvent(createPetEvent("completed", { title: "Completed", message: "Task finished" }))}>Completed</button>
+          <button onClick={() => applyDebugEvent(createPetEvent("error", { title: "Tool failed", tool: "Bash", message: "npm run build: exited with code 1" }))}>Error</button>
+          <button onClick={() => applyDebugEvent(createPetEvent("idle", { title: "Waiting for you" }))}>Waiting</button>
         </div>
       )}
     </main>

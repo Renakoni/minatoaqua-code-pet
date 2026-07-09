@@ -1,4 +1,4 @@
-import type { PetEvent } from "../shared/events";
+import { isSessionStartEvent, type PetEvent } from "../shared/events";
 import {
   defaultSettings,
   defaultStats,
@@ -196,8 +196,13 @@ function localDateKey(timestamp = Date.now()): string {
 }
 
 function toCompanionEvent(event: PetEvent): CompanionEvent {
-  const mappedEvent: CompanionEventType = event.event === "idle"
-    ? "session_start"
+  const mappedEvent: CompanionEventType = event.notificationKind === "attention" || event.notificationKind === "info"
+    // Display-only "notification" events; the panel treats "info" as transient.
+    ? "notification"
+    : event.event === "idle"
+    // Only the SessionStart hook's idle marks a real session; an idle-prompt
+    // Notification must not be counted as a new session.
+    ? (isSessionStartEvent(event) ? "session_start" : "heartbeat")
     : event.event === "permission-prompt"
       ? "permission_wait"
       : event.event === "completed"
@@ -214,6 +219,7 @@ function toCompanionEvent(event: PetEvent): CompanionEvent {
     clientType: "desktop",
     clientLabel: "Minato Aqua Code Pet",
     tool: event.tool ? normalizeTool(event.tool) : undefined,
+    notificationKind: event.notificationKind,
     title: event.title ?? event.event,
     message: event.message ?? event.detail ?? event.title ?? event.event,
     detail: event.detail,

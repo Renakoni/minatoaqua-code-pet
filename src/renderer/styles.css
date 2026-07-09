@@ -171,6 +171,8 @@ button {
 .state-completed .panel { --accent: #8caf95; }
 .state-error .panel { --accent: #cf866b; }
 .state-permission-prompt .panel { --accent: #c6a56a; }
+.notification-attention { --accent: #c6a56a; }
+.notification-info { --accent: #7f9daa; }
 
 /* Monospace target on one line; truncate from the left so the filename / tail
    (the useful part of a path) stays visible. */
@@ -197,6 +199,15 @@ button {
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.state-error .panel-note {
+  display: -webkit-box;
+  max-height: 2.8em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 /* === Permission bubble ===

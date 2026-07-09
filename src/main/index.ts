@@ -7,7 +7,7 @@ import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { isPetEvent, PetEvent, PetState } from "../shared/events";
+import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
 import {
   addCcSwitchProvider,
   deleteCcSwitchProvider,
@@ -692,6 +692,7 @@ type CompanionEvent = {
   clientType?: "cli" | "desktop" | "vscode" | "unknown";
   clientLabel?: string;
   tool?: string;
+  notificationKind?: NotificationKind;
   cwd?: string;
   title: string;
   message: string;
@@ -731,8 +732,14 @@ function normalizeTool(tool?: string) {
 }
 
 function toCompanionEvent(event: PetEvent): CompanionEvent {
-  const mappedEvent: CompanionEventType = event.event === "idle"
-    ? "session_start"
+  const mappedEvent: CompanionEventType = event.notificationKind === "attention" || event.notificationKind === "info"
+    // Both are display-only "notification" events; the toast is suppressed for
+    // "info" in handleCompanionAlerts so only "attention" raises a system alert.
+    ? "notification"
+    : event.event === "idle"
+    // Only the SessionStart hook's idle marks a real session; other idle events
+    // (e.g. an idle-prompt Notification) must not inflate the session count.
+    ? (isSessionStartEvent(event) ? "session_start" : "heartbeat")
     : event.event === "permission-prompt"
       ? "permission_wait"
       : event.event === "completed"
@@ -753,6 +760,7 @@ function toCompanionEvent(event: PetEvent): CompanionEvent {
     clientType: "desktop",
     clientLabel: "Minato Aqua Code Pet",
     tool: event.tool ? normalizeTool(event.tool) : undefined,
+    notificationKind: event.notificationKind,
     title: event.title ?? event.event,
     message: event.message ?? event.detail ?? event.title ?? event.event,
     detail: event.detail,
@@ -903,7 +911,10 @@ function handleCompanionAlerts(event: CompanionEvent) {
 
   const rule = getNotificationRule(event.event);
 
-  if (companionSettings.notificationsEnabled !== false) {
+  // "info" notifications are transient bubble-only notices — surface them in the
+  // pet, but never as a system toast. Only "attention" (and the other managed
+  // events) raise a Windows notification.
+  if (companionSettings.notificationsEnabled !== false && event.notificationKind !== "info") {
     showWindowsNotification(event);
   }
 
@@ -3072,7 +3083,7 @@ function broadcastCompanionEvent(event: CompanionEvent) {
 }
 
 function publishPetEvent(event: PetEvent) {
-  currentState = event.event;
+  if (event.notificationKind !== "info") currentState = event.event;
   eventHistory = [event, ...eventHistory].slice(0, 100);
   const companionEvent = toCompanionEvent(event);
   recordRuntimeEvent(companionEvent);
