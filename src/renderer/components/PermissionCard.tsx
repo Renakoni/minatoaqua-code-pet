@@ -46,7 +46,7 @@ export function PermissionCard({ request, queueCount = 0, onAllow, onDeny }: Per
   const risk = getRiskLevel(request.tool, rawDetail);
 
   return (
-    <section className={`permission-card risk-${risk}`} aria-label="Permission request" role="alertdialog">
+    <section className={`pet-bubble permission-card risk-${risk}`} aria-label="Permission request" role="alertdialog">
       <header className="permission-head">
         <span className="permission-eyebrow">
           <span className="permission-dot" aria-hidden="true" />

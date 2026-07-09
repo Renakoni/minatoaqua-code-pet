@@ -50,71 +50,69 @@ button {
   pointer-events: none;
 }
 
-.panel {
+/* === Pet bubbles ===
+   Shared surface for every bubble floating above the character (the status
+   Panel and the permission card). One matte-graphite material, hairline
+   detailing, no glow — anchored above the pet. */
+.pet-bubble {
+  --line: rgba(255, 255, 255, 0.09);
+  --surface-bottom: rgba(20, 21, 25, 0.97);
+  --accent: rgba(255, 255, 255, 0.4);
   position: absolute;
-  z-index: 10;
-  top: 10px;
+  z-index: 20;
+  bottom: 204px;
   left: 12px;
   right: 12px;
-  min-height: 54px;
-  padding: 8px 10px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 14px;
-  color: #fff;
-  background: linear-gradient(135deg, rgba(18, 21, 34, 0.76), rgba(31, 34, 52, 0.58));
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  color: rgba(245, 245, 247, 0.96);
+  background: linear-gradient(180deg, rgba(30, 31, 36, 0.97), var(--surface-bottom));
+  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px) saturate(1.05);
   -webkit-app-region: no-drag;
 }
+
+/* --- status panel --- */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 14px;
+}
+
+.state-running .panel { --accent: #7fb0c9; }
+.state-completed .panel { --accent: #8caf95; }
+.state-error .panel { --accent: #cf866b; }
+.state-permission-prompt .panel { --accent: #c6a56a; }
 
 .panel-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 5px;
+  gap: 7px;
+  margin-bottom: 1px;
 }
 
 .status-dot {
-  width: 7px;
-  height: 7px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: #8ea0bd;
-  box-shadow: 0 0 10px currentColor;
-}
-
-.status-running {
-  color: #7ec8ff;
-  background: #7ec8ff;
-}
-
-.status-permission-prompt {
-  color: #ffbc5d;
-  background: #ffbc5d;
-}
-
-.status-completed {
-  color: #75ffa2;
-  background: #75ffa2;
-}
-
-.status-error {
-  color: #ff6b6b;
-  background: #ff6b6b;
+  background: var(--accent);
 }
 
 .panel-state {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.44);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.9;
 }
 
 .panel-title {
   overflow: hidden;
-  font-size: 12px;
-  font-weight: 650;
+  color: rgba(247, 247, 249, 0.95);
+  font-size: 13px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -122,10 +120,9 @@ button {
 .panel-meta {
   display: flex;
   gap: 6px;
-  margin-top: 3px;
   overflow: hidden;
-  font-size: 10px;
-  opacity: 0.76;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -136,58 +133,17 @@ button {
   text-overflow: ellipsis;
 }
 
-.state-permission-prompt .panel {
-  border-color: rgba(255, 188, 93, 0.8);
-}
-
-.state-completed .panel {
-  border-color: rgba(117, 255, 162, 0.8);
-}
-
-.state-error .panel {
-  border-color: rgba(255, 107, 107, 0.8);
-}
-
 /* === Permission bubble ===
-   Floats above the character in the (expanded) pet window. Restrained,
-   matte-graphite glass — hairline detailing, one quiet accent, no glow.
-   The detail block scrolls so a long command stays readable while the
-   bubble grows upward, never into the pet. */
+   The permission variant of .pet-bubble: taller, with a scrollable detail
+   block so a long command stays readable while the bubble grows upward,
+   never into the pet. Restrained — one quiet risk accent, no glow. */
 .permission-card {
   --risk: #8caf95;
-  --line: rgba(255, 255, 255, 0.09);
-  --surface-bottom: rgba(20, 21, 25, 0.97);
-  position: absolute;
-  z-index: 20;
-  bottom: 204px;
-  left: 12px;
-  right: 12px;
   max-height: 250px;
   display: flex;
   flex-direction: column;
   gap: 9px;
   padding: 13px 14px;
-  border: 1px solid var(--line);
-  border-radius: 15px;
-  color: rgba(245, 245, 247, 0.96);
-  background: linear-gradient(180deg, rgba(30, 31, 36, 0.97), var(--surface-bottom));
-  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(20px) saturate(1.05);
-  -webkit-app-region: no-drag;
-}
-
-/* Speech tail pointing down toward the pet. */
-.permission-card::after {
-  content: "";
-  position: absolute;
-  bottom: -6px;
-  left: 26px;
-  width: 12px;
-  height: 12px;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  background: var(--surface-bottom);
-  transform: rotate(45deg);
 }
 
 .risk-high { --risk: #cf866b; }
