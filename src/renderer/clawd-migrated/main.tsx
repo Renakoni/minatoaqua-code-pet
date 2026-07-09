@@ -172,7 +172,9 @@ const mappingRows: Array<{ source: string; tool?: string; state: PetState; title
   { source: "PreToolUse", tool: "Task", state: "task", title: "任务处理" },
   { source: "PreToolUse", tool: "Agent", state: "agent", title: "子代理调用" },
   { source: "PreToolUse", tool: "AskUserQuestion", state: "thinking", title: "等待选择" },
-  { source: "Notification", state: "waiting_permission", title: "等待确认" },
+  { source: "Notification / idle_prompt", state: "idle", title: "等待输入" },
+  { source: "Notification / permission", state: "waiting_permission", title: "等待确认" },
+  { source: "Notification / info", state: "idle", title: "信息通知" },
   { source: "Stop", state: "done", title: "处理完成" },
   { source: "转发失败", state: "error", title: "异常提示" }
 ];

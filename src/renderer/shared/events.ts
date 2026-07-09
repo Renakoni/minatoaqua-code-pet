@@ -160,6 +160,7 @@ export interface CompanionEvent {
   clientType?: ClientType;
   clientLabel?: string;
   tool?: ToolName;
+  notificationKind?: "idle" | "attention" | "info";
   cwd?: string;
   title: string;
   message: string;

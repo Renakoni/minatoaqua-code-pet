@@ -17,17 +17,29 @@ const stateLabels: Record<PetState, string> = {
 export function Panel({ state, event }: PanelProps) {
   const tool = event?.tool;
   const detail = event?.detail?.trim();
-  // With a tool, lead with the action ("Read a file") and show the tool chip —
-  // so it's obvious at a glance which tool is running. Otherwise fall back to
-  // the event's own title (session start, done, error, …).
-  const headline = tool ? actionForTool(tool) : (event?.title ?? "Claude pet is ready");
-  const note = !tool ? event?.message?.trim() : undefined;
+  const isError = state === "error";
+  const notificationKind = event?.notificationKind;
+  const eyebrow = notificationKind === "attention"
+    ? "Attention"
+    : notificationKind === "info" ? "Notice" : stateLabels[state];
+
+  // Errors keep their explicit failure title (e.g. "Tool failed") and reason
+  // instead of the generic action — the failure text is the point. Normal tool
+  // activity leads with the action ("Read a file") plus the tool chip.
+  const headline = !isError && tool
+    ? actionForTool(tool)
+    : (event?.title ?? (isError ? "Something went wrong" : "Claude pet is ready"));
+
+  // Prose note: the message for errors and non-tool events (deduped against the
+  // headline). Normal tool events show their target on the mono path line.
+  const message = event?.message?.trim();
+  const note = (isError || !tool) && message && message !== headline ? message : undefined;
 
   return (
-    <section className={`pet-bubble panel state-${state}`} aria-label="Pet status">
+    <section className={`pet-bubble panel state-${state}${notificationKind ? ` notification-${notificationKind}` : ""}`} aria-label="Pet status">
       <div className="bubble-eyebrow">
         <span className="bubble-dot" aria-hidden="true" />
-        {stateLabels[state]}
+        {eyebrow}
       </div>
 
       <div className="bubble-body">
@@ -35,8 +47,8 @@ export function Panel({ state, event }: PanelProps) {
         {tool ? <span className="bubble-tool-chip">{toolLabel(tool)}</span> : null}
       </div>
 
-      {tool && detail ? <div className="panel-path" title={detail}><bdi>{detail}</bdi></div> : null}
-      {note ? <p className="panel-note">{note}</p> : null}
+      {!isError && tool && detail ? <div className="panel-path" title={detail}><bdi>{detail}</bdi></div> : null}
+      {note ? <p className="panel-note" title={note}>{note}</p> : null}
     </section>
   );
 }
