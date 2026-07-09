@@ -1,0 +1,556 @@
+/**
+ * cc-switch compatibility store.
+ *
+ * Reads and writes the same on-disk state as cc-switch (v3.15+):
+ *   ~/.cc-switch/cc-switch.db      SQLite SSOT for provider records
+ *   ~/.cc-switch/settings.json     device-level current-provider pointer
+ *   ~/.claude/settings.json        live Claude Code config (replaced on switch)
+ *
+ * Switch semantics mirror cc-switch's ProviderService::switch for Claude:
+ *   1. Backfill: the live settings.json is captured into the outgoing
+ *      provider's record (minus the common-config snippet if it uses one).
+ *   2. The incoming provider's settingsConfig (plus common-config snippet,
+ *      deep-merged) replaces the live file entirely.
+ *   3. Both the settings.json pointer and the db is_current flags update.
+ *
+ * API keys live in plaintext inside settings_config JSON (cc-switch stores
+ * them the same way). They must never be logged or written anywhere except
+ * the db and the live Claude settings file.
+ *
+ * SQLite access uses node:sqlite (bundled with Electron's Node 22) so no
+ * native module is required. Connections are opened per operation and closed
+ * immediately to avoid holding locks against a running cc-switch instance.
+ */
+
+import { existsSync, mkdirSync, readFileSync, writeFileSync, watch, copyFileSync, type FSWatcher } from "fs";
+import { homedir } from "os";
+import { join } from "path";
+import { randomUUID } from "crypto";
+
+type JsonObject = Record<string, unknown>;
+
+export interface CcSwitchProvider {
+  id: string;
+  name: string;
+  settingsConfig: JsonObject;
+  websiteUrl?: string;
+  category?: string;
+  createdAt?: number;
+  sortIndex?: number;
+  notes?: string;
+  icon?: string;
+  iconColor?: string;
+  meta?: JsonObject;
+  inFailoverQueue?: boolean;
+  isCurrent?: boolean;
+}
+
+export interface CcSwitchStatus {
+  available: boolean;
+  dbPath: string;
+  reason?: string;
+}
+
+export interface SwitchOutcome {
+  ok: boolean;
+  path?: string;
+  backupPath?: string | null;
+  warnings: string[];
+  error?: string;
+}
+
+interface SqliteStatement {
+  all(...params: unknown[]): unknown[];
+  get(...params: unknown[]): unknown;
+  run(...params: unknown[]): unknown;
+}
+
+interface SqliteDatabase {
+  prepare(sql: string): SqliteStatement;
+  exec(sql: string): void;
+  close(): void;
+}
+
+type DatabaseCtor = new (path: string, options?: { readOnly?: boolean }) => SqliteDatabase;
+
+let DatabaseSync: DatabaseCtor | null = null;
+let sqliteLoadError = "";
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  DatabaseSync = (require("node:sqlite") as { DatabaseSync: DatabaseCtor }).DatabaseSync;
+} catch (error) {
+  sqliteLoadError = error instanceof Error ? error.message : String(error);
+}
+
+const APP_TYPE = "claude";
+
+export function getCcSwitchDir() {
+  return join(homedir(), ".cc-switch");
+}
+
+export function getCcSwitchDbPath() {
+  return join(getCcSwitchDir(), "cc-switch.db");
+}
+
+export function getCcSwitchSettingsPath() {
+  return join(getCcSwitchDir(), "settings.json");
+}
+
+function getClaudeSettingsPath() {
+  return join(homedir(), ".claude", "settings.json");
+}
+
+export function getCcSwitchStatus(): CcSwitchStatus {
+  const dbPath = getCcSwitchDbPath();
+  if (!DatabaseSync) return { available: false, dbPath, reason: `node:sqlite unavailable: ${sqliteLoadError}` };
+  if (!existsSync(dbPath)) return { available: false, dbPath, reason: "cc-switch database not found" };
+  return { available: true, dbPath };
+}
+
+function openDb(readOnly: boolean): SqliteDatabase {
+  if (!DatabaseSync) throw new Error(`node:sqlite unavailable: ${sqliteLoadError}`);
+  const db = new DatabaseSync(getCcSwitchDbPath(), { readOnly });
+  try {
+    db.exec("PRAGMA busy_timeout = 3000");
+  } catch {
+    /* older builds may reject pragmas in readonly mode; busy retries still apply */
+  }
+  return db;
+}
+
+function withDb<T>(readOnly: boolean, run: (db: SqliteDatabase) => T): T {
+  const db = openDb(readOnly);
+  try {
+    return run(db);
+  } finally {
+    try { db.close(); } catch { /* already closed */ }
+  }
+}
+
+function parseJsonObject(raw: unknown): JsonObject {
+  if (typeof raw !== "string" || !raw.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as JsonObject : {};
+  } catch {
+    return {};
+  }
+}
+
+function rowToProvider(row: JsonObject): CcSwitchProvider {
+  const meta = parseJsonObject(row.meta);
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    settingsConfig: parseJsonObject(row.settings_config),
+    websiteUrl: typeof row.website_url === "string" && row.website_url ? row.website_url : undefined,
+    category: typeof row.category === "string" && row.category ? row.category : undefined,
+    createdAt: typeof row.created_at === "number" ? row.created_at : undefined,
+    sortIndex: typeof row.sort_index === "number" ? row.sort_index : undefined,
+    notes: typeof row.notes === "string" && row.notes ? row.notes : undefined,
+    icon: typeof row.icon === "string" && row.icon ? row.icon : undefined,
+    iconColor: typeof row.icon_color === "string" && row.icon_color ? row.icon_color : undefined,
+    meta: Object.keys(meta).length > 0 ? meta : undefined,
+    inFailoverQueue: row.in_failover_queue === 1 || row.in_failover_queue === true,
+    isCurrent: row.is_current === 1 || row.is_current === true
+  };
+}
+
+export function listCcSwitchProviders(): CcSwitchProvider[] {
+  return withDb(true, db => {
+    const rows = db.prepare(
+      "SELECT id, name, settings_config, website_url, category, created_at, sort_index, notes, icon, icon_color, meta, is_current, in_failover_queue FROM providers WHERE app_type = ?"
+    ).all(APP_TYPE) as JsonObject[];
+    return rows.map(rowToProvider);
+  });
+}
+
+function readCcSwitchSettings(): JsonObject {
+  try {
+    if (!existsSync(getCcSwitchSettingsPath())) return {};
+    return parseJsonObject(readFileSync(getCcSwitchSettingsPath(), "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Device-level pointer wins over the db is_current flag — same priority
+ * order as cc-switch's get_effective_current_provider.
+ */
+export function getCurrentCcSwitchProviderId(providers?: CcSwitchProvider[]): string {
+  const list = providers ?? listCcSwitchProviders();
+  const pointer = readCcSwitchSettings().currentProviderClaude;
+  if (typeof pointer === "string" && list.some(provider => provider.id === pointer)) return pointer;
+  return list.find(provider => provider.isCurrent)?.id ?? "";
+}
+
+export function getCommonConfigSnippet(): string {
+  try {
+    return withDb(true, db => {
+      const row = db.prepare("SELECT value FROM settings WHERE key = ?").get("common_config_claude") as JsonObject | undefined;
+      return typeof row?.value === "string" ? row.value : "";
+    });
+  } catch {
+    return "";
+  }
+}
+
+/* ---------- JSON helpers ported from cc-switch live.rs ---------- */
+
+function jsonIsSubset(target: unknown, source: unknown): boolean {
+  if (source && typeof source === "object" && !Array.isArray(source)) {
+    if (!target || typeof target !== "object" || Array.isArray(target)) return false;
+    return Object.entries(source as JsonObject).every(([key, sourceValue]) =>
+      key in (target as JsonObject) && jsonIsSubset((target as JsonObject)[key], sourceValue)
+    );
+  }
+  if (Array.isArray(source)) {
+    if (!Array.isArray(target)) return false;
+    return jsonArrayContainsSubset(target, source);
+  }
+  return JSON.stringify(target) === JSON.stringify(source);
+}
+
+function jsonArrayContainsSubset(targetArr: unknown[], sourceArr: unknown[]): boolean {
+  const matched = new Array(targetArr.length).fill(false);
+  return sourceArr.every(sourceItem => {
+    const index = targetArr.findIndex((targetItem, i) => !matched[i] && jsonIsSubset(targetItem, sourceItem));
+    if (index < 0) return false;
+    matched[index] = true;
+    return true;
+  });
+}
+
+function jsonRemoveArrayItems(targetArr: unknown[], sourceArr: unknown[]) {
+  for (const sourceItem of sourceArr) {
+    const index = targetArr.findIndex(targetItem => jsonIsSubset(targetItem, sourceItem));
+    if (index >= 0) targetArr.splice(index, 1);
+  }
+}
+
+function jsonDeepMerge(target: JsonObject, source: JsonObject) {
+  for (const [key, sourceValue] of Object.entries(source)) {
+    const targetValue = target[key];
+    if (
+      sourceValue && typeof sourceValue === "object" && !Array.isArray(sourceValue) &&
+      targetValue && typeof targetValue === "object" && !Array.isArray(targetValue)
+    ) {
+      jsonDeepMerge(targetValue as JsonObject, sourceValue as JsonObject);
+    } else {
+      target[key] = structuredClone(sourceValue);
+    }
+  }
+}
+
+function jsonDeepRemove(target: JsonObject, source: JsonObject) {
+  for (const [key, sourceValue] of Object.entries(source)) {
+    let removeKey = false;
+    const targetValue = target[key];
+    if (key in target) {
+      if (
+        sourceValue && typeof sourceValue === "object" && !Array.isArray(sourceValue) &&
+        targetValue && typeof targetValue === "object" && !Array.isArray(targetValue)
+      ) {
+        jsonDeepRemove(targetValue as JsonObject, sourceValue as JsonObject);
+        removeKey = Object.keys(targetValue as JsonObject).length === 0;
+      } else if (Array.isArray(targetValue) && Array.isArray(sourceValue)) {
+        jsonRemoveArrayItems(targetValue, sourceValue);
+        removeKey = targetValue.length === 0;
+      } else if (jsonIsSubset(targetValue, sourceValue)) {
+        removeKey = true;
+      }
+    }
+    if (removeKey) delete target[key];
+  }
+}
+
+function providerUsesCommonConfig(provider: CcSwitchProvider, snippet: string): boolean {
+  const trimmed = snippet.trim();
+  const explicit = provider.meta?.commonConfigEnabled;
+  if (typeof explicit === "boolean") return explicit && trimmed.length > 0;
+  if (!trimmed) return false;
+  try {
+    return jsonIsSubset(provider.settingsConfig, JSON.parse(trimmed));
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeClaudeSettingsForLive(settings: JsonObject): JsonObject {
+  const next = structuredClone(settings);
+  delete next.api_format;
+  delete next.apiFormat;
+  delete next.openrouter_compat_mode;
+  delete next.openrouterCompatMode;
+  return next;
+}
+
+function buildEffectiveSettings(provider: CcSwitchProvider, snippet: string): JsonObject {
+  const effective = structuredClone(provider.settingsConfig);
+  if (providerUsesCommonConfig(provider, snippet)) {
+    try {
+      jsonDeepMerge(effective, JSON.parse(snippet.trim()) as JsonObject);
+    } catch {
+      /* invalid snippet: cc-switch logs a warning and continues without it */
+    }
+  }
+  return sanitizeClaudeSettingsForLive(effective);
+}
+
+/* ---------- CRUD ---------- */
+
+const PROVIDER_UPDATE_SQL =
+  "UPDATE providers SET id = ?, name = ?, settings_config = ?, website_url = ?, category = ?, created_at = ?, sort_index = ?, notes = ?, icon = ?, icon_color = ?, meta = ? WHERE id = ? AND app_type = ?";
+
+const PROVIDER_INSERT_SQL =
+  "INSERT INTO providers (id, app_type, name, settings_config, website_url, category, created_at, sort_index, notes, icon, icon_color, meta, is_current, in_failover_queue) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)";
+
+function providerWriteParams(provider: CcSwitchProvider) {
+  return [
+    provider.name,
+    JSON.stringify(provider.settingsConfig ?? {}),
+    provider.websiteUrl ?? null,
+    provider.category ?? null,
+    provider.createdAt ?? Date.now(),
+    provider.sortIndex ?? null,
+    provider.notes ?? null,
+    provider.icon ?? null,
+    provider.iconColor ?? null,
+    JSON.stringify(provider.meta ?? {})
+  ];
+}
+
+export function addCcSwitchProvider(provider: CcSwitchProvider): CcSwitchProvider {
+  const record: CcSwitchProvider = {
+    ...provider,
+    id: provider.id?.trim() || randomUUID(),
+    createdAt: provider.createdAt ?? Date.now()
+  };
+  withDb(false, db => {
+    if (record.sortIndex === undefined) {
+      const row = db.prepare("SELECT MAX(sort_index) AS maxIndex, COUNT(*) AS total FROM providers WHERE app_type = ?").get(APP_TYPE) as JsonObject;
+      const maxIndex = typeof row?.maxIndex === "number" ? row.maxIndex : null;
+      record.sortIndex = maxIndex !== null ? maxIndex + 1 : Number(row?.total ?? 0);
+    }
+    db.prepare(PROVIDER_INSERT_SQL).run(record.id, APP_TYPE, ...providerWriteParams(record));
+  });
+  return record;
+}
+
+export function updateCcSwitchProvider(provider: CcSwitchProvider, originalId?: string): void {
+  const previousId = originalId?.trim() || provider.id;
+  withDb(false, db => {
+    const result = db.prepare(PROVIDER_UPDATE_SQL).run(provider.id, ...providerWriteParams(provider), previousId, APP_TYPE) as { changes?: number };
+    if (!result || Number(result.changes ?? 0) === 0) {
+      throw new Error(`Provider ${previousId} not found in cc-switch database`);
+    }
+  });
+  if (previousId !== provider.id) {
+    const settings = readCcSwitchSettings();
+    if (settings.currentProviderClaude === previousId) writeCurrentPointer(provider.id);
+  }
+}
+
+export function deleteCcSwitchProvider(id: string): void {
+  const currentId = getCurrentCcSwitchProviderId();
+  if (id === currentId) throw new Error("Cannot delete the provider currently in use");
+  withDb(false, db => {
+    db.prepare("DELETE FROM providers WHERE id = ? AND app_type = ?").run(id, APP_TYPE);
+  });
+}
+
+export function duplicateCcSwitchProvider(id: string): CcSwitchProvider {
+  const source = listCcSwitchProviders().find(provider => provider.id === id);
+  if (!source) throw new Error(`Provider ${id} not found in cc-switch database`);
+  return addCcSwitchProvider({
+    ...structuredClone(source),
+    id: randomUUID(),
+    name: `${source.name} copy`,
+    createdAt: Date.now(),
+    sortIndex: undefined,
+    isCurrent: false
+  });
+}
+
+export function reorderCcSwitchProviders(orderedIds: string[]): void {
+  withDb(false, db => {
+    const statement = db.prepare("UPDATE providers SET sort_index = ? WHERE id = ? AND app_type = ?");
+    orderedIds.forEach((id, index) => statement.run(index, id, APP_TYPE));
+  });
+}
+
+/* ---------- switching ---------- */
+
+function readLiveJsonObject(path: string): JsonObject {
+  try {
+    if (!existsSync(path)) return {};
+    const raw = readFileSync(path, "utf-8").trim();
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as JsonObject : {};
+  } catch {
+    return {};
+  }
+}
+
+function backupLiveFile(path: string): string | null {
+  try {
+    if (!existsSync(path)) return null;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = path.replace(/\.json$/i, `.clawd-backup-${stamp}.json`);
+    copyFileSync(path, backupPath);
+    return backupPath;
+  } catch {
+    return null;
+  }
+}
+
+function writeCurrentPointer(id: string) {
+  const settings = readCcSwitchSettings();
+  settings.currentProviderClaude = id;
+  writeFileSync(getCcSwitchSettingsPath(), `${JSON.stringify(settings, null, 2)}`, "utf-8");
+}
+
+export function switchCcSwitchProvider(id: string): SwitchOutcome {
+  const warnings: string[] = [];
+  const providers = listCcSwitchProviders();
+  const target = providers.find(provider => provider.id === id);
+  if (!target) return { ok: false, warnings, error: `Provider ${id} not found in cc-switch database` };
+
+  const livePath = getClaudeSettingsPath();
+  const snippet = getCommonConfigSnippet();
+  const currentId = getCurrentCcSwitchProviderId(providers);
+  const outgoing = currentId && currentId !== id ? providers.find(provider => provider.id === currentId) : undefined;
+
+  // 1. Backfill the outgoing provider from the live file (SSOT round-trip).
+  if (outgoing) {
+    try {
+      const live = readLiveJsonObject(livePath);
+      if (Object.keys(live).length > 0) {
+        const backfill = structuredClone(live);
+        if (providerUsesCommonConfig(outgoing, snippet)) {
+          try {
+            jsonDeepRemove(backfill, JSON.parse(snippet.trim()) as JsonObject);
+          } catch {
+            warnings.push(`common_config_strip_failed:${outgoing.id}`);
+          }
+        }
+        withDb(false, db => {
+          db.prepare("UPDATE providers SET settings_config = ? WHERE id = ? AND app_type = ?")
+            .run(JSON.stringify(backfill), outgoing.id, APP_TYPE);
+        });
+      }
+    } catch {
+      warnings.push(`backfill_failed:${outgoing.id}`);
+    }
+  }
+
+  // 2. Replace the live file with the incoming provider's effective settings.
+  let backupPath: string | null = null;
+  try {
+    mkdirSync(join(homedir(), ".claude"), { recursive: true });
+    backupPath = backupLiveFile(livePath);
+    const effective = buildEffectiveSettings(target, snippet);
+    writeFileSync(livePath, `${JSON.stringify(effective, null, 2)}\n`, "utf-8");
+  } catch (error) {
+    return { ok: false, warnings, error: error instanceof Error ? error.message : String(error) };
+  }
+
+  // 3. Update both current-provider trackers.
+  try {
+    withDb(false, db => {
+      db.prepare("UPDATE providers SET is_current = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE app_type = ?").run(id, APP_TYPE);
+    });
+    writeCurrentPointer(id);
+  } catch (error) {
+    warnings.push(`current_pointer_update_failed:${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  return { ok: true, path: livePath, backupPath, warnings };
+}
+
+/* ---------- connectivity test ---------- */
+
+export interface EndpointTestResult {
+  ok: boolean;
+  reachable: boolean;
+  authorized?: boolean;
+  status?: number;
+  latencyMs?: number;
+  url: string;
+  error?: string;
+}
+
+export async function testClaudeEndpoint(baseUrl: string, apiKey?: string, timeoutMs = 8000): Promise<EndpointTestResult> {
+  const base = (baseUrl || "https://api.anthropic.com").trim().replace(/\/+$/, "");
+  const url = `${base}/v1/models`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
+  try {
+    const headers: Record<string, string> = { "anthropic-version": "2023-06-01" };
+    if (apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`;
+      headers["x-api-key"] = apiKey;
+    }
+    const response = await fetch(url, { method: "GET", headers, signal: controller.signal });
+    const latencyMs = Date.now() - startedAt;
+    const authorized = response.ok;
+    return { ok: response.ok, reachable: true, authorized, status: response.status, latencyMs, url };
+  } catch (error) {
+    return {
+      ok: false,
+      reachable: false,
+      url,
+      latencyMs: Date.now() - startedAt,
+      error: error instanceof Error ? (error.name === "AbortError" ? "timeout" : error.message) : String(error)
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* ---------- external change watching ---------- */
+
+let watcher: FSWatcher | null = null;
+let watchDebounce: NodeJS.Timeout | null = null;
+
+/**
+ * Watch the cc-switch data directory so edits made inside cc-switch itself
+ * show up in the pet UI without a restart. cc-switch has no watcher of its
+ * own, so writes from this app appear there only after its restart — that
+ * matches cc-switch's documented behavior.
+ */
+export function watchCcSwitch(onChange: () => void): () => void {
+  stopWatchingCcSwitch();
+  const dir = getCcSwitchDir();
+  if (!existsSync(dir)) return () => undefined;
+  try {
+    watcher = watch(dir, (_event, filename) => {
+      if (!filename) return;
+      const name = String(filename);
+      if (!name.startsWith("cc-switch.db") && name !== "settings.json") return;
+      if (watchDebounce) clearTimeout(watchDebounce);
+      watchDebounce = setTimeout(() => {
+        watchDebounce = null;
+        onChange();
+      }, 400);
+    });
+  } catch {
+    return () => undefined;
+  }
+  return stopWatchingCcSwitch;
+}
+
+export function stopWatchingCcSwitch() {
+  if (watchDebounce) {
+    clearTimeout(watchDebounce);
+    watchDebounce = null;
+  }
+  if (watcher) {
+    try { watcher.close(); } catch { /* already closed */ }
+    watcher = null;
+  }
+  return undefined;
+}

@@ -167,29 +167,82 @@ export interface CompanionEvent {
   timestamp: number;
 }
 
+/** Environment block of a Claude provider, mirroring cc-switch's settingsConfig.env. */
+export interface ClaudeProviderEnv {
+  ANTHROPIC_BASE_URL?: string;
+  ANTHROPIC_AUTH_TOKEN?: string;
+  ANTHROPIC_API_KEY?: string;
+  ANTHROPIC_MODEL?: string;
+  ANTHROPIC_DEFAULT_SONNET_MODEL?: string;
+  ANTHROPIC_DEFAULT_OPUS_MODEL?: string;
+  ANTHROPIC_DEFAULT_HAIKU_MODEL?: string;
+  ANTHROPIC_DEFAULT_FABLE_MODEL?: string;
+  [key: string]: string | undefined;
+}
+
+/** Provider metadata, cc-switch ProviderMeta compatible (camelCase JSON keys). */
+export interface ClaudeProviderMeta {
+  commonConfigEnabled?: boolean;
+  apiFormat?: "anthropic" | "openai_chat" | "openai_responses" | "gemini_native" | string;
+  apiKeyField?: "ANTHROPIC_AUTH_TOKEN" | "ANTHROPIC_API_KEY" | string;
+  customUserAgent?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * A Claude provider record, schema-compatible with cc-switch's Provider.
+ * settingsConfig is a full ~/.claude/settings.json snapshot; unknown keys
+ * must be preserved round-trip.
+ */
 export interface ClaudeProviderConfig {
   id: string;
   name: string;
-  settingsConfig: {
-    env?: {
-      ANTHROPIC_BASE_URL?: string;
-      ANTHROPIC_AUTH_TOKEN?: string;
-      ANTHROPIC_MODEL?: string;
-    };
-    headers?: string;
-    modelAliases?: string;
-    proxyUrl?: string;
-    prefix?: string;
-    excludedModels?: string;
-  };
+  settingsConfig: { env?: ClaudeProviderEnv; [key: string]: unknown };
   websiteUrl?: string;
-  category?: "official" | "third_party" | "custom";
+  category?: "official" | "cn_official" | "aggregator" | "third_party" | "custom" | "cloud_provider" | string;
   createdAt?: number;
   sortIndex?: number;
   notes?: string;
   icon?: string;
   iconColor?: string;
-  meta?: Record<string, unknown>;
+  meta?: ClaudeProviderMeta;
+  inFailoverQueue?: boolean;
+  isCurrent?: boolean;
+}
+
+export interface ClaudeProviderListResult {
+  ok: boolean;
+  source: "cc-switch" | "local";
+  dbPath?: string;
+  readError?: string;
+  providers: ClaudeProviderConfig[];
+  currentId: string;
+  hasCommonConfig?: boolean;
+  error?: string;
+}
+
+export interface ClaudeProviderSwitchResult {
+  ok: boolean;
+  path?: string;
+  backupPath?: string | null;
+  warnings?: string[];
+  error?: string;
+}
+
+export interface ClaudeProviderTestResult {
+  ok: boolean;
+  reachable: boolean;
+  authorized?: boolean;
+  status?: number;
+  latencyMs?: number;
+  url: string;
+  error?: string;
+}
+
+export interface ClaudeProviderSaveResult {
+  ok: boolean;
+  provider?: ClaudeProviderConfig;
+  error?: string;
 }
 
 export interface CompanionSettings {

@@ -3,6 +3,11 @@ import {
   defaultSettings,
   defaultStats,
   type AppStats,
+  type ClaudeProviderConfig,
+  type ClaudeProviderListResult,
+  type ClaudeProviderSaveResult,
+  type ClaudeProviderSwitchResult,
+  type ClaudeProviderTestResult,
   type CompanionConnectionStatus,
   type CompanionEvent,
   type CompanionEventType,
@@ -87,6 +92,14 @@ type CompanionApi = {
   onUpdateStatus: (callback: Listener<UpdateStatus>) => Unsubscribe;
   onPlaySound: (callback: Listener<string>) => Unsubscribe;
   onOpenSection: (callback: Listener<string>) => Unsubscribe;
+  listClaudeProviders: () => Promise<ClaudeProviderListResult>;
+  saveClaudeProvider: (provider: ClaudeProviderConfig, originalId?: string) => Promise<ClaudeProviderSaveResult>;
+  deleteClaudeProvider: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  duplicateClaudeProvider: (id: string) => Promise<ClaudeProviderSaveResult>;
+  reorderClaudeProviders: (orderedIds: string[]) => Promise<{ ok: boolean; error?: string }>;
+  switchClaudeProvider: (id: string) => Promise<ClaudeProviderSwitchResult>;
+  testClaudeProvider: (payload: { id?: string; baseUrl?: string; apiKey?: string }) => Promise<ClaudeProviderTestResult>;
+  onCcSwitchChanged: (callback: Listener<unknown>) => Unsubscribe;
 };
 
 declare global {
@@ -112,6 +125,28 @@ let eventHistory: EventHistoryEntry[] = [];
 let startedAt = Date.now();
 let eventPort = 17321;
 let lastEvent: CompanionEvent | null = null;
+
+const mockProviders: Record<string, ClaudeProviderConfig> = {
+  "claude-official": {
+    id: "claude-official",
+    name: "Claude Official",
+    category: "official",
+    websiteUrl: "https://www.anthropic.com/claude-code",
+    icon: "anthropic",
+    iconColor: "#D4915D",
+    sortIndex: 0,
+    settingsConfig: { env: {} }
+  },
+  "demo-third-party": {
+    id: "demo-third-party",
+    name: "Demo Router",
+    category: "third_party",
+    websiteUrl: "https://example.com",
+    sortIndex: 1,
+    settingsConfig: { env: { ANTHROPIC_BASE_URL: "https://api.example.com", ANTHROPIC_AUTH_TOKEN: "sk-demo" } }
+  }
+};
+let mockCurrentProviderId = "claude-official";
 
 const settingsListeners = new Set<Listener<CompanionSettings>>();
 const connectionListeners = new Set<Listener<CompanionConnectionStatus>>();
@@ -446,6 +481,50 @@ export function installClawdCompat() {
     getDoctorReport: async () => doctorReport(),
     onUpdateStatus: callback => subscribe(updateStatusListeners, callback),
     onPlaySound: callback => subscribe(playSoundListeners, callback),
-    onOpenSection: callback => subscribe(openSectionListeners, callback)
+    onOpenSection: callback => subscribe(openSectionListeners, callback),
+    listClaudeProviders: async () => ({
+      ok: true,
+      source: "local",
+      providers: Object.values(mockProviders),
+      currentId: mockCurrentProviderId,
+      hasCommonConfig: false
+    }),
+    saveClaudeProvider: async (provider, originalId) => {
+      const record = { ...provider, id: provider.id?.trim() || `provider-${Date.now().toString(36)}` };
+      if (originalId && originalId !== record.id) delete mockProviders[originalId];
+      mockProviders[record.id] = record;
+      if (originalId && mockCurrentProviderId === originalId) mockCurrentProviderId = record.id;
+      return { ok: true, provider: record };
+    },
+    deleteClaudeProvider: async id => {
+      if (id === mockCurrentProviderId) return { ok: false, error: "Cannot delete the provider currently in use" };
+      delete mockProviders[id];
+      return { ok: true };
+    },
+    duplicateClaudeProvider: async id => {
+      const source = mockProviders[id];
+      if (!source) return { ok: false, error: `Provider ${id} not found` };
+      const copy = { ...JSON.parse(JSON.stringify(source)) as ClaudeProviderConfig, id: `provider-${Date.now().toString(36)}`, name: `${source.name} copy`, sortIndex: Object.keys(mockProviders).length };
+      mockProviders[copy.id] = copy;
+      return { ok: true, provider: copy };
+    },
+    reorderClaudeProviders: async orderedIds => {
+      orderedIds.forEach((id, index) => {
+        if (mockProviders[id]) mockProviders[id] = { ...mockProviders[id], sortIndex: index };
+      });
+      return { ok: true };
+    },
+    switchClaudeProvider: async id => {
+      if (!mockProviders[id]) return { ok: false, error: `Provider ${id} not found`, warnings: [] };
+      mockCurrentProviderId = id;
+      return { ok: true, path: "~/.claude/settings.json", backupPath: null, warnings: [] };
+    },
+    testClaudeProvider: async payload => ({
+      ok: false,
+      reachable: false,
+      url: `${(payload.baseUrl || "https://api.anthropic.com").replace(/\/+$/, "")}/v1/models`,
+      error: "Connectivity tests are only available in the desktop app."
+    }),
+    onCcSwitchChanged: () => () => undefined
   };
 }

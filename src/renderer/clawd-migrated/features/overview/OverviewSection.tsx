@@ -41,7 +41,7 @@ export function OverviewSection({
         </div>
       </section>}
 
-      <ClaudeRoutingPanel settings={settings} updateSettings={updateSettings} connection={connection} />
+      <ClaudeRoutingPanel />
       {connection.error ? <section className="connection-error"><Wrench size={18} />{connection.error}</section> : null}
 
       <section className="overview-status-panel">
