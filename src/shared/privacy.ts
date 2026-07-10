@@ -40,3 +40,20 @@ export function redactDisplayEvent<T extends DisplayEvent>(event: T, language: D
     cwd: undefined
   };
 }
+
+// Filesystem paths that appear inside hook-operation status/error strings still
+// leak the home directory (and therefore the username) even when the rest of the
+// UI is redacted. These patterns strip absolute paths from free-form text while
+// leaving status words, event names, and version numbers intact.
+const SENSITIVE_PATH_PATTERNS = [
+  /[A-Za-z]:[\\/][^\s"']*/g,            // Windows drive paths: C:\Users\foo or C:/Users/foo
+  /\\\\[^\s"']+/g,                       // UNC paths: \\server\share\...
+  /(?:~|\/(?:Users|home|root))\/[^\s"']*/g // POSIX home/absolute paths: ~/… /Users/… /home/…
+];
+
+// Replace absolute filesystem paths in a free-form string with a generic
+// placeholder. Only used when "hide paths and content" is enabled.
+export function redactSensitiveText(text: string, language: DisplayLanguage = "en"): string {
+  const placeholder = language === "zh" ? "[路径已隐藏]" : "[path hidden]";
+  return SENSITIVE_PATH_PATTERNS.reduce((out, pattern) => out.replace(pattern, placeholder), text);
+}

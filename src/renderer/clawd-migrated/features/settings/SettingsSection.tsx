@@ -1,13 +1,12 @@
 // @ts-nocheck
 import React from "react";
-import { Bell, Bot, Gauge, LockKeyhole, MessageSquareText, MonitorCheck, MousePointer2, Radio, RotateCcw, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
+import { Bell, Bot, Gauge, LockKeyhole, MessageSquareText, MousePointer2, RotateCcw, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
 import { defaultSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import minatoAquaCover from "../../../assets/themes/minato-aqua-cover.png";
 import { NotificationRulesPanel } from "../../components/NotificationRulesPanel";
-import { DoctorPanel } from "../../components/DoctorPanel";
-import { ConnectionDetail, GroupCard, LanguageSegmented, SettingsInfoRow, Slider, ThemeSegmented, Toggle } from "../../components/workbench/Primitives";
-import { shortSession, timeAgo } from "../../utils/format";
+import { GroupCard, LanguageSegmented, SettingsInfoRow, Slider, ThemeSegmented, Toggle } from "../../components/workbench/Primitives";
+import { shortSession } from "../../utils/format";
 import { getPetTheme, petThemes } from "../../utils/petThemes";
 
 export function SettingsSection({
@@ -57,7 +56,6 @@ export function SettingsSection({
             { id: "general", icon: <Gauge size={14} />, label: t("settings.subtabs.general", "通用") },
             { id: "pet", icon: <Bot size={14} />, label: t("settings.subtabs.pet", "桌宠") },
             { id: "notifications", icon: <Bell size={14} />, label: t("settings.subtabs.notifications", "通知") },
-            { id: "diagnostics", icon: <MonitorCheck size={14} />, label: t("settings.subtabs.diagnostics", "诊断") },
             { id: "about", icon: <Sparkles size={14} />, label: t("settings.subtabs.about", "关于") }
           ].map(tab => (
             <button
@@ -98,21 +96,9 @@ export function SettingsSection({
           </GroupCard>
 
           <GroupCard icon={<Shield size={18} />} title={t("sections.contentDisplay", "内容显示")}>
-            <Toggle label={t("appearance.hideSensitiveContent", "隐藏敏感内容")} checked={settings.hideSensitiveContent} onChange={hideSensitiveContent => updateSettings({ hideSensitiveContent })} />
-            <p className="note">{t("appearance.hideSensitiveContentNote", "隐藏界面和系统通知中的路径与内容；权限确认仍显示决策所需详情。")}</p>
+            <Toggle label={t("appearance.hideSensitiveContent", "隐藏路径与内容")} checked={settings.hideSensitiveContent} onChange={hideSensitiveContent => updateSettings({ hideSensitiveContent })} />
+            <p className="note">{t("appearance.hideSensitiveContentNote", "在界面和系统通知中隐藏文件路径与消息内容；仅改变屏幕上的显示，不会删除或加密任何本地数据。权限确认仍会显示决策所需的详情。")}</p>
           </GroupCard>
-        </>}
-
-        {activeSettingsSubsection === "diagnostics" && <>
-          <GroupCard icon={<Radio size={18} />} title={t("sections.connectionDetails", "连接详情")}>
-            <div className="connection-detail-grid">
-              <ConnectionDetail label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} />
-              <ConnectionDetail label={t("fields.client", "客户端")} value={connection.activeClientLabel ?? t("pet.unknownClient", "未知客户端")} />
-              <ConnectionDetail label={t("fields.sessionId", "会话 ID")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} />
-              <ConnectionDetail label={t("fields.lastActive", "最后活动")} value={connection.lastEventAt ? timeAgo(connection.lastEventAt, now) : t("common.none", "暂无")} />
-            </div>
-          </GroupCard>
-          <DoctorPanel hideSensitiveContent={settings.hideSensitiveContent} />
         </>}
 
         {activeSettingsSubsection === "pet" && <>

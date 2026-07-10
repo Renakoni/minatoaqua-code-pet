@@ -813,41 +813,6 @@
   outline-offset: 2px;
 }
 
-.settings-page .connection-detail-grid {
-  gap: 0;
-  margin-top: 0;
-  overflow: hidden;
-  border: 1px solid var(--settings-line);
-  border-radius: 8px;
-  background: var(--settings-surface-raised);
-}
-
-.settings-page .connection-detail {
-  min-height: 64px;
-  padding: 12px;
-  border: 0;
-  border-right: 1px solid var(--settings-line);
-  border-radius: 0;
-  background: transparent;
-}
-
-.settings-page .connection-detail:last-child {
-  border-right: 0;
-}
-
-.settings-page .connection-detail span {
-  color: var(--settings-faint);
-  font-size: 10px;
-  font-weight: 720;
-}
-
-.settings-page .connection-detail strong {
-  color: var(--settings-ink);
-  font-size: 13px;
-  font-weight: 740;
-  font-variant-numeric: tabular-nums;
-}
-
 .settings-page .notification-sound-panel {
   max-width: none;
   display: grid;
@@ -1058,112 +1023,6 @@
   font-weight: 700;
 }
 
-.settings-page .doctor-grid {
-  display: grid;
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid var(--settings-line);
-  border-radius: 8px;
-  background: var(--settings-surface-raised);
-}
-
-.settings-page .doctor-row {
-  min-height: 48px;
-  display: grid;
-  grid-template-columns: minmax(120px, 0.42fr) minmax(0, 1fr) 74px;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 12px;
-  border: 0;
-  border-bottom: 1px solid var(--settings-line);
-  border-radius: 0;
-  background: transparent;
-}
-
-.settings-page .doctor-row:last-child {
-  border-bottom: 0;
-}
-
-.settings-page .doctor-row:hover {
-  background: var(--settings-surface-hover);
-}
-
-.settings-page .doctor-row strong {
-  color: var(--settings-ink);
-  font-size: 13px;
-  font-weight: 740;
-}
-
-.settings-page .doctor-row p {
-  color: var(--settings-muted);
-  font-size: 12px;
-}
-
-.settings-page .doctor-pill {
-  min-width: 0;
-  justify-content: center;
-  gap: 5px;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.settings-page .doctor-pill::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.settings-page .doctor-pill.ok {
-  color: var(--settings-success);
-  background: transparent;
-}
-
-.settings-page .doctor-pill.bad {
-  color: var(--settings-danger);
-  background: transparent;
-}
-
-.settings-page .doctor-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid var(--settings-line);
-  border-radius: 8px;
-  background: var(--settings-surface-raised);
-}
-
-.settings-page .doctor-summary div {
-  min-width: 0;
-  gap: 4px;
-  min-height: 58px;
-  padding: 10px 12px;
-  border-right: 1px solid var(--settings-line);
-  border-radius: 0;
-  background: transparent;
-}
-
-.settings-page .doctor-summary div:last-child {
-  border-right: 0;
-}
-
-.settings-page .doctor-summary strong {
-  color: var(--settings-faint);
-  font-size: 10px;
-  font-weight: 720;
-}
-
-.settings-page .doctor-summary span {
-  color: var(--settings-ink);
-  font-size: 12px;
-  font-weight: 720;
-}
-
 .settings-page .empty {
   min-height: 96px;
   border: 1px solid var(--settings-line);
@@ -1339,22 +1198,6 @@
     justify-content: flex-start;
   }
 
-  .settings-page .connection-detail-grid,
-  .settings-page .doctor-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-page .connection-detail,
-  .settings-page .doctor-summary div {
-    border-right: 0;
-    border-bottom: 1px solid var(--settings-line);
-  }
-
-  .settings-page .connection-detail:last-child,
-  .settings-page .doctor-summary div:last-child {
-    border-bottom: 0;
-  }
-
   .settings-page .notification-rules-head {
     display: none;
   }
@@ -1367,15 +1210,6 @@
 
   .settings-page .notification-toggle-cell,
   .settings-page .notification-sound-actions {
-    justify-content: flex-start;
-  }
-
-  .settings-page .doctor-row {
-    grid-template-columns: 1fr;
-    gap: 5px;
-  }
-
-  .settings-page .doctor-pill {
     justify-content: flex-start;
   }
 }

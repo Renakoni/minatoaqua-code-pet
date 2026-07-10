@@ -593,56 +593,6 @@ export interface SessionHistory {
   events: EventHistoryEntry[];
 }
 
-export interface DoctorReport {
-  generatedAt: number;
-  appVersion: string;
-  connection: CompanionConnectionStatus;
-  /** Per-provider status. `claude-code` is the default; `codex` is opt-in. */
-  providers?: Record<ProviderId, {
-    hooks: {
-      installed: boolean;
-      configExists: boolean;
-      hookCount: number;
-      requiredCount: number;
-      missingEvents: string[];
-      commandMatches: boolean;
-    };
-    forwarder: {
-      expectedPath: string;
-      exists: boolean;
-    };
-  }>;
-  /** @deprecated kept for backward compat with the legacy single-provider shape. */
-  hooks?: {
-    installed: boolean;
-    configExists: boolean;
-    hookCount: number;
-    requiredCount: number;
-    missingEvents: string[];
-    commandMatches: boolean;
-  };
-  forwarder: {
-    expectedPath?: string;
-    exists?: boolean;
-    autoStartMarkerPath: string;
-    autoStartMarkerExists: boolean;
-  };
-  update: UpdateStatus & {
-    autoUpdateEnabled: boolean;
-  };
-  plugins: {
-    total: number;
-    enabled: number;
-    trusted: number;
-    manifestErrors: number;
-  };
-  recent: {
-    lastEventAt?: number;
-    lastEventTitle?: string;
-    lastError?: string;
-  };
-}
-
 export interface MonitorPosition {
   displayId: string;
   position: { x: number; y: number };
@@ -651,7 +601,6 @@ export interface MonitorPosition {
 export interface CompanionConnectionStatus {
   port: number;
   serverListening: boolean;
-  connected: boolean;
   activeSessionId?: string;
   activeClientType?: ClientType;
   activeClientLabel?: string;

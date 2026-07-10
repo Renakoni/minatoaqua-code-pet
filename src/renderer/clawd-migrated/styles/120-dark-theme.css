@@ -58,7 +58,6 @@
 [data-theme=dark] .settings-group,
 [data-theme=dark] .theme-settings-group,
 [data-theme=dark] .status-card,
-[data-theme=dark] .connection-detail,
 [data-theme=dark] .stat-item,
 [data-theme=dark] .event-row,
 [data-theme=dark] .mapping-row,
@@ -79,14 +78,12 @@
 [data-theme=dark] .launch-note,
 [data-theme=dark] .subtle,
 [data-theme=dark] .stat-label,
-[data-theme=dark] .connection-detail span,
 [data-theme=dark] .token-table-header,
 [data-theme=dark] .note-inline {
   color: var(--muted);
 }
 [data-theme=dark] .event-row strong,
 [data-theme=dark] .status-card strong,
-[data-theme=dark] .connection-detail strong,
 [data-theme=dark] .stat-value,
 [data-theme=dark] .token-model-name,
 [data-theme=dark] code {

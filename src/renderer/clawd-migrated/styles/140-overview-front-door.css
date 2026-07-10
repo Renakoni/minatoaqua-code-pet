@@ -427,125 +427,6 @@
   opacity: .35;
 }
 
-.overview-status-panel {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(168px, 196px) minmax(0, 1fr);
-  overflow: hidden;
-  border: 1px solid var(--overview-line);
-  border-radius: 9px;
-  color: var(--overview-ink);
-  background: var(--overview-surface);
-  box-shadow: none;
-}
-
-.overview-status-panel .workbench-section-head {
-  min-height: 78px;
-  align-items: flex-start;
-  justify-content: center;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
-  border-right: 1px solid var(--overview-line);
-  border-bottom: 0;
-  background: var(--overview-surface-raised);
-}
-
-.overview-status-panel .workbench-section-head span {
-  color: var(--overview-faint);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.overview-status-panel .workbench-section-head h2 {
-  color: var(--overview-ink);
-  font-size: 14px;
-  font-weight: 740;
-  line-height: 1.25;
-}
-
-.overview-status-panel .overview-state-badge {
-  max-width: 100%;
-  min-height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
-}
-
-.overview-status-panel .overview-state-badge.good { color: var(--overview-success); }
-.overview-status-panel .overview-state-badge.wait { color: var(--overview-accent); }
-.overview-status-panel .overview-state-badge.bad { color: var(--overview-danger); }
-
-.overview-status-panel .overview-state-badge small {
-  max-width: 116px;
-  color: var(--overview-faint);
-}
-
-.overview-status-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  background: transparent;
-}
-
-.overview-status-grid .status-card {
-  min-height: 78px;
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  grid-template-rows: auto auto auto;
-  align-content: center;
-  gap: 4px 10px;
-  padding: 11px 14px;
-  border: 0;
-  border-right: 1px solid var(--overview-line);
-  border-radius: 0;
-  color: var(--overview-ink);
-  background: transparent;
-  box-shadow: none;
-  font-variant-numeric: tabular-nums;
-}
-
-.overview-status-grid .status-card:last-child {
-  border-right: 0;
-}
-
-.overview-status-grid .status-card svg {
-  grid-row: 1 / span 3;
-  width: 16px;
-  height: 16px;
-  margin: 1px 0 0;
-  opacity: .86;
-}
-
-.overview-status-grid .status-card span {
-  color: var(--overview-faint);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.overview-status-grid .status-card strong {
-  margin: 0;
-  color: var(--overview-ink);
-  font-size: 13px;
-  font-weight: 730;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.overview-status-grid .status-card small {
-  margin: 0;
-  color: var(--overview-faint);
-  font-size: 11px;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .overview-workbench .connection-error {
   border-radius: 8px;
@@ -553,16 +434,92 @@
   background: oklch(76% 0.08 32 / .1);
 }
 
-@media (max-width: 1020px) {
-  .overview-status-panel {
-    grid-template-columns: 1fr;
-  }
+/* Connection workbench: one surface that changes state (onboarding -> factual
+   delivery-chain rows). Factual rows over cards, small dot + text status. */
+.overview-connection {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--overview-line);
+  border-radius: 9px;
+  color: var(--overview-ink);
+  background: var(--overview-surface);
+}
 
-  .overview-status-panel .workbench-section-head {
-    min-height: 64px;
-    border-right: 0;
-    border-bottom: 1px solid var(--overview-line);
-  }
+.overview-connection .workbench-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--overview-line);
+  background: var(--overview-surface-raised);
+}
+
+.overview-connection .workbench-section-head span {
+  color: var(--overview-faint);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.overview-connection .workbench-section-head h2 {
+  color: var(--overview-ink);
+  font-size: 14px;
+  font-weight: 740;
+  line-height: 1.25;
+}
+
+.overview-connection .overview-state-badge { font-size: 11px; font-weight: 700; }
+.overview-connection .overview-state-badge.good { color: var(--overview-success); }
+.overview-connection .overview-state-badge.wait { color: var(--overview-accent); }
+.overview-connection .overview-state-badge.bad { color: var(--overview-danger); }
+
+.connection-rows { display: flex; flex-direction: column; }
+
+.connection-row {
+  display: grid;
+  grid-template-columns: 8px minmax(84px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--overview-line);
+  font-variant-numeric: tabular-nums;
+}
+.connection-row:first-child { border-top: 0; }
+
+.connection-row-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--overview-faint);
+}
+.connection-row.state-healthy .connection-row-dot { background: var(--overview-success); }
+.connection-row.state-partial .connection-row-dot,
+.connection-row.state-repair .connection-row-dot { background: var(--overview-accent); }
+.connection-row.state-unavailable .connection-row-dot { background: var(--overview-danger); }
+
+.connection-row-label { color: var(--overview-faint); font-size: 11px; font-weight: 700; }
+
+.connection-row-value {
+  min-width: 0;
+  color: var(--overview-ink);
+  font-size: 12px;
+  font-weight: 640;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-loading { padding: 14px; color: var(--overview-faint); font-size: 12px; }
+
+.connection-onboarding { display: flex; flex-direction: column; gap: 8px; padding: 14px; }
+.connection-onboarding h3 { color: var(--overview-ink); font-size: 14px; font-weight: 740; }
+.connection-onboarding p { color: var(--overview-faint); font-size: 12px; line-height: 1.5; }
+
+.overview-connection .hooks-manager.actions-only {
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--overview-line);
 }
 
 @media (max-width: 720px) {
@@ -583,20 +540,6 @@
   .overview-workbench .ccs-provider-actions-inner {
     justify-content: flex-start;
     flex-wrap: wrap;
-  }
-
-  .overview-status-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .overview-status-grid .status-card {
-    min-height: 66px;
-    border-right: 0;
-    border-bottom: 1px solid var(--overview-line);
-  }
-
-  .overview-status-grid .status-card:last-child {
-    border-bottom: 0;
   }
 }
 

@@ -143,10 +143,6 @@
 .code-card-head { height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; color: #fff0c0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
 .code-card-head button { min-height: 30px; color: var(--black); background: var(--honey); }
 pre { margin: 0; max-height: 280px; overflow: auto; padding: 13px; color: #f9e6b6; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
-.connection-detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
-.connection-detail { min-height: 70px; padding: 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.44); border: 1px solid var(--line); }
-.connection-detail span { display: block; color: var(--muted); font-size: 12px; }
-.connection-detail strong { display: block; margin-top: 7px; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-page .group-card {
   border-radius: 8px;
   box-shadow: 0 10px 26px rgba(43, 31, 21, 0.06);
@@ -339,15 +335,6 @@ input[type="range"]:focus { box-shadow: none; }
 .event-row em { min-height: 26px; display: grid; place-items: center; border-radius: 999px; font-style: normal; font-size: 12px; color: var(--ink); background: rgba(234, 187, 88, 0.24); }
 .empty { min-height: 112px; display: grid; place-items: center; border-radius: 8px; color: var(--muted); background: rgba(36, 29, 23, 0.05); }
 .text-input { background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; color: var(--ink); min-width: 0; }
-.doctor-grid { display: grid; gap: 8px; }
-.doctor-row { display: grid; grid-template-columns: 120px 1fr auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.36); }
-.doctor-row p { margin: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.doctor-pill { display: inline-flex; min-width: 54px; justify-content: center; border-radius: 999px; padding: 4px 8px; font-size: 12px; font-weight: 800; }
-.doctor-pill.ok { color: var(--green); background: rgba(86,166,123,.14); }
-.doctor-pill.bad { color: var(--coral); background: rgba(210,95,80,.14); }
-.doctor-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.doctor-summary div { display: grid; gap: 4px; padding: 10px; border-radius: 10px; background: rgba(36,29,23,.05); }
-.doctor-summary span { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-history-layout { display: grid; grid-template-columns: 260px minmax(0,1fr); gap: 14px; }
 .session-list { display: grid; align-content: start; gap: 8px; max-height: 460px; overflow: auto; }
 .session-list-item { display: grid; gap: 4px; text-align: left; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.32); color: var(--ink); }

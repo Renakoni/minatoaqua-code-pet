@@ -2540,10 +2540,12 @@ function broadcastCcSwitchChanged() {
 
 function getConnectionStatus() {
   const latest = eventHistory[0] ? toCompanionEvent(eventHistory[0]) : undefined;
+  // No single "connected" flag: a past event does not prove the live link is
+  // healthy. Callers derive readiness from serverListening + hook status, and
+  // report the most recent event (lastEventAt) as a separate fact.
   return {
     port: eventPort,
     serverListening: Boolean(eventServer?.listening),
-    connected: Boolean(latest),
     activeSessionId: sessionId,
     activeClientType: "desktop",
     activeClientLabel: "Minato Aqua Code Pet",
@@ -2961,7 +2963,7 @@ function extractHookForwarderPath(command: string) {
   return match?.[1] ?? match?.[2] ?? match?.[3] ?? "";
 }
 
-function isClawdHookCommand(command: unknown, eventName?: string, options: { requireReadableForwarder?: boolean; requireCurrentForwarder?: boolean } = {}) {
+function isClawdHookCommand(command: unknown, eventName?: string, options: { matchesCurrentPath?: boolean } = {}) {
   if (typeof command !== "string") return false;
   const normalized = command.replace(/\\/g, "/");
   const scriptNameMatches = normalized.includes("hook-forwarder.js");
@@ -2969,12 +2971,11 @@ function isClawdHookCommand(command: unknown, eventName?: string, options: { req
   if (!eventName) return true;
   if (!new RegExp(`(^|[\\s"'])${eventName}($|[\\s"'])`).test(normalized)) return false;
 
-  const forwarderPath = extractHookForwarderPath(command);
-  if (options.requireReadableForwarder && !isExternalNodeReadablePath(forwarderPath)) return false;
-  if (options.requireCurrentForwarder) {
-    const currentForwarderPath = getHookForwarderPath();
-    if (!isExternalNodeReadablePath(forwarderPath) || !isExternalNodeReadablePath(currentForwarderPath)) return false;
-    return normalizeComparablePath(forwarderPath) === normalizeComparablePath(currentForwarderPath);
+  // Command correctness = the configured path equals the current forwarder path.
+  // This is a string comparison only; whether that file exists is reported
+  // separately by getForwarderStatus so the two facts never conflate.
+  if (options.matchesCurrentPath) {
+    return normalizeComparablePath(extractHookForwarderPath(command)) === normalizeComparablePath(getHookForwarderPath());
   }
   return true;
 }
@@ -2995,14 +2996,23 @@ function getHooksStatus() {
     settings = {};
   }
 
+  // Hook CONFIGURATION: which required events reference our forwarder command.
+  // Independent of whether the forwarder file currently exists — that is a
+  // separate fact (getForwarderStatus), so a valid config is never reported as
+  // missing just because the forwarder file is unavailable.
   const missingEvents = requiredClaudeHookEvents.filter(eventName => {
     const entries = getHookEntries(settings, eventName);
-    return !entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName, { requireReadableForwarder: true })));
+    return !entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName)));
   });
   const hookCount = requiredClaudeHookEvents.length - missingEvents.length;
-  const commandMatches = requiredClaudeHookEvents.every(eventName => {
+
+  // Hook COMMAND/timeout correctness: do the configured commands point at the
+  // current forwarder path and carry the right PreToolUse timeout? Only the
+  // configured events are checked; path comparison, not file existence.
+  const configuredEvents = requiredClaudeHookEvents.filter(eventName => !missingEvents.includes(eventName));
+  const commandMatches = configuredEvents.length > 0 && configuredEvents.every(eventName => {
     const entries = getHookEntries(settings, eventName);
-    return entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName, { requireCurrentForwarder: true }) && (eventName !== "PreToolUse" || hook?.timeout === PRETOOLUSE_HOOK_TIMEOUT_SECONDS)));
+    return entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName, { matchesCurrentPath: true }) && (eventName !== "PreToolUse" || hook?.timeout === PRETOOLUSE_HOOK_TIMEOUT_SECONDS)));
   });
 
   return {
@@ -3088,47 +3098,6 @@ function removeHooks() {
 
 function getUpdateStatus() {
   return updateStatus;
-}
-
-function getDoctorReport() {
-  const hooks = getHooksStatus();
-  const forwarder = getForwarderStatus();
-  return {
-    generatedAt: Date.now(),
-    appVersion: app.getVersion(),
-    connection: getConnectionStatus(),
-    providers: {
-      "claude-code": {
-        hooks,
-        forwarder
-      },
-      codex: {
-        hooks,
-        forwarder
-      }
-    },
-    hooks,
-    forwarder: {
-      expectedPath: forwarder.expectedPath,
-      exists: forwarder.exists,
-      autoStartMarkerPath: settingsPath(),
-      autoStartMarkerExists: companionSettings.autoStartWithCli === true
-    },
-    update: {
-      ...getUpdateStatus(),
-      autoUpdateEnabled: companionSettings.autoUpdateEnabled
-    },
-    plugins: {
-      total: companionSettings.customPlugins.length,
-      enabled: companionSettings.customPlugins.filter((plugin: { enabled?: boolean }) => plugin.enabled).length,
-      trusted: companionSettings.customPlugins.filter((plugin: { trusted?: boolean }) => plugin.trusted).length,
-      manifestErrors: companionSettings.customPlugins.filter((plugin: { manifestError?: string }) => plugin.manifestError).length
-    },
-    recent: {
-      lastEventAt: eventHistory[0]?.timestamp,
-      lastEventTitle: eventHistory[0]?.title
-    }
-  };
 }
 
 function broadcastCompanionEvent(event: CompanionEvent) {
@@ -3378,7 +3347,6 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:import-settings-file", () => null);
   ipcMain.handle("companion:export-stats-file", () => undefined);
   ipcMain.handle("companion:import-stats-file", () => null);
-  ipcMain.handle("companion:get-doctor-report", () => getDoctorReport());
   if (isPetEnabled()) createPetWindow();
   createTray();
   startEventServer();

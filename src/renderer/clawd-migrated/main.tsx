@@ -41,7 +41,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PermissionCard } from "./components/PermissionCard";
 import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
 import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
-import type { HookSetupStage, HookStatus } from "./components/hooks/HooksManager";
+import type { HookStatus } from "./components/hooks/HooksManager";
 import { OverviewSection } from "./features/overview/OverviewSection";
 import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
 import { getPetTheme } from "./utils/petThemes";
@@ -944,11 +944,6 @@ function SettingsApp() {
   });
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [overviewHookStatus, setOverviewHookStatus] = useState<HookStatus | null>(null);
-  const [hookSetupStage, setHookSetupStage] = useState<HookSetupStage>("idle");
-  const hookSetupTimers = useRef<number[]>([]);
-  const hookSetupNeedsAttention = overviewHookStatus ? !overviewHookStatus.installed || overviewHookStatus.missingEvents.length > 0 || !overviewHookStatus.commandMatches : false;
-  const hookSetupShowingSuccess = !hookSetupNeedsAttention && (hookSetupStage === "success" || hookSetupStage === "hiding");
-  const shouldRenderHookSetup = hookSetupNeedsAttention || hookSetupStage !== "idle";
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 
   useEffect(() => {
@@ -998,34 +993,15 @@ function SettingsApp() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => {
-    return () => {
-      hookSetupTimers.current.forEach(timer => window.clearTimeout(timer));
-      hookSetupTimers.current = [];
-    };
-  }, []);
-
+  // The Overview connection area derives its state (first-run onboarding vs the
+  // factual workbench) directly from the hook status; HooksManager owns the
+  // inline install/repair progress and success feedback.
   function handleOverviewHookStatusChange(status: HookStatus) {
     setOverviewHookStatus(status);
-    if (!status.installed || status.missingEvents.length > 0 || !status.commandMatches) {
-      hookSetupTimers.current.forEach(timer => window.clearTimeout(timer));
-      hookSetupTimers.current = [];
-      setHookSetupStage("idle");
-    }
   }
 
   function handleOverviewHookInstallSuccess(status: HookStatus) {
-    hookSetupTimers.current.forEach(timer => window.clearTimeout(timer));
-    hookSetupTimers.current = [];
     setOverviewHookStatus(status);
-    setHookSetupStage("success");
-    hookSetupTimers.current = [
-      window.setTimeout(() => setHookSetupStage("hiding"), 4200),
-      window.setTimeout(() => {
-        setHookSetupStage("idle");
-        hookSetupTimers.current = [];
-      }, 5000)
-    ];
   }
 
   useEffect(() => {
@@ -1163,10 +1139,7 @@ function SettingsApp() {
             updateSettings={updateSettings}
             connection={connection}
             now={now}
-            shouldRenderHookSetup={shouldRenderHookSetup}
-            hookSetupShowingSuccess={hookSetupShowingSuccess}
-            hookSetupStage={hookSetupStage}
-            hookSetupNeedsAttention={hookSetupNeedsAttention}
+            hookStatus={overviewHookStatus}
             onHookStatusChange={handleOverviewHookStatusChange}
             onHookInstallSuccess={handleOverviewHookInstallSuccess}
           />
@@ -1259,10 +1232,6 @@ function Panel({ id, title, icon, wide, children }: { id?: string; title: string
   return <section id={id} className={`panel ${wide ? "wide" : ""}`}><header>{icon}<h2>{title}</h2></header>{children}</section>;
 }
 
-function ConnectionPill({ connected, label }: { connected: boolean; label?: string }) {
-  const { t } = useI18n();
-  return <span className={`connection-pill ${connected ? "connected" : "waiting"}`}><i />{connected ? t("status.connected", "已连接") : t("status.waiting", "等待连接")}{label ? <small>{label}</small> : null}</span>;
-}
 
 function Step({ number, title, text }: { number: string; title: string; text: string }) {
   return <article className="step"><b>{number}</b><div><strong>{title}</strong><p>{text}</p></div></article>;

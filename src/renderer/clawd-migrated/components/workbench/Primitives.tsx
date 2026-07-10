@@ -17,10 +17,6 @@ export function StatusCard({ icon, label, value, meta, tone }: { icon: React.Rea
   return <article className={`status-card ${tone}`}>{icon}<span>{label}</span><strong>{value}</strong>{meta ? <small>{meta}</small> : null}</article>;
 }
 
-export function ConnectionDetail({ label, value }: { label: string; value: string }) {
-  return <article className="connection-detail"><span>{label}</span><strong>{value}</strong></article>;
-}
-
 export function SettingsInfoRow({ label, value }: { label: string; value: string }) {
   return <div className="settings-info-row"><span>{label}</span><strong>{value}</strong></div>;
 }

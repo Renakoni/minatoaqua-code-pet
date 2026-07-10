@@ -12,7 +12,6 @@ import {
   type CompanionEvent,
   type CompanionEventType,
   type CompanionSettings,
-  type DoctorReport,
   type EventHistoryEntry,
   type PermissionRequest,
   type PluginMarketIndex,
@@ -90,7 +89,6 @@ type CompanionApi = {
   importSettingsFile: () => Promise<CompanionSettings | null>;
   exportStatsFile: () => Promise<void>;
   importStatsFile: () => Promise<AppStats | null>;
-  getDoctorReport: () => Promise<DoctorReport>;
   onUpdateStatus: (callback: Listener<UpdateStatus>) => Unsubscribe;
   onPlaySound: (callback: Listener<string>) => Unsubscribe;
   onOpenSection: (callback: Listener<string>) => Unsubscribe;
@@ -231,7 +229,6 @@ function currentConnection(): CompanionConnectionStatus {
   return {
     port: eventPort,
     serverListening: true,
-    connected: true,
     activeSessionId: sessionId,
     activeClientType: "desktop",
     activeClientLabel: "Minato Aqua Code Pet",
@@ -342,46 +339,6 @@ function hooksStatus() {
   };
 }
 
-function doctorReport(): DoctorReport {
-  const hooks = hooksStatus();
-  return {
-    generatedAt: Date.now(),
-    appVersion: "0.0.0-dev",
-    connection: currentConnection(),
-    providers: {
-      "claude-code": {
-        hooks,
-        forwarder: { expectedPath: "scripts/hook-forwarder.js", exists: false }
-      },
-      codex: {
-        hooks,
-        forwarder: { expectedPath: "scripts/hook-forwarder.js", exists: false }
-      }
-    },
-    hooks,
-    forwarder: {
-      expectedPath: "scripts/hook-forwarder.js",
-      exists: false,
-      autoStartMarkerPath: "",
-      autoStartMarkerExists: false
-    },
-    update: {
-      ...updateStatus(),
-      autoUpdateEnabled: false
-    },
-    plugins: {
-      total: 0,
-      enabled: 0,
-      trusted: 0,
-      manifestErrors: 0
-    },
-    recent: {
-      lastEventAt: lastEvent?.timestamp,
-      lastEventTitle: lastEvent?.title,
-      lastError: lastEvent?.event === "error" ? lastEvent.message : undefined
-    }
-  };
-}
 
 function bindPetApi(petApi: PetApi) {
   void petApi.getSnapshot().then(snapshot => {
@@ -487,7 +444,6 @@ export function installClawdCompat() {
     importSettingsFile: async () => null,
     exportStatsFile: async () => undefined,
     importStatsFile: async () => null,
-    getDoctorReport: async () => doctorReport(),
     onUpdateStatus: callback => subscribe(updateStatusListeners, callback),
     onPlaySound: callback => subscribe(playSoundListeners, callback),
     onOpenSection: callback => subscribe(openSectionListeners, callback),

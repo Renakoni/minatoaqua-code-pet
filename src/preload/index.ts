@@ -110,7 +110,6 @@ contextBridge.exposeInMainWorld("companion", {
   importSettingsFile: () => ipcRenderer.invoke("companion:import-settings-file"),
   exportStatsFile: () => ipcRenderer.invoke("companion:export-stats-file"),
   importStatsFile: () => ipcRenderer.invoke("companion:import-stats-file"),
-  getDoctorReport: () => ipcRenderer.invoke("companion:get-doctor-report"),
   onUpdateStatus: (callback: (status: unknown) => void) => onChannel("companion:update-status", callback),
   onPlaySound: (callback: (dataUrl: string) => void) => onChannel("companion:play-sound", callback),
   onOpenSection: (callback: (section: string) => void) => onChannel("companion:open-section", callback)
