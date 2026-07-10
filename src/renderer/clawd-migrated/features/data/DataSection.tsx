@@ -1,12 +1,65 @@
 // @ts-nocheck
-import React from "react";
-import { Code2, Gauge } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Activity, Code2, FolderOpen, Gauge, HardDrive, Trash2 } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { StatsPanel } from "../../components/StatsPanel";
 import { TokenPanel } from "./TokenPanel";
 
-export function DataSection({ persistedStats }: { persistedStats: any }) {
+export function DataSection({ persistedStats, activityCount, hideSensitiveContent, onClearActivity, onResetStats }: {
+  persistedStats: any;
+  activityCount: number;
+  hideSensitiveContent: boolean;
+  onClearActivity: () => Promise<void>;
+  onResetStats: () => Promise<void>;
+}) {
   const { t } = useI18n();
+  const [dataDirectory, setDataDirectory] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const totalStatEvents = useMemo(() => Object.values(persistedStats?.eventTypeCounts ?? {}).reduce((sum: number, count) => sum + Number(count || 0), 0), [persistedStats]);
+
+  useEffect(() => {
+    void window.companion.getDataDirectory().then(setDataDirectory).catch(() => setDataDirectory(""));
+  }, []);
+
+  async function clearActivity() {
+    if (!window.confirm(t("data.clearActivityConfirm", "确定清除本次运行的活动记录吗？"))) return;
+    setBusyAction("activity");
+    setActionError(null);
+    try {
+      await onClearActivity();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function resetStats() {
+    if (!window.confirm(t("data.clearStatsConfirm", "确定要清空所有统计数据吗？此操作不可恢复。"))) return;
+    setBusyAction("stats");
+    setActionError(null);
+    try {
+      await onResetStats();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function openDataDirectory() {
+    setBusyAction("directory");
+    setActionError(null);
+    try {
+      const result = await window.companion.openDataDirectory();
+      if (!result?.ok) setActionError(result?.error ?? t("data.openDirectoryFailed", "无法打开数据目录"));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
 
   return (
     <section className="data-workbench">
@@ -29,7 +82,35 @@ export function DataSection({ persistedStats }: { persistedStats: any }) {
           </div>
           <Code2 size={18} />
         </header>
-        <TokenPanel />
+        <TokenPanel hideSensitiveContent={hideSensitiveContent} />
+      </section>
+
+      <section className="workbench-section data-local-section">
+        <header className="workbench-section-head">
+          <div>
+            <span>Local</span>
+            <h2>{t("sections.localData", "本地数据")}</h2>
+          </div>
+          <HardDrive size={18} />
+        </header>
+        <div className="local-data-list" aria-busy={busyAction !== null}>
+          <div className="local-data-row">
+            <Activity size={17} />
+            <div><strong>{t("data.currentActivity", "本次活动")}</strong><span>{activityCount} {t("common.items", "条")}</span></div>
+            <button type="button" className="local-data-action danger" title={t("data.clearActivity", "清除本次活动")} aria-label={t("data.clearActivity", "清除本次活动")} disabled={busyAction !== null || activityCount === 0} onClick={() => void clearActivity()}><Trash2 size={16} /></button>
+          </div>
+          <div className="local-data-row">
+            <Gauge size={17} />
+            <div><strong>{t("data.usageStats", "使用统计")}</strong><span>{totalStatEvents} {t("common.items", "条")}</span></div>
+            <button type="button" className="local-data-action danger" title={t("data.clearStats", "清空统计数据")} aria-label={t("data.clearStats", "清空统计数据")} disabled={busyAction !== null || totalStatEvents === 0} onClick={() => void resetStats()}><Trash2 size={16} /></button>
+          </div>
+          <div className="local-data-row">
+            <FolderOpen size={17} />
+            <div><strong>{t("data.dataDirectory", "数据目录")}</strong><code title={hideSensitiveContent ? undefined : dataDirectory || undefined}>{hideSensitiveContent && dataDirectory ? t("privacy.detailsHidden", "详情已隐藏") : dataDirectory === null ? t("common.loading", "加载中...") : dataDirectory || t("data.directoryUnavailable", "不可用")}</code></div>
+            <button type="button" className="local-data-action" title={t("data.openDataDirectory", "打开数据目录")} aria-label={t("data.openDataDirectory", "打开数据目录")} disabled={busyAction !== null || !dataDirectory} onClick={() => void openDataDirectory()}><FolderOpen size={16} /></button>
+          </div>
+        </div>
+        {actionError ? <p className="local-data-error" role="status">{actionError}</p> : null}
       </section>
     </section>
   );

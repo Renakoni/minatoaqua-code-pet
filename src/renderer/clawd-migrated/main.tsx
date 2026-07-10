@@ -31,8 +31,9 @@ import {
   Wrench,
   X
 } from "lucide-react";
-import type { CompanionEvent, CompanionSettings, CompanionSession, FeedbackMode, PetState, PrivacyMode, PermissionRequest, PluginWidgetDescriptor, ToolName, UpdateStatus } from "../shared/events";
+import type { CompanionEvent, CompanionSettings, CompanionSession, FeedbackMode, PetState, PermissionRequest, PluginWidgetDescriptor, ToolName, UpdateStatus } from "../shared/events";
 import { defaultSettings, stateFromEvent, type EventHistoryEntry, type NotificationRule, type CustomPlugin } from "../shared/events";
+import { redactDisplayEvent } from "../../shared/privacy";
 import "./styles.css";
 import { I18nProvider, useI18n, detectLocale } from "./useI18n";
 import { useCompanion, type ToolStream } from "./useCompanion";
@@ -208,7 +209,7 @@ function getPluginWidgetOffset(settings: CompanionSettings, plugin: CustomPlugin
 }
 
 function PetApp() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { settings, updateSettings, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, mainSessionId, companionSlotRef, connection, respondToPermission } = useCompanion({ keepEventList: false });
   const editMode = settings.editPosition;
   const dragging = useRef<string | null>(null);
@@ -225,14 +226,15 @@ function PetApp() {
     const off = window.companion.onEvent(event => {
       if (event.event !== "git_operation") return;
       if (gitToastTimer.current) window.clearTimeout(gitToastTimer.current);
-      setGitToast({ id: event.id, title: event.title, message: event.message });
+      const displayEvent = settings.hideSensitiveContent ? redactDisplayEvent(event, locale) : event;
+      setGitToast({ id: event.id, title: displayEvent.title, message: displayEvent.message });
       gitToastTimer.current = window.setTimeout(() => setGitToast(null), 2200);
     });
     return () => {
       off();
       if (gitToastTimer.current) window.clearTimeout(gitToastTimer.current);
     };
-  }, []);
+  }, [locale, settings.hideSensitiveContent]);
 
   // HTML5 Audio 播放音效
   useEffect(() => {
@@ -899,7 +901,7 @@ function StateProp({ state }: { state: PetState }) {
 
 function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
-  const { settings, updateSettings, connection, events, petState, toolStreams } = useCompanion();
+  const { settings, updateSettings, connection, events, petState, toolStreams, clearActivityHistory } = useCompanion();
   const activePetTheme = getPetTheme(settings.petTheme);
   // Character chrome (anchor icon, character name in the version bar) only
   // belongs to the pet interface theme; light/dark stay neutral.
@@ -918,14 +920,15 @@ function SettingsApp() {
     const off = window.companion.onEvent(event => {
       if (event.event !== "git_operation") return;
       if (gitToastTimer.current) window.clearTimeout(gitToastTimer.current);
-      setGitToast({ id: event.id, title: event.title, message: event.message });
+      const displayEvent = settings.hideSensitiveContent ? redactDisplayEvent(event, locale) : event;
+      setGitToast({ id: event.id, title: displayEvent.title, message: displayEvent.message });
       gitToastTimer.current = window.setTimeout(() => setGitToast(null), 2200);
     });
     return () => {
       off();
       if (gitToastTimer.current) window.clearTimeout(gitToastTimer.current);
     };
-  }, []);
+  }, [locale, settings.hideSensitiveContent]);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
     checking: false,
     available: false,
@@ -1099,6 +1102,11 @@ function SettingsApp() {
     }
   }
 
+  async function handleResetStats() {
+    await window.companion.resetStats();
+    setPersistedStats(await window.companion.getStats());
+  }
+
   return (
     <main className="settings-shell">
       {gitToast && (
@@ -1183,14 +1191,20 @@ function SettingsApp() {
             />
           )}
 
-          {activeSection === "sessions" && <SessionsPage />}
+          {activeSection === "sessions" && <SessionsPage hideSensitiveContent={settings.hideSensitiveContent} />}
 
           {activeSection === "plugins" && <PluginsPage settings={settings} updateSettings={updateSettings} />}
 
           {activeSection === "animation" && <AnimationSection settings={settings} updateSettings={updateSettings} />}
 
           {activeSection === "data" && (
-            <DataSection persistedStats={persistedStats} />
+            <DataSection
+              persistedStats={persistedStats}
+              activityCount={events.length}
+              hideSensitiveContent={settings.hideSensitiveContent}
+              onClearActivity={clearActivityHistory}
+              onResetStats={handleResetStats}
+            />
           )}
         </React.Suspense>
       </div>
@@ -1263,12 +1277,6 @@ function MappingRow({ row }: { row: { source: string; tool?: string; state: PetS
       <em className={`tone-${stateCopy[row.state].tone}`}>{t(`pet.${row.state}`, stateCopy[row.state].label)}</em>
     </article>
   );
-}
-
-function privacyLabel(mode: PrivacyMode) {
-  if (mode === "safe") return "安全";
-  if (mode === "standard") return "标准";
-  return "详细";
 }
 
 export function ClawdSettingsRoot() {

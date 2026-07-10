@@ -68,6 +68,8 @@ type CompanionApi = {
   getSessionHistory: () => Promise<SessionHistory[]>;
   clearEventHistory: () => Promise<void>;
   exportEventHistoryFile: () => Promise<void>;
+  getDataDirectory: () => Promise<string>;
+  openDataDirectory: () => Promise<{ ok: boolean; error?: string }>;
   getMonitors: () => Promise<unknown[]>;
   getPlugins: () => Promise<unknown[]>;
   getClaudeResources: (force?: boolean) => Promise<unknown>;
@@ -112,9 +114,6 @@ const sessionId = "local-pet-session";
 const missingHookEvents = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
 const currentSettings: CompanionSettings = {
   ...defaultSettings,
-  port: 17321,
-  token: "minato-aqua-local",
-  privacyMode: "detailed",
   language: "zh",
   enabledSources: ["claude-code", "codex"],
   petTheme: "minato-aqua",
@@ -122,6 +121,7 @@ const currentSettings: CompanionSettings = {
 };
 
 let eventHistory: EventHistoryEntry[] = [];
+let statsHistory: EventHistoryEntry[] = [];
 let startedAt = Date.now();
 let eventPort = 17321;
 let lastEvent: CompanionEvent | null = null;
@@ -231,8 +231,6 @@ function currentConnection(): CompanionConnectionStatus {
   return {
     port: eventPort,
     serverListening: true,
-    tokenSet: true,
-    privacyMode: currentSettings.privacyMode,
     connected: true,
     activeSessionId: sessionId,
     activeClientType: "desktop",
@@ -246,7 +244,9 @@ function currentConnection(): CompanionConnectionStatus {
 
 function applyCompanionEvent(event: CompanionEvent) {
   lastEvent = event;
-  eventHistory = [{ id: event.id, event, timestamp: event.timestamp }, ...eventHistory].slice(0, currentSettings.eventHistoryLimit);
+  const entry = { id: event.id, event, timestamp: event.timestamp };
+  eventHistory = [entry, ...eventHistory].slice(0, currentSettings.eventHistoryLimit);
+  statsHistory = [entry, ...statsHistory].slice(0, currentSettings.eventHistoryLimit);
   emit(companionEventListeners, event);
   emit(connectionListeners, currentConnection());
 
@@ -276,7 +276,7 @@ function buildStats(): AppStats {
     totalRuntime: Math.max(0, Date.now() - startedAt)
   };
 
-  for (const entry of eventHistory) {
+  for (const entry of statsHistory) {
     const event = entry.event;
     stats.eventTypeCounts[event.event] = (stats.eventTypeCounts[event.event] ?? 0) + 1;
     if (event.tool) stats.toolUsage[event.tool] = (stats.toolUsage[event.tool] ?? 0) + 1;
@@ -300,7 +300,7 @@ function buildStats(): AppStats {
     if (event.event === "permission_wait") stats.dailyStats[day].permissionRequests = (stats.dailyStats[day].permissionRequests ?? 0) + 1;
   }
 
-  stats.totalSessions = 1;
+  stats.totalSessions = statsHistory.some(entry => entry.event.event === "session_start") ? 1 : 0;
   return stats;
 }
 
@@ -392,6 +392,7 @@ function bindPetApi(petApi: PetApi) {
       lastEvent = lastEvent ?? companionEvent;
       return { id: companionEvent.id, event: companionEvent, timestamp: companionEvent.timestamp };
     });
+    if (statsHistory.length === 0) statsHistory = [...eventHistory];
     if (snapshot.events[0]) lastEvent = toCompanionEvent(snapshot.events[0]);
     emit(connectionListeners, currentConnection());
   });
@@ -462,6 +463,8 @@ export function installClawdCompat() {
     getSessionHistory: async () => sessionHistory(),
     clearEventHistory: async () => { eventHistory = []; },
     exportEventHistoryFile: async () => undefined,
+    getDataDirectory: async () => "Development data",
+    openDataDirectory: async () => ({ ok: true }),
     getMonitors: async () => [],
     getPlugins: async () => [],
     getClaudeResources: async () => ({ summary: { skills: 0, plugins: 0, mcp: 0 }, skills: [], plugins: [], mcp: [], scannedAt: Date.now(), paths: { claudeDir: "~/.claude", claudeJson: "~/.claude.json" } }),
@@ -479,7 +482,7 @@ export function installClawdCompat() {
       if (/^https?:\/\//.test(url)) window.open(url, "_blank", "noopener,noreferrer");
     },
     getStats: async () => buildStats(),
-    resetStats: async () => { eventHistory = []; },
+    resetStats: async () => { statsHistory = []; },
     exportSettingsFile: async () => undefined,
     importSettingsFile: async () => null,
     exportStatsFile: async () => undefined,

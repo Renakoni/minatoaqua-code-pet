@@ -1259,6 +1259,108 @@
   background: transparent;
 }
 
+.local-data-list {
+  min-width: 0;
+  display: grid;
+}
+
+.local-data-row {
+  min-width: 0;
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--workbench-line);
+}
+
+.local-data-row:first-child {
+  border-top: 0;
+}
+
+.local-data-row > svg {
+  color: var(--workbench-muted);
+}
+
+.local-data-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.local-data-row strong,
+.local-data-row span,
+.local-data-row code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.local-data-row strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 740;
+  line-height: 1.2;
+}
+
+.local-data-row span,
+.local-data-row code {
+  color: var(--workbench-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.local-data-row code {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.local-data-action {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--workbench-line);
+  border-radius: 7px;
+  color: var(--workbench-muted);
+  background: transparent;
+  transition: color 160ms ease-out, background-color 160ms ease-out, border-color 160ms ease-out;
+}
+
+.local-data-action:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: oklch(34% 0.012 75 / 0.28);
+  background: var(--workbench-subtle);
+}
+
+.local-data-action.danger:hover:not(:disabled) {
+  color: var(--coral);
+  border-color: color-mix(in oklch, var(--coral) 34%, transparent);
+  background: color-mix(in oklch, var(--coral) 9%, transparent);
+}
+
+.local-data-action:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--honey) 72%, transparent);
+  outline-offset: 2px;
+}
+
+.local-data-action:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.local-data-error {
+  margin: 0;
+  padding: 10px 18px;
+  border-top: 1px solid var(--workbench-line);
+  color: var(--coral);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 [data-theme=dark] .overview-workbench,
 [data-theme=dark] .data-workbench {
   --workbench-surface: oklch(20% 0.008 75 / 0.86);
@@ -1450,6 +1552,11 @@
   .workbench-section-head {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .data-local-section .workbench-section-head {
+    align-items: center;
+    flex-direction: row;
   }
 
   .stats-board-head {

@@ -34,7 +34,7 @@ const emptySnapshot: ClaudeResourcesSnapshot = {
   paths: { claudeDir: "~/.claude", claudeJson: "~/.claude.json" }
 };
 
-export function PluginsPage(_: { settings: CompanionSettings; updateSettings: (s: Partial<CompanionSettings>) => void }) {
+export function PluginsPage({ settings }: { settings: CompanionSettings; updateSettings: (s: Partial<CompanionSettings>) => void }) {
   const { locale } = useI18n();
   const zh = locale === "zh";
   const [activeTab, setActiveTab] = useState<ResourceTab>("skills");
@@ -77,8 +77,8 @@ export function PluginsPage(_: { settings: CompanionSettings; updateSettings: (s
   const filteredItems = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return items;
-    return items.filter(item => [item.name, item.description, item.path, item.detail, item.source].filter(Boolean).join(" ").toLowerCase().includes(needle));
-  }, [items, query]);
+    return items.filter(item => [item.name, item.description, settings.hideSensitiveContent ? undefined : item.path, settings.hideSensitiveContent ? undefined : item.detail, item.source].filter(Boolean).join(" ").toLowerCase().includes(needle));
+  }, [items, query, settings.hideSensitiveContent]);
 
   useEffect(() => {
     setQuery("");
@@ -131,8 +131,8 @@ export function PluginsPage(_: { settings: CompanionSettings; updateSettings: (s
                     <div className="claude-resource-name-line">
                       <strong>{item.name}</strong>
                     </div>
-                    <p>{item.description ?? item.detail ?? fallbackDescription(item.kind, zh)}</p>
-                    {item.path ? <code title={item.path}>{compactPath(item.path)}</code> : null}
+                    <p>{settings.hideSensitiveContent ? fallbackDescription(item.kind, zh) : item.description ?? item.detail ?? fallbackDescription(item.kind, zh)}</p>
+                    {item.path ? <code title={settings.hideSensitiveContent ? undefined : item.path}>{settings.hideSensitiveContent ? (zh ? "详情已隐藏" : "Details hidden") : compactPath(item.path)}</code> : null}
                   </div>
                   <div className="claude-resource-row-origin">
                     <span>{originEyebrow(item, zh)}</span>
@@ -150,7 +150,7 @@ export function PluginsPage(_: { settings: CompanionSettings; updateSettings: (s
 
       {showScanNote ? (
         <p className="note claude-resource-path-note dark">
-          {zh ? "只读扫描" : "Read-only scan"} · {snapshot.paths.claudeDir} · {snapshot.paths.claudeJson}
+          {zh ? "只读扫描" : "Read-only scan"} · {settings.hideSensitiveContent ? (zh ? "路径已隐藏" : "Paths hidden") : `${snapshot.paths.claudeDir} · ${snapshot.paths.claudeJson}`}
           {snapshot.scannedAt ? ` · ${new Date(snapshot.scannedAt).toLocaleTimeString()}` : ""}
         </p>
       ) : null}

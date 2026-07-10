@@ -121,7 +121,6 @@ export type PetState =
   | "done"
   | "error";
 
-export type PrivacyMode = "safe" | "standard" | "detailed";
 export type FeedbackMode = "thought" | "card" | "ribbon";
 export type PetThemeId = "minato-aqua";
 
@@ -251,9 +250,7 @@ export interface CompanionSettings {
   currentClaudeProviderId?: string;
   claudeRoutes?: unknown[];
   activeClaudeRouteId?: string;
-  port: number;
-  token: string;
-  privacyMode: PrivacyMode;
+  hideSensitiveContent: boolean;
   showBubbles: boolean;
   editPosition: boolean;
   alwaysOnTop: boolean;
@@ -654,8 +651,6 @@ export interface MonitorPosition {
 export interface CompanionConnectionStatus {
   port: number;
   serverListening: boolean;
-  tokenSet: boolean;
-  privacyMode: PrivacyMode;
   connected: boolean;
   activeSessionId?: string;
   activeClientType?: ClientType;
@@ -668,9 +663,7 @@ export interface CompanionConnectionStatus {
 }
 
 export const defaultSettings: CompanionSettings = {
-  port: 47634,
-  token: "clawd-local",
-  privacyMode: "detailed",
+  hideSensitiveContent: false,
   showBubbles: true,
   editPosition: false,
   alwaysOnTop: true,

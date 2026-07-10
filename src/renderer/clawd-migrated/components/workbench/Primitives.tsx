@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React from "react";
 import { Eye, EyeOff } from "lucide-react";
-import type { CompanionSettings, PrivacyMode } from "../../../shared/events";
+import type { CompanionSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 
 export function GroupCard({ icon, title, action, className, children }: { icon?: React.ReactNode; title: string; action?: React.ReactNode; className?: string; children: React.ReactNode }) {
@@ -23,10 +23,6 @@ export function ConnectionDetail({ label, value }: { label: string; value: strin
 
 export function SettingsInfoRow({ label, value }: { label: string; value: string }) {
   return <div className="settings-info-row"><span>{label}</span><strong>{value}</strong></div>;
-}
-
-export function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="field"><span>{label}</span>{children}</label>;
 }
 
 export function Toggle({ label, checked, onChange }: { label: React.ReactNode; checked: boolean; onChange: (value: boolean) => void }) {
@@ -57,16 +53,6 @@ export function Slider({ label, min, max, step, value, format, onChange, disable
       <b>{format(value)}</b>
     </label>
   );
-}
-
-export function Segmented({ value, onChange }: { value: PrivacyMode; onChange: (value: PrivacyMode) => void }) {
-  const { t } = useI18n();
-  const items: Array<{ value: PrivacyMode; label: string }> = [
-    { value: "safe", label: t("connection.privacySafe", "安全") },
-    { value: "standard", label: t("connection.privacyStandard", "标准") },
-    { value: "detailed", label: t("connection.privacyDetailed", "详细") }
-  ];
-  return <div className="segmented">{items.map(item => <button key={item.value} className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
 }
 
 export function ThemeSegmented({ value, onChange }: { value: CompanionSettings["theme"]; onChange: (value: CompanionSettings["theme"]) => void }) {
