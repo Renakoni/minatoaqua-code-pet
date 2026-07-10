@@ -4,10 +4,10 @@ import { Eye, EyeOff } from "lucide-react";
 import type { CompanionSettings, PrivacyMode } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 
-export function GroupCard({ icon, title, children }: { icon?: React.ReactNode; title: string; children: React.ReactNode }) {
+export function GroupCard({ icon, title, action, className, children }: { icon?: React.ReactNode; title: string; action?: React.ReactNode; className?: string; children: React.ReactNode }) {
   return (
-    <div className="group-card">
-      <header className="group-card-header">{icon}<h3>{title}</h3></header>
+    <div className={`group-card${className ? ` ${className}` : ""}`}>
+      <header className="group-card-header">{icon}<h3>{title}</h3>{action}</header>
       {children}
     </div>
   );
@@ -39,10 +39,10 @@ export function Toggle({ label, checked, onChange }: { label: React.ReactNode; c
   );
 }
 
-export function Slider({ label, min, max, step, value, format, onChange }: { label: string; min: number; max: number; step: number; value: number; format: (value: number) => string; onChange: (value: number) => void }) {
+export function Slider({ label, min, max, step, value, format, onChange, disabled = false }: { label: string; min: number; max: number; step: number; value: number; format: (value: number) => string; onChange: (value: number) => void; disabled?: boolean }) {
   const fillPercent = ((value - min) / (max - min)) * 100;
   return (
-    <label className="slider-row">
+    <label className={`slider-row${disabled ? " disabled" : ""}`}>
       <span>{label}</span>
       <input
         type="range"
@@ -52,6 +52,7 @@ export function Slider({ label, min, max, step, value, format, onChange }: { lab
         value={value}
         style={{ "--slider-fill": `${fillPercent}%` } as React.CSSProperties}
         onChange={event => onChange(Number(event.target.value))}
+        disabled={disabled}
       />
       <b>{format(value)}</b>
     </label>

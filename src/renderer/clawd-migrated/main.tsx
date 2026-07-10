@@ -344,7 +344,7 @@ function PetApp() {
   }, [editMode, settings.clickThrough]);
 
   const offsetsRef = useRef(settings.positionOffsets ?? {});
-  const scaleRef = useRef({ clawd: settings.clawdScale, bubble: settings.thoughtScale, ribbon: settings.bubbleScale, permission: settings.permissionScale });
+  const scaleRef = useRef({ clawd: settings.petScale, bubble: settings.feedbackScale, ribbon: settings.feedbackScale, permission: settings.permissionScale });
 
   useEffect(() => {
     const move = (e: MouseEvent) => {
@@ -354,14 +354,14 @@ function PetApp() {
       if (key.startsWith("resize-")) {
         const zoneKey = key.slice(7);
         if (zoneKey === "clawd") {
-          updateSettings({ clawdScale: Math.max(0.6, Math.min(2, ox + (e.clientX - mx) / 226)) });
+          updateSettings({ petScale: Math.max(0.7, Math.min(1.35, ox + (e.clientX - mx) / 226)) });
         } else if (zoneKey === "bubble") {
           const ns = Math.max(0.6, Math.min(2, oy + (e.clientY - my) / 106));
-          updateSettings({ thoughtScale: ns, cardScale: ns });
+          updateSettings({ feedbackScale: Math.max(0.75, Math.min(1.35, ns)) });
         } else if (zoneKey === "ribbon") {
-          updateSettings({ bubbleScale: Math.max(0.6, Math.min(2, ox + (e.clientX - mx) / 144)) });
+          updateSettings({ feedbackScale: Math.max(0.75, Math.min(1.35, ox + (e.clientX - mx) / 144)) });
         } else if (zoneKey === "permission") {
-          updateSettings({ permissionScale: Math.max(0.4, Math.min(2, ox + (e.clientX - mx) / 240)) });
+          updateSettings({ permissionScale: Math.max(0.85, Math.min(1.25, ox + (e.clientX - mx) / 240)) });
         } else if (zoneKey.startsWith("edge")) {
           const ws = ox + (e.clientX - mx + e.clientY - my) / 800;
           updateSettings({ viewScale: Math.max(0.7, Math.min(2.5, ws)) });
@@ -394,7 +394,7 @@ function PetApp() {
   }, [settings.customPlugins]);
 
   useEffect(() => { offsetsRef.current = settings.positionOffsets ?? {}; }, [settings.positionOffsets]);
-  useEffect(() => { scaleRef.current = { clawd: settings.clawdScale, bubble: settings.thoughtScale, ribbon: settings.bubbleScale, permission: settings.permissionScale }; }, [settings.clawdScale, settings.thoughtScale, settings.bubbleScale, settings.permissionScale]);
+  useEffect(() => { scaleRef.current = { clawd: settings.petScale, bubble: settings.feedbackScale, ribbon: settings.feedbackScale, permission: settings.permissionScale }; }, [settings.petScale, settings.feedbackScale, settings.permissionScale]);
 
   const offsets = settings.positionOffsets ?? {};
   const viewOff = offsets.view ?? { x: 0, y: 0 };
@@ -508,12 +508,12 @@ function PetApp() {
     const bubbleMode = getFeedbackMode(previewEvent);
     const cw = Math.round(226 * settings.clawdScale);
     const ch = Math.round(238 * settings.clawdScale);
-    const bw = Math.round((bubbleMode === "thought" ? 172 : 234) * (bubbleMode === "thought" ? settings.thoughtScale : settings.cardScale));
-    const bh = Math.round((bubbleMode === "thought" ? 82 : 124) * (bubbleMode === "thought" ? settings.thoughtScale : settings.cardScale));
+    const bw = Math.round((bubbleMode === "thought" ? 172 : 234) * 0.75 * settings.feedbackScale);
+    const bh = Math.round((bubbleMode === "thought" ? 82 : 124) * 0.75 * settings.feedbackScale);
     const bx = bubbleMode === "thought" ? Math.round(226 - 6 - bw) : -4;
     const by = bubbleMode === "thought" ? 84 : 10;
-    const rw = Math.round(144 * settings.bubbleScale);
-    const rh = Math.round(144 * settings.bubbleScale);
+    const rw = Math.round(144 * settings.feedbackScale);
+    const rh = Math.round(144 * settings.feedbackScale);
     const pw = Math.round(240 * settings.permissionScale);
     const ph = Math.round(140 * settings.permissionScale);
 
@@ -540,7 +540,7 @@ function PetApp() {
               {settings.showStatusProp && previewState !== "idle" ? <StateProp state={previewState} /> : null}
             </div>
             {settings.showBubbles ? (
-              <ToolStreams streams={previewStreams} offset={offsets.ribbon} />
+              <ToolStreams streams={previewStreams} offset={offsets.ribbon} scale={settings.feedbackScale} opacity={settings.feedbackOpacity} />
             ) : null}
             {settings.showBubbles ? (
               <PermissionCard
@@ -647,7 +647,7 @@ function PetApp() {
   return (
     <main className={`pet-stage ${settings.clickThrough ? 'pet-clickthrough' : ''}`}>
       <PluginSpriteLoader plugins={settings.customPlugins ?? []} />
-      <section className="pet-anchor" style={{ transform: `translateX(-50%) scale(${settings.petScale}) translate(${viewOff.x}px, ${viewOff.y}px)`, opacity: settings.petOpacity }} onMouseDown={beginNormalDrag}>
+      <section className="pet-anchor" style={{ transform: `translateX(-50%) scale(${settings.petScale}) translate(${viewOff.x}px, ${viewOff.y}px)` }} onMouseDown={beginNormalDrag}>
       {gitToast && (
         <div className="git-toast" key={gitToast.id} style={{ top: 8, left: "50%", transform: `translateX(-50%) translate(${(settings.positionOffsets?.gitToast?.x ?? 0)}px, ${(settings.positionOffsets?.gitToast?.y ?? 0)}px)` }}>
           <span className="git-toast-title">{gitToast.title}</span>
@@ -674,7 +674,7 @@ function PetApp() {
           {settings.showStatusProp && petState !== "idle" ? <StateProp state={petState} /> : null}
         </div>
         {settings.showBubbles && toolStreams.length > 0 ? (
-          <ToolStreams streams={toolStreams} offset={offsets.ribbon} />
+          <ToolStreams streams={toolStreams} offset={offsets.ribbon} scale={settings.feedbackScale} opacity={settings.feedbackOpacity} />
         ) : null}
 
         {pluginWidgets.map(({ plugin, widget, widgetKey }) => widget.type === "pomodoro" ? (
@@ -704,7 +704,7 @@ function Bubble({ event, state, settings }: { event: CompanionEvent; state: PetS
   const feedbackMode = getFeedbackMode(event);
   if (feedbackMode === "thought") {
     return (
-      <div className="thought-wrapper" style={{ transform: `scale(${settings.thoughtScale})`, opacity: settings.thoughtOpacity }}>
+      <div className="thought-wrapper" style={{ transform: `scale(${0.75 * settings.feedbackScale})`, opacity: settings.feedbackOpacity }}>
         <section className={`thought-bubble thought-${state}`}>
           <i />
           <span>{toolLabel}</span>
@@ -715,7 +715,7 @@ function Bubble({ event, state, settings }: { event: CompanionEvent; state: PetS
   }
 
   return (
-    <div className="bubble-wrapper" style={{ transform: `scale(${settings.cardScale})`, opacity: settings.cardOpacity }}>
+    <div className="bubble-wrapper" style={{ transform: `scale(${0.75 * settings.feedbackScale})`, opacity: settings.feedbackOpacity }}>
       <section className={`bubble bubble-${state}`}>
         <div className="bubble-status-light" />
         <div className="bubble-content">
@@ -758,11 +758,11 @@ const toolColorMap: Record<string, string> = {
   Unknown: "steel"
 };
 
-function ToolStreams({ streams, offset }: { streams: ToolStream[]; offset?: { x: number; y: number } }) {
+function ToolStreams({ streams, offset, scale, opacity }: { streams: ToolStream[]; offset?: { x: number; y: number }; scale: number; opacity: number }) {
   const visible = streams.filter((stream, index) => stream.exiting || streams.slice(0, index).filter(s => !s.exiting).length < 5);
 
   return (
-    <div className="tool-streams" style={{ transform: `translate(${offset?.x ?? 0}px, ${offset?.y ?? 0}px)` }}>
+    <div className="tool-streams" style={{ transform: `translate(${offset?.x ?? 0}px, ${offset?.y ?? 0}px) scale(${scale})`, opacity }}>
       {visible.map((stream) => {
         const tool = stream.event.tool ?? "Unknown";
         const color = toolColorMap[tool] ?? "steel";

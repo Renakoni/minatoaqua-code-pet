@@ -270,6 +270,8 @@ export interface CompanionSettings {
   cardOpacity: number;
   bubbleScale: number;
   bubbleOpacity: number;
+  feedbackScale: number;
+  feedbackOpacity: number;
   bubbleDuration: number;
   permissionScale: number;
   permissionOpacity: number;
@@ -692,6 +694,8 @@ export const defaultSettings: CompanionSettings = {
   cardOpacity: 1,
   bubbleScale: 1,
   bubbleOpacity: 1,
+  feedbackScale: 1,
+  feedbackOpacity: 1,
   bubbleDuration: 8,
   permissionScale: 0.9,
   permissionOpacity: 1,

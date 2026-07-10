@@ -9,7 +9,7 @@ interface PermissionCardProps {
   queueCount: number;
   onAllow: () => void;
   onDeny: () => void;
-  settings: { permissionScale?: number; permissionOpacity?: number };
+  settings: { permissionScale?: number; petScale?: number };
   hitTestRef?: React.Ref<HTMLDivElement>;
   offset?: { x?: number; y?: number };
 }
@@ -82,8 +82,7 @@ export function PermissionCard({ permission, queueCount, onAllow, onDeny, settin
         ref={hitTestRef}
         className="perm-card"
         style={{
-          opacity: settings.permissionOpacity ?? 1,
-          transform: `scale(${settings.permissionScale ?? 1})`,
+          transform: `scale(${(settings.permissionScale ?? 1) / Math.max(settings.petScale ?? 1, 0.01)})`,
           "--risk-color": rc.color,
           "--risk-glow": rc.glow,
         } as React.CSSProperties}

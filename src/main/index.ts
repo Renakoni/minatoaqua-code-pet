@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
+import { migratePetDisplaySettings } from "../shared/petDisplaySettings";
 import {
   addCcSwitchProvider,
   deleteCcSwitchProvider,
@@ -110,6 +111,8 @@ let companionSettings: Record<string, any> = {
   cardOpacity: 1,
   bubbleScale: 1,
   bubbleOpacity: 1,
+  feedbackScale: 1,
+  feedbackOpacity: 1,
   bubbleDuration: 8,
   permissionScale: 0.9,
   permissionOpacity: 1,
@@ -2566,7 +2569,7 @@ function loadCompanionSettings() {
     if (existsSync(settingsPath())) {
       const parsed = JSON.parse(readFileSync(settingsPath(), "utf8")) as Record<string, unknown>;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        companionSettings = { ...companionSettings, ...parsed };
+        companionSettings = { ...companionSettings, ...parsed, ...migratePetDisplaySettings(parsed) };
       }
     }
   } catch { /* ignore corrupt settings */ }

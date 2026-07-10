@@ -514,7 +514,15 @@
     "thoughtBubble": "Thought bubble",
     "card": "Card",
     "bubbleToolStream": "Bubble / tool stream",
-    "permissionPopup": "Permission popup"
+    "permissionPopup": "Permission popup",
+    "petAppearance": "Pet appearance",
+    "petSize": "Pet size",
+    "petOpacity": "Pet opacity",
+    "statusFeedback": "Status feedback",
+    "feedbackSize": "Feedback size",
+    "feedbackOpacity": "Feedback opacity",
+    "permissionConfirmation": "Permission confirmation",
+    "permissionCardSize": "Permission card size"
   },
   "behavior": {
     "launchAtLogin": "Launch at login",
