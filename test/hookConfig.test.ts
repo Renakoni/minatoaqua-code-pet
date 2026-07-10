@@ -1,68 +1,97 @@
 import { describe, it, expect } from "vitest";
-import { evaluateHookConfig, isClawdHookCommand } from "../src/main/hookConfig";
+import {
+  evaluateHookConfig,
+  isClawdHookCommand,
+  isCurrentClawdCommand,
+  stripClawdCommands,
+  canonicalizeEventEntries,
+  type ExpectedHookCommand
+} from "../src/main/hookConfig";
 
 const REQUIRED = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
-const CURRENT = "/app/scripts/hook-forwarder.js";
 const PRETOOLUSE_TIMEOUT = 75;
 
-function commandFor(eventName: string, forwarderPath = CURRENT) {
-  return `node "${forwarderPath}" ${eventName} --settings "/home/user/.claude/settings.json"`;
+const EXPECTED: ExpectedHookCommand = {
+  forwarderPath: "/app/scripts/hook-forwarder.js",
+  settingsPath: "/home/user/.claude/settings.json",
+  appPath: "/opt/app/pet",
+  appRoot: "/opt/app/resources/app",
+  port: 17321
+};
+
+type Overrides = Partial<ExpectedHookCommand> & { timeout?: number };
+
+// The full canonical command the app generates: every argument that affects
+// operation is present, so a stale port/settings/app path can be detected.
+function commandFor(eventName: string, overrides: Overrides = {}) {
+  const e = { ...EXPECTED, ...overrides };
+  return `node "${e.forwarderPath}" ${eventName} --settings "${e.settingsPath}" --app-path "${e.appPath}" --app-root "${e.appRoot}" --port ${e.port}`;
 }
 
-// Build a Claude settings object whose hooks reference our forwarder for the
-// given events. `path` lets a test simulate a drifted (outdated) forwarder path.
-function settingsWith(events: string[], opts: { path?: string; preToolUseTimeout?: number } = {}) {
+function clawdHook(eventName: string, overrides: Overrides = {}) {
+  const hook: Record<string, unknown> = { type: "command", command: commandFor(eventName, overrides) };
+  if (eventName === "PreToolUse") hook.timeout = overrides.timeout ?? PRETOOLUSE_TIMEOUT;
+  return hook;
+}
+
+const thirdPartyHook = { type: "command", command: "node /other/vendor/tool.js" };
+
+function entriesFor(eventName: string, overrides: Overrides = {}) {
+  return [{ matcher: "*", hooks: [clawdHook(eventName, overrides)] }];
+}
+
+function fullSettings(overridesByEvent: Record<string, Overrides> = {}) {
   const hooks: Record<string, unknown> = {};
-  for (const eventName of events) {
-    const hook: Record<string, unknown> = { type: "command", command: commandFor(eventName, opts.path ?? CURRENT) };
-    if (eventName === "PreToolUse") hook.timeout = opts.preToolUseTimeout ?? PRETOOLUSE_TIMEOUT;
-    hooks[eventName] = [{ matcher: "*", hooks: [hook] }];
-  }
+  for (const eventName of REQUIRED) hooks[eventName] = entriesFor(eventName, overridesByEvent[eventName]);
   return { hooks };
 }
 
-const baseOptions = { requiredEvents: REQUIRED, currentForwarderPath: CURRENT, preToolUseEvent: "PreToolUse", preToolUseTimeout: PRETOOLUSE_TIMEOUT };
+const baseOptions = { requiredEvents: REQUIRED, expected: EXPECTED, preToolUseEvent: "PreToolUse", preToolUseTimeout: PRETOOLUSE_TIMEOUT };
 
-describe("evaluateHookConfig", () => {
+describe("evaluateHookConfig: completeness and currentness", () => {
   it("reports a complete, current configuration as installed", () => {
-    const result = evaluateHookConfig(settingsWith(REQUIRED), baseOptions);
+    const result = evaluateHookConfig(fullSettings(), baseOptions);
     expect(result.missingEvents).toEqual([]);
+    expect(result.staleEvents).toEqual([]);
     expect(result.hookCount).toBe(6);
     expect(result.commandMatches).toBe(true);
     expect(result.installed).toBe(true);
   });
 
-  it("evaluates configuration purely from settings, independent of forwarder-file existence", () => {
-    // The evaluator never touches the filesystem: a config pointing at a path
-    // that does not exist on disk is still fully configured. Forwarder existence
-    // is a separate fact reported elsewhere.
-    const result = evaluateHookConfig(settingsWith(REQUIRED), baseOptions);
-    expect(result.missingEvents).toEqual([]);
-    expect(result.commandMatches).toBe(true);
-  });
-
-  it("lists exactly the events that are not configured", () => {
-    const result = evaluateHookConfig(settingsWith(["SessionStart", "PreToolUse", "Stop"]), baseOptions);
-    expect(result.missingEvents).toEqual(["UserPromptSubmit", "PostToolUse", "Notification"]);
-    expect(result.hookCount).toBe(3);
+  it("lists exactly the events that have no Clawd command", () => {
+    const settings = fullSettings();
+    delete (settings.hooks as any).Notification;
+    delete (settings.hooks as any).Stop;
+    const result = evaluateHookConfig(settings, baseOptions);
+    expect(result.missingEvents).toEqual(["Notification", "Stop"]);
+    expect(result.hookCount).toBe(4);
     expect(result.installed).toBe(false);
   });
 
-  it("detects a command that points at an outdated forwarder path (config present, command stale)", () => {
-    const result = evaluateHookConfig(settingsWith(REQUIRED, { path: "/old/location/hook-forwarder.js" }), baseOptions);
-    // Every required event is still configured...
+  it("detects an outdated forwarder path", () => {
+    const result = evaluateHookConfig(fullSettings({ Stop: { forwarderPath: "/old/hook-forwarder.js" } }), baseOptions);
     expect(result.missingEvents).toEqual([]);
-    expect(result.hookCount).toBe(6);
-    // ...but the command no longer points at the current forwarder.
+    expect(result.staleEvents).toEqual(["Stop"]);
     expect(result.commandMatches).toBe(false);
-    expect(result.installed).toBe(false);
   });
 
-  it("detects an incorrect PreToolUse timeout even when every event is present", () => {
-    const result = evaluateHookConfig(settingsWith(REQUIRED, { preToolUseTimeout: 60 }), baseOptions);
+  it("detects a wrong --port even when the forwarder path is current", () => {
+    const result = evaluateHookConfig(fullSettings({ Stop: { port: 9999 } }), baseOptions);
     expect(result.missingEvents).toEqual([]);
+    expect(result.staleEvents).toEqual(["Stop"]);
     expect(result.commandMatches).toBe(false);
-    expect(result.installed).toBe(false);
+  });
+
+  it("detects a wrong --settings path", () => {
+    const result = evaluateHookConfig(fullSettings({ PostToolUse: { settingsPath: "/wrong/settings.json" } }), baseOptions);
+    expect(result.staleEvents).toEqual(["PostToolUse"]);
+    expect(result.commandMatches).toBe(false);
+  });
+
+  it("detects an incorrect PreToolUse timeout", () => {
+    const result = evaluateHookConfig(fullSettings({ PreToolUse: { timeout: 60 } }), baseOptions);
+    expect(result.staleEvents).toEqual(["PreToolUse"]);
+    expect(result.commandMatches).toBe(false);
   });
 
   it("treats empty or hookless settings as fully unconfigured", () => {
@@ -72,17 +101,78 @@ describe("evaluateHookConfig", () => {
   });
 });
 
-describe("isClawdHookCommand", () => {
-  it("recognizes our forwarder command for a given event", () => {
-    expect(isClawdHookCommand(commandFor("PreToolUse"), "PreToolUse")).toBe(true);
-    expect(isClawdHookCommand(commandFor("PreToolUse"), "Stop")).toBe(false);
-    expect(isClawdHookCommand("node other-script.js PreToolUse", "PreToolUse")).toBe(false);
+describe("evaluateHookConfig: duplicate / stale entries are not healthy", () => {
+  it("flags an event that has a current AND a stale Clawd command", () => {
+    const settings = fullSettings();
+    (settings.hooks as any).Stop = [
+      { matcher: "*", hooks: [clawdHook("Stop")] },
+      { matcher: "*", hooks: [clawdHook("Stop", { forwarderPath: "/old/scripts/hook-forwarder.js" })] }
+    ];
+    const result = evaluateHookConfig(settings, baseOptions);
+    expect(result.missingEvents).toEqual([]);
+    expect(result.staleEvents).toEqual(["Stop"]);
+    expect(result.commandMatches).toBe(false);
+    expect(result.installed).toBe(false);
   });
 
-  it("only reports a path match when the configured path equals the current one", () => {
-    expect(isClawdHookCommand(commandFor("Stop", CURRENT), "Stop", { matchesCurrentPath: true, currentForwarderPath: CURRENT })).toBe(true);
-    expect(isClawdHookCommand(commandFor("Stop", "/old/hook-forwarder.js"), "Stop", { matchesCurrentPath: true, currentForwarderPath: CURRENT })).toBe(false);
-    // Without a current path to compare against, a match cannot be asserted.
-    expect(isClawdHookCommand(commandFor("Stop"), "Stop", { matchesCurrentPath: true })).toBe(false);
+  it("flags an event with two duplicate current Clawd commands", () => {
+    const settings = fullSettings();
+    (settings.hooks as any).Stop = [
+      { matcher: "*", hooks: [clawdHook("Stop"), clawdHook("Stop")] }
+    ];
+    expect(evaluateHookConfig(settings, baseOptions).staleEvents).toEqual(["Stop"]);
+  });
+
+  it("ignores unrelated third-party hooks alongside a single current Clawd command", () => {
+    const settings = fullSettings();
+    (settings.hooks as any).Stop = [
+      { matcher: "Bash", hooks: [thirdPartyHook] },
+      { matcher: "*", hooks: [clawdHook("Stop")] }
+    ];
+    const result = evaluateHookConfig(settings, baseOptions);
+    expect(result.staleEvents).toEqual([]);
+    expect(result.commandMatches).toBe(true);
+  });
+});
+
+describe("isCurrentClawdCommand", () => {
+  it("accepts the current canonical command and rejects each drifted argument", () => {
+    expect(isCurrentClawdCommand(commandFor("Stop"), "Stop", EXPECTED)).toBe(true);
+    expect(isCurrentClawdCommand(commandFor("Stop", { port: 1 }), "Stop", EXPECTED)).toBe(false);
+    expect(isCurrentClawdCommand(commandFor("Stop", { settingsPath: "/x/y.json" }), "Stop", EXPECTED)).toBe(false);
+    expect(isCurrentClawdCommand(commandFor("Stop", { appPath: "/x/pet" }), "Stop", EXPECTED)).toBe(false);
+    expect(isCurrentClawdCommand(commandFor("Stop", { appRoot: "/x/root" }), "Stop", EXPECTED)).toBe(false);
+    expect(isCurrentClawdCommand(commandFor("Stop", { forwarderPath: "/x/hook-forwarder.js" }), "Stop", EXPECTED)).toBe(false);
+    // Wrong event name entirely.
+    expect(isCurrentClawdCommand(commandFor("Stop"), "PreToolUse", EXPECTED)).toBe(false);
+  });
+});
+
+describe("repair de-duplication (canonicalizeEventEntries / stripClawdCommands)", () => {
+  it("strips every Clawd command while preserving third-party hooks and dropping empty entries", () => {
+    const entries = [
+      { matcher: "Bash", hooks: [thirdPartyHook, clawdHook("Stop")] },
+      { matcher: "*", hooks: [clawdHook("Stop", { forwarderPath: "/old/hook-forwarder.js" })] }
+    ];
+    const stripped = stripClawdCommands(entries);
+    expect(stripped).toEqual([{ matcher: "Bash", hooks: [thirdPartyHook] }]);
+  });
+
+  it("repairs an event to exactly one canonical Clawd command, keeping third-party hooks", () => {
+    const canonical = { matcher: "*", hooks: [clawdHook("Stop")] };
+    const entries = [
+      { matcher: "Bash", hooks: [thirdPartyHook, clawdHook("Stop")] },
+      { matcher: "*", hooks: [clawdHook("Stop", { port: 1 })] }
+    ];
+    const repaired = canonicalizeEventEntries(entries, canonical);
+
+    // Third-party hook survives.
+    const thirdPartyStillThere = repaired.some((e: any) => e.hooks.includes(thirdPartyHook));
+    expect(thirdPartyStillThere).toBe(true);
+
+    // Exactly one Clawd command remains, and the whole event now evaluates clean.
+    const clawdCount = repaired.flatMap((e: any) => e.hooks).filter((h: any) => isClawdHookCommand(h?.command)).length;
+    expect(clawdCount).toBe(1);
+    expect(evaluateHookConfig({ hooks: { Stop: repaired } }, { ...baseOptions, requiredEvents: ["Stop"] }).commandMatches).toBe(true);
   });
 });

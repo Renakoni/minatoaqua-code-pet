@@ -5,6 +5,7 @@ import { useI18n } from "../../useI18n";
 import { ClaudeRoutingPanel } from "../../components/claude-routing/ClaudeRoutingPanel";
 import { HooksManager, type HookStatus } from "../../components/hooks/HooksManager";
 import { deriveConnectionState } from "./connectionState";
+import { redactSensitiveText } from "../../../../shared/privacy";
 import { timeAgo } from "../../utils/format";
 
 type ConnectionRowState = "healthy" | "waiting" | "partial" | "repair" | "unavailable";
@@ -31,6 +32,7 @@ export function OverviewSection({
   now,
   hookStatus,
   checkError = false,
+  checking = false,
   onRecheck,
   onHookStatusChange,
   onHookInstallSuccess
@@ -41,11 +43,12 @@ export function OverviewSection({
   now: number;
   hookStatus: HookStatus | null;
   checkError?: boolean;
+  checking?: boolean;
   onRecheck?: () => void;
   onHookStatusChange: (status: HookStatus) => void;
   onHookInstallSuccess: (status: HookStatus) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const hideSensitive = settings.hideSensitiveContent === true;
   const format = (template: string, values: Record<string, string | number>) =>
     Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
@@ -71,15 +74,16 @@ export function OverviewSection({
   } = facts;
 
   const recheckButton = onRecheck ? (
-    <button type="button" className="connection-recheck" onClick={onRecheck}>
-      <RefreshCw size={13} />{t("connection.recheck", "重新检查")}
+    <button type="button" className="connection-recheck" onClick={onRecheck} disabled={checking}>
+      <RefreshCw size={13} className={checking ? "spin" : undefined} />
+      {checking ? t("connection.rechecking", "检查中…") : t("connection.recheck", "重新检查")}
     </button>
   ) : null;
 
   return (
     <section className="overview-workbench">
       <ClaudeRoutingPanel />
-      {connection.error ? <section className="connection-error"><Wrench size={18} />{connection.error}</section> : null}
+      {connection.error ? <section className="connection-error"><Wrench size={18} />{hideSensitive ? redactSensitiveText(connection.error, locale) : connection.error}</section> : null}
 
       <section className="overview-connection">
         <header className="workbench-section-head">
@@ -109,6 +113,8 @@ export function OverviewSection({
             <h3>{t("main.connectTitle", "连接 Claude Code")}</h3>
             <p>{t("connection.onboardingBody", "一键安装 hooks，Claude Code 就会把会话事件发送到桌宠。")}</p>
             <HooksManager compact hideSensitiveContent={hideSensitive} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
+            {/* Discover an externally-installed config without leaving this view. */}
+            {recheckButton}
           </div>
         ) : (
           <>
@@ -142,10 +148,10 @@ export function OverviewSection({
               />
             </div>
 
-            {/* Contextual guidance derived from the FAILED link, not one overall flag. */}
-            {canRepair ? (
-              <HooksManager actionsOnly hideSensitiveContent={hideSensitive} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
-            ) : null}
+            {/* Manage actions are always available in the workbench (Remove lives in
+                a consistent danger zone); Repair only shows when it can actually fix
+                the problem. Forwarder/listener failures get their own guidance. */}
+            <HooksManager actionsOnly showRepair={canRepair} hideSensitiveContent={hideSensitive} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
             {forwarderMissing ? (
               <div className="connection-guidance">
                 <p>{t("connection.forwarderMissingGuidance", "桌宠的 hook 转发文件缺失，通常是应用被移动或未完整安装。请重新安装或恢复应用后再检查。")}</p>

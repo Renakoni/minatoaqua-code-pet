@@ -10,7 +10,8 @@ import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
 import { getPetWindowHeight, getPetWindowWidth, migratePetDisplaySettings } from "../shared/petDisplaySettings";
 import { redactDisplayEvent } from "../shared/privacy";
-import { evaluateHookConfig, isClawdHookCommand } from "./hookConfig";
+import { canonicalizeEventEntries, evaluateHookConfig, isClawdHookCommand } from "./hookConfig";
+import { isReadableRegularFile } from "./fsAccess";
 import {
   addCcSwitchProvider,
   deleteCcSwitchProvider,
@@ -2919,7 +2920,9 @@ const PRETOOLUSE_HOOK_TIMEOUT_SECONDS = 75;
 
 function isExternalNodeReadablePath(candidate: string) {
   const normalized = candidate.replace(/\\/g, "/");
-  return Boolean(candidate) && !normalized.includes(".asar/") && existsSync(candidate);
+  // Must be a real, readable regular file — not just an existing path — and must
+  // live outside the asar archive so an external `node` process can load it.
+  return Boolean(candidate) && !normalized.includes(".asar/") && isReadableRegularFile(candidate);
 }
 
 function getHookForwarderPath() {
@@ -2931,11 +2934,6 @@ function getHookForwarderPath() {
     join(app.getAppPath(), "scripts", "hook-forwarder.js")
   ];
   return candidates.find(isExternalNodeReadablePath) ?? candidates[0];
-}
-
-function normalizeComparablePath(path: string) {
-  const resolved = resolve(path);
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
 function getForwarderStatus() {
@@ -2979,7 +2977,13 @@ function getHooksStatus() {
 
   const evaluation = evaluateHookConfig(settings, {
     requiredEvents: requiredClaudeHookEvents,
-    currentForwarderPath: getHookForwarderPath(),
+    expected: {
+      forwarderPath: getHookForwarderPath(),
+      settingsPath: settingsPath(),
+      appPath: process.execPath,
+      appRoot: app.getAppPath(),
+      port: eventPort
+    },
     preToolUseEvent: "PreToolUse",
     preToolUseTimeout: PRETOOLUSE_HOOK_TIMEOUT_SECONDS
   });
@@ -3012,14 +3016,11 @@ function installHooks() {
     const hooks = settings.hooks && typeof settings.hooks === "object" && !Array.isArray(settings.hooks) ? { ...settings.hooks } : {};
 
     for (const eventName of requiredClaudeHookEvents) {
-      const entries = Array.isArray(hooks[eventName]) ? [...hooks[eventName]] : [];
-      const existingIndex = entries.findIndex(entry => entry && typeof entry === "object" && Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => isClawdHookCommand(hook?.command)));
+      // De-duplicate every existing Clawd command down to one canonical current
+      // command, preserving unrelated third-party hooks and their matchers.
       const hookCommand: Record<string, unknown> = { type: "command", command: getHookCommand(eventName) };
       if (eventName === "PreToolUse") hookCommand.timeout = PRETOOLUSE_HOOK_TIMEOUT_SECONDS;
-      const clawdEntry = { matcher: "*", hooks: [hookCommand] };
-      if (existingIndex >= 0) entries[existingIndex] = clawdEntry;
-      else entries.push(clawdEntry);
-      hooks[eventName] = entries;
+      hooks[eventName] = canonicalizeEventEntries(hooks[eventName], { matcher: "*", hooks: [hookCommand] });
     }
 
     writeFileSync(path, `${JSON.stringify({ ...settings, hooks }, null, 2)}\n`, "utf-8");

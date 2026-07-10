@@ -537,7 +537,10 @@
   font-weight: 640;
   cursor: pointer;
 }
-.connection-recheck:hover { color: var(--overview-ink); border-color: var(--overview-ink); }
+.connection-recheck:hover:not(:disabled) { color: var(--overview-ink); border-color: var(--overview-ink); }
+.connection-recheck:disabled { opacity: .6; cursor: default; }
+.connection-recheck .spin { animation: connection-recheck-spin .8s linear infinite; }
+@keyframes connection-recheck-spin { to { transform: rotate(360deg); } }
 
 /* Check-failed state: never leave the area stuck on "Checking…"; offer Retry. */
 .connection-check-error {

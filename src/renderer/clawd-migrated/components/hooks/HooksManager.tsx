@@ -3,32 +3,36 @@ import React, { useEffect, useState } from "react";
 import { CheckCircle2, Wrench } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { StatusCard } from "../workbench/Primitives";
-import { redactSensitiveText } from "../../../../shared/privacy";
+import { describeHookOperationError, type HookStatus } from "../../../../shared/hooks";
 
-export type HookStatus = { installed: boolean; configExists: boolean; configReadError?: boolean; hookCount: number; requiredCount: number; missingEvents: string[]; commandMatches: boolean; forwarder?: { expectedPath: string; exists: boolean } };
+export type { HookStatus };
 
-export function HooksManager({ compact = false, actionsOnly = false, success = false, hideSensitiveContent = false, onStatusChange, onInstallSuccess }: { compact?: boolean; actionsOnly?: boolean; success?: boolean; hideSensitiveContent?: boolean; onStatusChange?: (status: HookStatus) => void; onInstallSuccess?: (status: HookStatus) => void } = {}) {
-  const { t, locale } = useI18n();
+type HookOpKind = "install" | "repair" | "remove";
+const HIDDEN_KEY: Record<HookOpKind, string> = { install: "doctor.installFailedHidden", repair: "doctor.repairFailedHidden", remove: "doctor.removeFailedHidden" };
+const HIDDEN_FALLBACK: Record<HookOpKind, string> = { install: "Hook 安装失败，详情已隐藏。", repair: "Hook 修复失败，详情已隐藏。", remove: "Hook 移除失败，详情已隐藏。" };
+const FAILED_KEY: Record<HookOpKind, string> = { install: "doctor.installFailed", repair: "doctor.repairFailed", remove: "doctor.removeFailed" };
+const FAILED_FALLBACK: Record<HookOpKind, string> = { install: "安装失败: {error}", repair: "修复失败: {error}", remove: "移除失败: {error}" };
+
+export function HooksManager({ compact = false, actionsOnly = false, success = false, showRepair = true, hideSensitiveContent = false, onStatusChange, onInstallSuccess }: { compact?: boolean; actionsOnly?: boolean; success?: boolean; showRepair?: boolean; hideSensitiveContent?: boolean; onStatusChange?: (status: HookStatus) => void; onInstallSuccess?: (status: HookStatus) => void } = {}) {
+  const { t } = useI18n();
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
   const [status, setStatus] = useState<HookStatus | null>(null);
   const [action, setAction] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
 
-  // Free-form redaction is a fallback for unexpected backend error text; the
-  // known path-bearing failures are handled structurally by failureMessage below.
-  const redactText = (text: string) => (hideSensitiveContent ? redactSensitiveText(text, locale) : text);
-
-  // Build a display message for a failed hook operation. Known structured errors
-  // (a missing forwarder) show a localized category and only reveal the concrete
-  // path when hiding is disabled; anything else falls back to redacted free text.
-  function failureMessage(res: { error?: string; errorKind?: string; forwarderPath?: string } | undefined, failedKey: string, failedFallback: string) {
-    if (res?.errorKind === "forwarder-missing") {
-      return hideSensitiveContent || !res.forwarderPath
-        ? t("doctor.forwarderMissing", "找不到 hook 转发文件，请重新安装应用。")
-        : formatText(t("doctor.forwarderMissingPath", "找不到 hook 转发文件：{path}"), { path: res.forwarderPath });
+  // Turn a failed hook-operation result into a display message. The privacy
+  // decision (structured category / generic hidden / raw) is made by
+  // describeHookOperationError; here we only localize it.
+  function failureMessage(res: { error?: string; errorKind?: string; forwarderPath?: string } | undefined, op: HookOpKind) {
+    const display = describeHookOperationError(res, hideSensitiveContent);
+    if (display.kind === "forwarder-missing") {
+      return display.path
+        ? formatText(t("doctor.forwarderMissingPath", "找不到 hook 转发文件：{path}"), { path: display.path })
+        : t("doctor.forwarderMissing", "找不到 hook 转发文件，请重新安装应用。");
     }
-    return redactText(formatText(t(failedKey, failedFallback), { error: res?.error ?? "" }));
+    if (display.kind === "hidden") return t(HIDDEN_KEY[op], HIDDEN_FALLBACK[op]);
+    return formatText(t(FAILED_KEY[op], FAILED_FALLBACK[op]), { error: display.text });
   }
 
   function updateHookStatus(next: HookStatus) {
@@ -50,11 +54,11 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
       const res = await window.companion.installHooks();
       const nextStatus = await window.companion.checkHooks();
       const installed = !!res.success && nextStatus.installed && nextStatus.commandMatches && nextStatus.missingEvents.length === 0;
-      setResult(installed ? t("doctor.installDone", "安装成功！重启 Claude Code 会话后生效。") : res.success ? t("doctor.installIncomplete", "安装完成，但仍有 hooks 未配置完整。") : failureMessage(res, "doctor.installFailed", "安装失败: {error}"));
+      setResult(installed ? t("doctor.installDone", "安装成功！重启 Claude Code 会话后生效。") : res.success ? t("doctor.installIncomplete", "安装完成，但仍有 hooks 未配置完整。") : failureMessage(res, "install"));
       updateHookStatus(nextStatus);
       if (installed) onInstallSuccess?.(nextStatus);
     } catch (error) {
-      setResult(redactText(formatText(t("doctor.installFailed", "安装失败: {error}"), { error: error instanceof Error ? error.message : String(error) })));
+      setResult(failureMessage({ error: error instanceof Error ? error.message : String(error) }, "install"));
     } finally {
       setAction(null);
     }
@@ -64,10 +68,10 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
     setAction("repairing");
     try {
       const res = await window.companion.repairHooks();
-      setResult(res.success ? t("doctor.repairDone", "Hook 配置已修复。") : failureMessage(res, "doctor.repairFailed", "修复失败: {error}"));
+      setResult(res.success ? t("doctor.repairDone", "Hook 配置已修复。") : failureMessage(res, "repair"));
       updateHookStatus(await window.companion.checkHooks());
     } catch (error) {
-      setResult(redactText(formatText(t("doctor.repairFailed", "修复失败: {error}"), { error: error instanceof Error ? error.message : String(error) })));
+      setResult(failureMessage({ error: error instanceof Error ? error.message : String(error) }, "repair"));
     } finally {
       setAction(null);
     }
@@ -77,10 +81,10 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
     setAction("removing");
     try {
       const res = await window.companion.removeHooks();
-      setResult(res.success ? t("doctor.removeDone", "已移除所有 Clawd hooks。") : failureMessage(res, "doctor.removeFailed", "移除失败: {error}"));
+      setResult(res.success ? t("doctor.removeDone", "已移除所有 Clawd hooks。") : failureMessage(res, "remove"));
       updateHookStatus(await window.companion.checkHooks());
     } catch (error) {
-      setResult(redactText(formatText(t("doctor.removeFailed", "移除失败: {error}"), { error: error instanceof Error ? error.message : String(error) })));
+      setResult(failureMessage({ error: error instanceof Error ? error.message : String(error) }, "remove"));
     } finally {
       setAction(null);
       setConfirmingRemove(false);
@@ -109,19 +113,20 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
         {mismatchLabel && <span className="hooks-mismatch">{mismatchLabel}</span>}
       </div>}
 
-      <div className="hooks-actions">
+      {(!actionsOnly || showRepair) && <div className="hooks-actions">
         {!actionsOnly && <button onClick={handleInstall} disabled={!!action || success}>
           {success ? <><CheckCircle2 size={16} />{t("doctor.installed", "已安装")}</> : action === "installing" ? t("doctor.installing", "安装中...") : t("doctor.oneClickInstall", "一键安装")}
         </button>}
-        {showManage && <button onClick={handleRepair} disabled={!!action}>
+        {showManage && showRepair && <button onClick={handleRepair} disabled={!!action}>
           {action === "repairing" ? t("doctor.repairing", "修复中...") : t("doctor.repairConfig", "修复配置")}
         </button>}
-      </div>
+      </div>}
 
       {result && <p className="hooks-result">{result}</p>}
 
       {/* Remove is destructive (it edits Claude Code settings), so it lives in a
-          de-emphasized zone and requires an explicit confirmation. */}
+          de-emphasized zone and requires an explicit confirmation. It is offered
+          consistently whenever the manage actions show, not only alongside Repair. */}
       {showManage && <div className="hooks-danger-zone">
         {confirmingRemove ? (
           <>

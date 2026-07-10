@@ -1,4 +1,5 @@
 import { isSessionStartEvent, type PetEvent } from "../shared/events";
+import type { HookStatus, HookOperationResult } from "../shared/hooks";
 import {
   defaultSettings,
   defaultStats,
@@ -32,10 +33,10 @@ type CompanionApi = {
   getSettings: () => Promise<CompanionSettings>;
   saveSettings: (next: Partial<CompanionSettings>) => Promise<CompanionSettings>;
   getConnectionStatus: () => Promise<CompanionConnectionStatus>;
-  checkHooks: (provider?: ProviderId) => Promise<ReturnType<typeof hooksStatus>>;
-  installHooks: (provider?: ProviderId) => Promise<{ success: boolean; error?: string; status: ReturnType<typeof hooksStatus> }>;
-  repairHooks: (provider?: ProviderId) => Promise<{ success: boolean; error?: string; fixed: string[]; status: ReturnType<typeof hooksStatus> }>;
-  removeHooks: (provider?: ProviderId) => Promise<{ success: boolean; removed: number; status: ReturnType<typeof hooksStatus> }>;
+  checkHooks: (provider?: ProviderId) => Promise<HookStatus>;
+  installHooks: (provider?: ProviderId) => Promise<HookOperationResult>;
+  repairHooks: (provider?: ProviderId) => Promise<HookOperationResult>;
+  removeHooks: (provider?: ProviderId) => Promise<HookOperationResult>;
   openSettings: () => Promise<void>;
   minimizeSettings: () => Promise<void>;
   toggleMaximizeSettings: () => Promise<void>;
@@ -327,14 +328,16 @@ function updateStatus(): UpdateStatus {
   };
 }
 
-function hooksStatus() {
+function hooksStatus(): HookStatus {
   return {
     installed: false,
     configExists: false,
+    configReadError: false,
     hookCount: 0,
     requiredCount: 6,
     missingEvents: missingHookEvents,
     commandMatches: false,
+    settingsPath: "",
     forwarder: { expectedPath: "scripts/hook-forwarder.js", exists: false }
   };
 }
@@ -384,7 +387,7 @@ export function installClawdCompat() {
     getConnectionStatus: async () => currentConnection(),
     checkHooks: async () => hooksStatus(),
     installHooks: async () => ({ success: false, error: "Hook installation is only available in the desktop app.", status: hooksStatus() }),
-    repairHooks: async () => ({ success: false, error: "Hook repair is only available in the desktop app.", fixed: missingHookEvents, status: hooksStatus() }),
+    repairHooks: async () => ({ success: false, error: "Hook repair is only available in the desktop app.", status: hooksStatus() }),
     removeHooks: async () => ({ success: true, removed: 0, status: hooksStatus() }),
     openSettings: async () => undefined,
     minimizeSettings: async () => petApi?.minimizePanel(),

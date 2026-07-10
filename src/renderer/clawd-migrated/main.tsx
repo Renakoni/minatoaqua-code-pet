@@ -901,7 +901,7 @@ function StateProp({ state }: { state: PetState }) {
 
 function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
-  const { settings, updateSettings, connection, events, petState, toolStreams, clearActivityHistory } = useCompanion();
+  const { settings, updateSettings, connection, refreshConnection, events, petState, toolStreams, clearActivityHistory } = useCompanion();
   const activePetTheme = getPetTheme(settings.petTheme);
   // Character chrome (anchor icon, character name in the version bar) only
   // belongs to the pet interface theme; light/dark stay neutral.
@@ -945,6 +945,8 @@ function SettingsApp() {
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [overviewHookStatus, setOverviewHookStatus] = useState<HookStatus | null>(null);
   const [overviewHookError, setOverviewHookError] = useState(false);
+  const [overviewHookChecking, setOverviewHookChecking] = useState(false);
+  const hookCheckSeq = useRef(0);
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 
   useEffect(() => {
@@ -986,37 +988,44 @@ function SettingsApp() {
     };
   }, [activeSection]);
 
-  // Fetch hook facts explicitly with loading/success/failure states. A rejected
-  // check surfaces an error (with Retry) instead of leaving the UI on "Checking…".
+  // Refresh the WHOLE connection chain (hook facts + connection status) with an
+  // explicit in-flight guard. A sequence number ignores out-of-order responses,
+  // the checking flag disables repeated clicks, and the error flag is cleared
+  // only on SUCCESS — so a Retry never briefly shows stale "Ready" data before
+  // the new check resolves.
   function recheckOverviewHooks() {
-    setOverviewHookError(false);
-    return window.companion.checkHooks()
-      .then(status => { setOverviewHookStatus(status); })
-      .catch(() => { setOverviewHookError(true); });
+    const seq = hookCheckSeq.current + 1;
+    hookCheckSeq.current = seq;
+    setOverviewHookChecking(true);
+    const hooks = window.companion.checkHooks()
+      .then(status => { if (hookCheckSeq.current === seq) { setOverviewHookStatus(status); setOverviewHookError(false); } })
+      .catch(() => { if (hookCheckSeq.current === seq) setOverviewHookError(true); });
+    const conn = refreshConnection ? refreshConnection() : Promise.resolve();
+    return Promise.allSettled([hooks, conn]).then(() => {
+      if (hookCheckSeq.current === seq) setOverviewHookChecking(false);
+    });
   }
 
-  // Refresh hook facts whenever the Overview becomes active, so an externally
-  // changed config (removed forwarder, edited settings) cannot leave a stale
-  // "Ready" state indefinitely.
+  // Refresh whenever the Overview becomes active, so an externally changed config
+  // (removed forwarder, edited settings) cannot leave a stale state indefinitely.
   useEffect(() => {
     if (activeSection !== "general") return undefined;
-    let cancelled = false;
-    setOverviewHookError(false);
-    window.companion.checkHooks()
-      .then(status => { if (!cancelled) setOverviewHookStatus(status); })
-      .catch(() => { if (!cancelled) setOverviewHookError(true); });
-    return () => { cancelled = true; };
+    recheckOverviewHooks();
+    return undefined;
   }, [activeSection]);
 
   // The Overview connection area derives its state (not-configured onboarding vs
   // the factual workbench) directly from the hook status; HooksManager owns the
-  // inline install/repair progress and success feedback.
+  // inline install/repair progress and success feedback. Bump the sequence so an
+  // in-flight background check cannot overwrite a just-installed/repaired status.
   function handleOverviewHookStatusChange(status: HookStatus) {
+    hookCheckSeq.current += 1;
     setOverviewHookError(false);
     setOverviewHookStatus(status);
   }
 
   function handleOverviewHookInstallSuccess(status: HookStatus) {
+    hookCheckSeq.current += 1;
     setOverviewHookError(false);
     setOverviewHookStatus(status);
   }
@@ -1158,6 +1167,7 @@ function SettingsApp() {
             now={now}
             hookStatus={overviewHookStatus}
             checkError={overviewHookError}
+            checking={overviewHookChecking}
             onRecheck={recheckOverviewHooks}
             onHookStatusChange={handleOverviewHookStatusChange}
             onHookInstallSuccess={handleOverviewHookInstallSuccess}

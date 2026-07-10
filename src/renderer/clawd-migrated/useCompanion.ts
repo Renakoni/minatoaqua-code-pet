@@ -353,6 +353,12 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
     lastEvent: session.lastEvent ? redactDisplayEvent(session.lastEvent, displayLanguage) : session.lastEvent
   })) : sessions, [displayLanguage, sessions, settings.hideSensitiveContent]);
 
-  return { settings, updateSettings, connection, events: displayEvents, currentEvent: displayCurrentEvent, petState, toolStreams: displayToolStreams, activePermissions, sessions: displaySessions, exitingSessions, mainSessionId, companionSlotRef, respondToPermission, clearActivityHistory };
+  // Actively re-pull connection status (the workbench Recheck refreshes the whole
+  // chain, not just hooks); the onConnection subscription still keeps it live.
+  function refreshConnection() {
+    return window.companion.getConnectionStatus().then(setConnection).catch(() => {});
+  }
+
+  return { settings, updateSettings, connection, refreshConnection, events: displayEvents, currentEvent: displayCurrentEvent, petState, toolStreams: displayToolStreams, activePermissions, sessions: displaySessions, exitingSessions, mainSessionId, companionSlotRef, respondToPermission, clearActivityHistory };
 }
 

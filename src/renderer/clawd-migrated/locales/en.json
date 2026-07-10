@@ -305,6 +305,7 @@
     "waitingFirstEvent": "Waiting for the first event",
     "onboardingBody": "Install hooks in one click so Claude Code sends session events to the pet.",
     "recheck": "Recheck",
+    "rechecking": "Rechecking…",
     "checkFailed": "Couldn't read hook status. Try again.",
     "forwarderMissingGuidance": "The pet's hook forwarder file is missing — usually the app was moved or not fully installed. Reinstall or restore the app, then recheck.",
     "listenerDownGuidance": "The local listener isn't running, so events can't arrive. Restart the pet app; this updates automatically once it recovers.",
@@ -734,12 +735,15 @@
     "installDone": "Installed. Restart your Claude Code session to take effect.",
     "installIncomplete": "Installed, but some hooks are still incomplete.",
     "installFailed": "Install failed: {error}",
+    "installFailedHidden": "Hook installation failed. Details are hidden.",
     "forwarderMissing": "Hook forwarder file is missing — reinstall the app to restore it.",
     "forwarderMissingPath": "Hook forwarder not found: {path}",
     "repairDone": "Hook configuration repaired.",
     "repairFailed": "Repair failed: {error}",
+    "repairFailedHidden": "Hook repair failed. Details are hidden.",
     "removeDone": "Removed all Clawd hooks.",
     "removeFailed": "Remove failed: {error}",
+    "removeFailedHidden": "Hook removal failed. Details are hidden.",
     "note": "After installing hooks, Claude Code will automatically send events to Clawd Companion. Backup files are stored at ~/.claude/settings.clawd-backup.json"
   }
 }
