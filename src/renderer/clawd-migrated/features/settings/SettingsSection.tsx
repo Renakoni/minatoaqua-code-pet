@@ -18,7 +18,6 @@ export function SettingsSection({
   sectionContentRef,
   locale,
   setLocale,
-  now,
   appVersion,
   updateStatus,
   checkingUpdate,
@@ -32,7 +31,6 @@ export function SettingsSection({
   sectionContentRef: React.MutableRefObject<HTMLDivElement | null>;
   locale: string;
   setLocale: (locale: string) => void;
-  now: number;
   appVersion: string;
   updateStatus: any;
   checkingUpdate: boolean;

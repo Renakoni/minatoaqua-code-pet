@@ -1,18 +1,28 @@
 // Pure derivation for the Overview connection workbench. Kept out of the
 // (@ts-nocheck) component so the delivery-chain model can be unit-tested.
 //
-// The whole point of this model is that each link in the chain is an INDEPENDENT
-// fact: hook configuration, hook command correctness, the forwarder file, the
-// local listener, and the recent-event history are reported separately. In
-// particular, a listening server with no events yet is a healthy, non-failure
-// state ("waiting for the first event") — a past event is never treated as proof
-// that the live link is currently up, and the absence of one never marks it down.
+// Each link in the chain is an INDEPENDENT fact: hook configuration, hook
+// command/timeout correctness, the forwarder file, the local listener, and the
+// recent-event history are reported separately. A listening server with no
+// events yet is a healthy, non-failure state ("waiting for the first event") —
+// a past event is never treated as proof the live link is currently up, and its
+// absence never marks the link down. Repair/Remove are offered ONLY for the
+// links Repair can actually fix (hook configuration / command), never for a
+// forwarder-file or listener problem that Repair cannot resolve.
 
 export type ConnectionRowState = "healthy" | "waiting" | "partial" | "repair" | "unavailable";
+
+// Which surface the connection area shows. These are mutually exclusive:
+//  - loading:       the hook check has not resolved yet
+//  - error:         the check failed, or the settings file is unreadable/corrupt
+//  - notConfigured: no Clawd hooks are currently configured (prominent one-click Connect)
+//  - workbench:     the factual delivery-chain rows (+ contextual actions)
+export type ConnectionMode = "loading" | "error" | "notConfigured" | "workbench";
 
 export interface HookStatusInput {
   installed: boolean;
   configExists: boolean;
+  configReadError?: boolean;
   hookCount: number;
   requiredCount: number;
   missingEvents: string[];
@@ -27,10 +37,7 @@ export interface ConnectionInput {
 }
 
 export interface ConnectionFacts {
-  /** Status has not loaded yet (checkHooks in flight). */
-  loading: boolean;
-  /** Hooks have never been configured — genuine first-run onboarding. */
-  firstRun: boolean;
+  mode: ConnectionMode;
   requiredCount: number;
   configuredCount: number;
   configComplete: boolean;
@@ -42,6 +49,14 @@ export interface ConnectionFacts {
   hasRecentEvent: boolean;
   /** Overall health does NOT depend on a recent event, only on the live links. */
   healthy: boolean;
+  /** Hook configuration or command needs fixing (the things Repair actually fixes). */
+  needsHookRepair: boolean;
+  /** Repair can run (a hook fix is needed AND the forwarder file is present). */
+  canRepair: boolean;
+  /** Forwarder file is known-missing — Repair would fail; needs its own guidance. */
+  forwarderMissing: boolean;
+  /** Local listener is down — a Repair cannot restart it; needs its own guidance. */
+  listenerDown: boolean;
   configState: ConnectionRowState;
   commandState: ConnectionRowState;
   forwarderState: ConnectionRowState;
@@ -53,34 +68,50 @@ const DEFAULT_REQUIRED_COUNT = 6;
 
 export function deriveConnectionState(
   hookStatus: HookStatusInput | null,
-  connection: ConnectionInput
+  connection: ConnectionInput,
+  checkError = false
 ): ConnectionFacts {
-  const loading = hookStatus === null;
   const requiredCount = hookStatus?.requiredCount ?? DEFAULT_REQUIRED_COUNT;
   const configuredCount = hookStatus?.hookCount ?? 0;
   const configComplete = hookStatus ? hookStatus.missingEvents.length === 0 : false;
   const commandOk = hookStatus?.commandMatches === true;
 
-  // Forwarder availability is a separate fact from hook config. When the status
-  // payload has not reported it yet, treat it as ok so we never flag a healthy
-  // config as broken before the file check has loaded.
+  // Forwarder availability is a separate fact from hook config. Unknown (no
+  // payload yet) is treated as NOT ok so it can never contribute to a false
+  // "healthy" — once the status has loaded, the backend always reports it.
   const forwarderKnown = Boolean(hookStatus?.forwarder);
-  const forwarderOk = hookStatus?.forwarder ? hookStatus.forwarder.exists : true;
+  const forwarderOk = hookStatus?.forwarder ? hookStatus.forwarder.exists : false;
 
   const listening = connection.serverListening === true;
   const hasRecentEvent = Boolean(connection.lastEventAt);
 
   // A past event is not proof the live link is healthy, so it is deliberately
-  // excluded here — health tracks the currently-verifiable links only.
+  // excluded — health tracks the currently-verifiable links only.
   const healthy = configComplete && commandOk && forwarderOk && listening;
 
-  // First-run onboarding is only for a config that was never installed; an
-  // installed-but-broken/partial config keeps the workbench (with Repair).
-  const firstRun = hookStatus !== null && configuredCount === 0;
+  const needsHookRepair = !configComplete || !commandOk;
+  const forwarderMissing = forwarderKnown && !forwarderOk;
+  const listenerDown = !listening;
+  // Repair reinstalls the hook commands via the forwarder; it can only succeed
+  // when the forwarder file exists, and only helps a hook config/command problem.
+  const canRepair = needsHookRepair && forwarderOk;
+
+  let mode: ConnectionMode;
+  if (checkError || hookStatus === null) {
+    mode = checkError ? "error" : "loading";
+  } else if (hookStatus.configReadError) {
+    mode = "error";
+  } else if (configuredCount === 0) {
+    // No Clawd hooks are currently configured. This is intentionally NOT a claim
+    // about historical first use — it also covers hooks removed or wiped
+    // externally — but it always warrants the prominent one-click Connect.
+    mode = "notConfigured";
+  } else {
+    mode = "workbench";
+  }
 
   return {
-    loading,
-    firstRun,
+    mode,
     requiredCount,
     configuredCount,
     configComplete,
@@ -90,6 +121,10 @@ export function deriveConnectionState(
     listening,
     hasRecentEvent,
     healthy,
+    needsHookRepair,
+    canRepair,
+    forwarderMissing,
+    listenerDown,
     configState: configComplete ? "healthy" : "partial",
     commandState: commandOk ? "healthy" : "repair",
     forwarderState: forwarderOk ? "healthy" : "unavailable",

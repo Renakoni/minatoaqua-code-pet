@@ -944,6 +944,7 @@ function SettingsApp() {
   });
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [overviewHookStatus, setOverviewHookStatus] = useState<HookStatus | null>(null);
+  const [overviewHookError, setOverviewHookError] = useState(false);
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 
   useEffect(() => {
@@ -985,22 +986,38 @@ function SettingsApp() {
     };
   }, [activeSection]);
 
-  useEffect(() => {
-    let cancelled = false;
-    window.companion.checkHooks().then(status => {
-      if (!cancelled) setOverviewHookStatus(status);
-    });
-    return () => { cancelled = true; };
-  }, []);
+  // Fetch hook facts explicitly with loading/success/failure states. A rejected
+  // check surfaces an error (with Retry) instead of leaving the UI on "Checking…".
+  function recheckOverviewHooks() {
+    setOverviewHookError(false);
+    return window.companion.checkHooks()
+      .then(status => { setOverviewHookStatus(status); })
+      .catch(() => { setOverviewHookError(true); });
+  }
 
-  // The Overview connection area derives its state (first-run onboarding vs the
-  // factual workbench) directly from the hook status; HooksManager owns the
+  // Refresh hook facts whenever the Overview becomes active, so an externally
+  // changed config (removed forwarder, edited settings) cannot leave a stale
+  // "Ready" state indefinitely.
+  useEffect(() => {
+    if (activeSection !== "general") return undefined;
+    let cancelled = false;
+    setOverviewHookError(false);
+    window.companion.checkHooks()
+      .then(status => { if (!cancelled) setOverviewHookStatus(status); })
+      .catch(() => { if (!cancelled) setOverviewHookError(true); });
+    return () => { cancelled = true; };
+  }, [activeSection]);
+
+  // The Overview connection area derives its state (not-configured onboarding vs
+  // the factual workbench) directly from the hook status; HooksManager owns the
   // inline install/repair progress and success feedback.
   function handleOverviewHookStatusChange(status: HookStatus) {
+    setOverviewHookError(false);
     setOverviewHookStatus(status);
   }
 
   function handleOverviewHookInstallSuccess(status: HookStatus) {
+    setOverviewHookError(false);
     setOverviewHookStatus(status);
   }
 
@@ -1140,6 +1157,8 @@ function SettingsApp() {
             connection={connection}
             now={now}
             hookStatus={overviewHookStatus}
+            checkError={overviewHookError}
+            onRecheck={recheckOverviewHooks}
             onHookStatusChange={handleOverviewHookStatusChange}
             onHookInstallSuccess={handleOverviewHookInstallSuccess}
           />
@@ -1156,7 +1175,6 @@ function SettingsApp() {
               sectionContentRef={sectionContentRef}
               locale={locale}
               setLocale={setLocale}
-              now={now}
               appVersion={appVersion}
               updateStatus={updateStatus}
               checkingUpdate={checkingUpdate}

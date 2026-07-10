@@ -522,6 +522,44 @@
   border-top: 1px solid var(--overview-line);
 }
 
+.connection-head-actions { display: flex; align-items: center; gap: 10px; }
+
+.connection-recheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--overview-line);
+  border-radius: 7px;
+  color: var(--overview-faint);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 640;
+  cursor: pointer;
+}
+.connection-recheck:hover { color: var(--overview-ink); border-color: var(--overview-ink); }
+
+/* Check-failed state: never leave the area stuck on "Checking…"; offer Retry. */
+.connection-check-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+}
+.connection-check-error p { color: var(--overview-danger); font-size: 12px; line-height: 1.5; }
+
+/* Factual guidance for a link Repair cannot fix (forwarder file / listener). */
+.connection-guidance {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--overview-line);
+}
+.connection-guidance p { color: var(--overview-faint); font-size: 12px; line-height: 1.5; }
+
 @media (max-width: 720px) {
   .overview-workbench .ccs-provider-content {
     grid-template-columns: 1fr;

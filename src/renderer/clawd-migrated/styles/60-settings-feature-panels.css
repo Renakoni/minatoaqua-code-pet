@@ -76,6 +76,39 @@
   border: 1px solid var(--line);
 }
 
+/* Remove is destructive; keep it visually separate from the primary actions and
+   only reveal the confirm/cancel controls after an explicit first click. */
+.hooks-danger-zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.hooks-danger-prompt { color: var(--coral); font-size: 12px; font-weight: 700; }
+.hooks-danger-zone button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  transition: background 150ms ease;
+}
+.hooks-danger-zone button.danger {
+  color: var(--coral);
+  background: rgba(217, 107, 90, 0.12);
+  border: 1px solid rgba(217, 107, 90, 0.3);
+}
+.hooks-danger-zone button.danger:hover:not(:disabled) { background: rgba(217, 107, 90, 0.2); }
+.hooks-danger-zone button.danger.ghost { background: transparent; border-color: transparent; opacity: .8; }
+.hooks-danger-zone button.danger.ghost:hover:not(:disabled) { background: rgba(217, 107, 90, 0.12); opacity: 1; }
+.hooks-danger-zone button:not(.danger) {
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+}
+.hooks-danger-zone button:disabled { opacity: .5; cursor: not-allowed; }
+
 .version-bar {
   grid-column: 1 / -1;
   display: flex;

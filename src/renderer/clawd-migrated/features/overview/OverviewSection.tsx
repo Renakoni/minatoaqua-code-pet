@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React from "react";
-import { Wrench } from "lucide-react";
+import { Wrench, RefreshCw } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { ClaudeRoutingPanel } from "../../components/claude-routing/ClaudeRoutingPanel";
 import { HooksManager, type HookStatus } from "../../components/hooks/HooksManager";
@@ -20,14 +20,18 @@ function ConnectionRow({ label, value, state }: { label: string; value: string; 
 }
 
 // The Overview connection area is a single surface that changes state over the
-// product lifecycle: first-run onboarding (no hooks yet) -> the factual delivery
-// chain workbench (installed). It never shows both, and never re-shows first-run
-// onboarding for an installed-but-broken config (that gets a contextual Repair).
+// product lifecycle. The states are mutually exclusive (loading / check-error /
+// not-configured onboarding / factual workbench) and it never re-shows first-run
+// onboarding for an installed-but-broken config — that keeps the workbench with a
+// contextual Repair. Repair is offered only for problems Repair can fix (hook
+// config/command); forwarder-file and listener failures get their own guidance.
 export function OverviewSection({
   settings,
   connection,
   now,
   hookStatus,
+  checkError = false,
+  onRecheck,
   onHookStatusChange,
   onHookInstallSuccess
 }: {
@@ -36,14 +40,19 @@ export function OverviewSection({
   connection: any;
   now: number;
   hookStatus: HookStatus | null;
+  checkError?: boolean;
+  onRecheck?: () => void;
   onHookStatusChange: (status: HookStatus) => void;
   onHookInstallSuccess: (status: HookStatus) => void;
 }) {
   const { t } = useI18n();
+  const hideSensitive = settings.hideSensitiveContent === true;
   const format = (template: string, values: Record<string, string | number>) =>
     Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 
+  const facts = deriveConnectionState(hookStatus, connection, checkError);
   const {
+    mode,
     requiredCount,
     configuredCount,
     configComplete,
@@ -51,13 +60,21 @@ export function OverviewSection({
     forwarderOk,
     listening,
     healthy,
-    firstRun,
+    canRepair,
+    forwarderMissing,
+    listenerDown,
     configState,
     commandState,
     forwarderState,
     listenerState,
     recentEventState
-  } = deriveConnectionState(hookStatus, connection);
+  } = facts;
+
+  const recheckButton = onRecheck ? (
+    <button type="button" className="connection-recheck" onClick={onRecheck}>
+      <RefreshCw size={13} />{t("connection.recheck", "重新检查")}
+    </button>
+  ) : null;
 
   return (
     <section className="overview-workbench">
@@ -70,20 +87,28 @@ export function OverviewSection({
             <span>{t("settings.tabs.general", "总览")}</span>
             <h2>{t("sections.connectionDetails", "连接详情")}</h2>
           </div>
-          {hookStatus && !firstRun ? (
-            <span className={`overview-state-badge ${healthy ? "good" : listening ? "wait" : "bad"}`}>
-              {healthy ? t("status.ready", "已就绪") : listening ? t("status.needsAttention", "需要处理") : t("status.notListening", "未监听")}
-            </span>
+          {mode === "workbench" ? (
+            <div className="connection-head-actions">
+              <span className={`overview-state-badge ${healthy ? "good" : listening ? "wait" : "bad"}`}>
+                {healthy ? t("status.ready", "已就绪") : listening ? t("status.needsAttention", "需要处理") : t("status.notListening", "未监听")}
+              </span>
+              {recheckButton}
+            </div>
           ) : null}
         </header>
 
-        {hookStatus === null ? (
+        {mode === "loading" ? (
           <div className="connection-loading">{t("status.checking", "检查中…")}</div>
-        ) : firstRun ? (
+        ) : mode === "error" ? (
+          <div className="connection-check-error">
+            <p>{t("connection.checkFailed", "无法读取 hook 状态，请重试。")}</p>
+            {recheckButton}
+          </div>
+        ) : mode === "notConfigured" ? (
           <div className="connection-onboarding">
             <h3>{t("main.connectTitle", "连接 Claude Code")}</h3>
             <p>{t("connection.onboardingBody", "一键安装 hooks，Claude Code 就会把会话事件发送到桌宠。")}</p>
-            <HooksManager compact hideSensitiveContent={settings.hideSensitiveContent === true} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
+            <HooksManager compact hideSensitiveContent={hideSensitive} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
           </div>
         ) : (
           <>
@@ -116,8 +141,20 @@ export function OverviewSection({
                 state={recentEventState}
               />
             </div>
-            {!healthy ? (
-              <HooksManager actionsOnly hideSensitiveContent={settings.hideSensitiveContent === true} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
+
+            {/* Contextual guidance derived from the FAILED link, not one overall flag. */}
+            {canRepair ? (
+              <HooksManager actionsOnly hideSensitiveContent={hideSensitive} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
+            ) : null}
+            {forwarderMissing ? (
+              <div className="connection-guidance">
+                <p>{t("connection.forwarderMissingGuidance", "桌宠的 hook 转发文件缺失，通常是应用被移动或未完整安装。请重新安装或恢复应用后再检查。")}</p>
+              </div>
+            ) : null}
+            {listenerDown ? (
+              <div className="connection-guidance">
+                <p>{t("connection.listenerDownGuidance", "本地监听未运行，无法接收事件。请重启桌宠应用；监听恢复后此处会自动更新。")}</p>
+              </div>
             ) : null}
           </>
         )}

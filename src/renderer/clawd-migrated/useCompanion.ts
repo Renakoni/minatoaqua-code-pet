@@ -39,8 +39,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
   const [settings, setSettings] = useState<CompanionSettings>(defaultSettings);
   const [connection, setConnection] = useState<CompanionConnectionStatus>({
     port: 0,
-    serverListening: false,
-    connected: false
+    serverListening: false
   });
   const [events, setEvents] = useState<CompanionEvent[]>([]);
   const [currentEvent, setCurrentEvent] = useState<CompanionEvent | null>(null);

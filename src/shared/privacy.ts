@@ -41,14 +41,27 @@ export function redactDisplayEvent<T extends DisplayEvent>(event: T, language: D
   };
 }
 
-// Filesystem paths that appear inside hook-operation status/error strings still
-// leak the home directory (and therefore the username) even when the rest of the
-// UI is redacted. These patterns strip absolute paths from free-form text while
-// leaving status words, event names, and version numbers intact.
+// Filesystem paths inside free-form status/error strings still leak the home
+// directory (and therefore the username) even when the rest of the UI is
+// redacted. These patterns strip absolute paths — INCLUDING ones with spaces
+// such as "C:\Program Files\.." or "/opt/Clawd Companion/.." — while leaving
+// status words, counts, event names, and versions intact.
+//
+// This is a best-effort fallback for arbitrary error text: the path-bearing hook
+// errors are handled structurally (the backend returns an error kind + the path
+// as a separate field, and the renderer only shows the path when hiding is off).
+// Where the two conflict, this deliberately OVER-redacts rather than risk leaking
+// a path — so trailing prose after a path may also be hidden.
+const POSIX_PATH_ROOTS = "Users|home|root|opt|tmp|var|usr|etc|srv|mnt|bin|sbin|dev|proc|Applications|Volumes|Library|System|private|Network";
 const SENSITIVE_PATH_PATTERNS = [
-  /[A-Za-z]:[\\/][^\s"']*/g,            // Windows drive paths: C:\Users\foo or C:/Users/foo
-  /\\\\[^\s"']+/g,                       // UNC paths: \\server\share\...
-  /(?:~|\/(?:Users|home|root))\/[^\s"']*/g // POSIX home/absolute paths: ~/… /Users/… /home/…
+  // Windows drive paths (segments may contain spaces). Stops before a following
+  // " X:\" drive path, a quote, a shell redirect, or end of line.
+  /[A-Za-z]:[\\/](?:(?! [A-Za-z]:[\\/])[^\r\n"'|<>])*/g,
+  // UNC paths: \\server\share\...
+  /\\\\[^\r\n"'|<>]*/g,
+  // POSIX absolute paths from a known root, plus ~/ home paths (segments may
+  // contain spaces). Stops before a following " /" path, a quote, or line end.
+  new RegExp(`(?:~/|/(?:${POSIX_PATH_ROOTS})/)(?:(?! /)[^\\r\\n"'|<>])*`, "g")
 ];
 
 // Replace absolute filesystem paths in a free-form string with a generic

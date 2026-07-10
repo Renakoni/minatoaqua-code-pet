@@ -10,6 +10,7 @@ import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
 import { getPetWindowHeight, getPetWindowWidth, migratePetDisplaySettings } from "../shared/petDisplaySettings";
 import { redactDisplayEvent } from "../shared/privacy";
+import { evaluateHookConfig, isClawdHookCommand } from "./hookConfig";
 import {
   addCcSwitchProvider,
   deleteCcSwitchProvider,
@@ -2958,70 +2959,39 @@ function getHookCommand(eventName: string) {
   ].join(" ");
 }
 
-function extractHookForwarderPath(command: string) {
-  const match = command.match(/(?:"([^"]*hook-forwarder\.js)"|'([^']*hook-forwarder\.js)'|([^\s"']*hook-forwarder\.js))/i);
-  return match?.[1] ?? match?.[2] ?? match?.[3] ?? "";
-}
-
-function isClawdHookCommand(command: unknown, eventName?: string, options: { matchesCurrentPath?: boolean } = {}) {
-  if (typeof command !== "string") return false;
-  const normalized = command.replace(/\\/g, "/");
-  const scriptNameMatches = normalized.includes("hook-forwarder.js");
-  if (!scriptNameMatches) return false;
-  if (!eventName) return true;
-  if (!new RegExp(`(^|[\\s"'])${eventName}($|[\\s"'])`).test(normalized)) return false;
-
-  // Command correctness = the configured path equals the current forwarder path.
-  // This is a string comparison only; whether that file exists is reported
-  // separately by getForwarderStatus so the two facts never conflate.
-  if (options.matchesCurrentPath) {
-    return normalizeComparablePath(extractHookForwarderPath(command)) === normalizeComparablePath(getHookForwarderPath());
-  }
-  return true;
-}
-
-function getHookEntries(settings: Record<string, any>, eventName: string): Array<Record<string, any>> {
-  const eventConfig = settings.hooks?.[eventName];
-  if (!Array.isArray(eventConfig)) return [];
-  return eventConfig.filter(entry => entry && typeof entry === "object") as Array<Record<string, any>>;
-}
-
 function getHooksStatus() {
   const path = getClaudeSettingsPath();
   const configExists = existsSync(path);
+
+  // Distinguish "no config yet" (file absent → genuinely not configured) from a
+  // config-read failure (file present but corrupt/unreadable). The latter must
+  // never be silently presented as an empty configuration, so it is surfaced as
+  // configReadError instead of being flattened to first-run onboarding.
   let settings: Record<string, any> = {};
-  try {
-    settings = readLiveJsonObject(path);
-  } catch {
-    settings = {};
+  let configReadError = false;
+  if (configExists) {
+    try {
+      settings = readLiveJsonObject(path);
+    } catch {
+      configReadError = true;
+    }
   }
 
-  // Hook CONFIGURATION: which required events reference our forwarder command.
-  // Independent of whether the forwarder file currently exists — that is a
-  // separate fact (getForwarderStatus), so a valid config is never reported as
-  // missing just because the forwarder file is unavailable.
-  const missingEvents = requiredClaudeHookEvents.filter(eventName => {
-    const entries = getHookEntries(settings, eventName);
-    return !entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName)));
-  });
-  const hookCount = requiredClaudeHookEvents.length - missingEvents.length;
-
-  // Hook COMMAND/timeout correctness: do the configured commands point at the
-  // current forwarder path and carry the right PreToolUse timeout? Only the
-  // configured events are checked; path comparison, not file existence.
-  const configuredEvents = requiredClaudeHookEvents.filter(eventName => !missingEvents.includes(eventName));
-  const commandMatches = configuredEvents.length > 0 && configuredEvents.every(eventName => {
-    const entries = getHookEntries(settings, eventName);
-    return entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName, { matchesCurrentPath: true }) && (eventName !== "PreToolUse" || hook?.timeout === PRETOOLUSE_HOOK_TIMEOUT_SECONDS)));
+  const evaluation = evaluateHookConfig(settings, {
+    requiredEvents: requiredClaudeHookEvents,
+    currentForwarderPath: getHookForwarderPath(),
+    preToolUseEvent: "PreToolUse",
+    preToolUseTimeout: PRETOOLUSE_HOOK_TIMEOUT_SECONDS
   });
 
   return {
-    installed: missingEvents.length === 0 && commandMatches,
+    installed: evaluation.installed,
     configExists,
-    hookCount,
+    configReadError,
+    hookCount: evaluation.hookCount,
     requiredCount: requiredClaudeHookEvents.length,
-    missingEvents,
-    commandMatches,
+    missingEvents: evaluation.missingEvents,
+    commandMatches: evaluation.commandMatches,
     settingsPath: path,
     forwarder: getForwarderStatus()
   };
@@ -3032,7 +3002,9 @@ function installHooks() {
     const path = getClaudeSettingsPath();
     const forwarderPath = getHookForwarderPath();
     if (!isExternalNodeReadablePath(forwarderPath)) {
-      return { success: false, error: `Hook forwarder not found: ${forwarderPath}`, status: getHooksStatus() };
+      // Structured error: the renderer shows a localized "forwarder missing"
+      // category and only reveals forwarderPath when hiding is disabled.
+      return { success: false, errorKind: "forwarder-missing", forwarderPath, error: `Hook forwarder not found: ${forwarderPath}`, status: getHooksStatus() };
     }
     mkdirSync(join(homedir(), ".claude"), { recursive: true });
     const settings = readLiveJsonObject(path);
@@ -3058,10 +3030,20 @@ function installHooks() {
 }
 
 function repairHooks() {
-  const before = getHooksStatus();
+  // Repair fixes any drifted dimension — missing events, outdated command paths,
+  // and PreToolUse timeout — so it does not report a per-item count (that would
+  // undercount command/timeout-only fixes). Success is reported factually and the
+  // refreshed status carries the real post-repair facts.
   const result = installHooks();
   const after = getHooksStatus();
-  return { success: result.success, fixed: before.missingEvents, status: after, install: result, error: result.success ? undefined : result.error };
+  return {
+    success: result.success,
+    status: after,
+    install: result,
+    error: result.success ? undefined : result.error,
+    errorKind: result.success ? undefined : (result as { errorKind?: string }).errorKind,
+    forwarderPath: result.success ? undefined : (result as { forwarderPath?: string }).forwarderPath
+  };
 }
 
 function removeHooks() {

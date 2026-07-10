@@ -51,13 +51,34 @@ describe("redactSensitiveText", () => {
     expect(redactSensitiveText("Reading /Users/private/project/a.ts")).toBe("Reading [path hidden]");
   });
 
-  it("redacts every path when several appear in one message", () => {
-    const message = "Moved C:\\a\\forwarder.js to C:\\b\\forwarder.js";
-    expect(redactSensitiveText(message)).toBe("Moved [path hidden] to [path hidden]");
+  it("strips common POSIX roots the old implementation missed", () => {
+    // These were reproduced as leaks in review — /opt, /tmp, /usr/local, /Applications.
+    expect(redactSensitiveText("Missing: /opt/Clawd Companion/resources/hook-forwarder.js")).toBe("Missing: [path hidden]");
+    expect(redactSensitiveText("Wrote /tmp/clawd/hook-forwarder.js")).toBe("Wrote [path hidden]");
+    expect(redactSensitiveText("node /usr/local/bin/node")).toBe("node [path hidden]");
+    expect(redactSensitiveText("/Applications/Clawd Companion.app/hook-forwarder.js")).toBe("[path hidden]");
+  });
+
+  it("strips Windows paths that contain spaces", () => {
+    expect(redactSensitiveText("Missing: C:\\Program Files\\Clawd Companion\\hook-forwarder.js")).toBe("Missing: [path hidden]");
+    expect(redactSensitiveText("Missing: C:\\Users\\Jane Doe\\AppData\\hook-forwarder.js")).toBe("Missing: [path hidden]");
+  });
+
+  it("handles quoted paths and trailing punctuation without leaking", () => {
+    expect(redactSensitiveText('Wrote "C:\\Users\\foo\\settings.json"')).toBe('Wrote "[path hidden]"');
+    expect(redactSensitiveText("Missing /opt/app/hook-forwarder.js.")).toBe("Missing [path hidden]");
+  });
+
+  it("redacts every path when several appear in one message (never leaks a path)", () => {
+    // Over-redaction is acceptable; a leaked path is not.
+    const redacted = redactSensitiveText("Moved C:\\a\\forwarder.js to C:\\b\\forwarder.js");
+    expect(redacted).not.toContain("C:\\a");
+    expect(redacted).not.toContain("C:\\b");
+    expect(redacted).toContain("[path hidden]");
   });
 
   it("leaves status words, counts, versions, and event names intact (no false positives)", () => {
-    for (const safe of ["Configured 6 / 6 events", "OK/Check", "v1.2.3", "Repair complete. Fixed 3 config items.", "PreToolUse"]) {
+    for (const safe of ["Configured 6 / 6 events", "OK/Check", "v1.2.3", "Repair complete. Fixed 3 config items.", "PreToolUse", "and/or maybe"]) {
       expect(redactSensitiveText(safe)).toBe(safe);
     }
   });
