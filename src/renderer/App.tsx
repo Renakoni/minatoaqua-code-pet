@@ -133,7 +133,10 @@ export default function App() {
         audio.volume = soundVolumeRef.current;
         const stop = window.setTimeout(() => { audio.pause(); audio.currentTime = 0; }, soundClipMs);
         audio.addEventListener("ended", () => window.clearTimeout(stop), { once: true });
-        void audio.play();
+        // play() rejects (autoplay policy, decode/device error) inside a Promise
+        // the sync try/catch can't see, so handle it here to avoid an unhandled
+        // rejection and clear the clip timer.
+        audio.play().catch(() => window.clearTimeout(stop));
       } catch { /* audio playback is best-effort */ }
     });
   }, []);

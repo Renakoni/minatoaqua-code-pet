@@ -2559,11 +2559,33 @@ function settingsPath() {
   return join(app.getPath("userData"), "companion-settings.json");
 }
 
+// Strip fields retired from the settings model so a legacy companion-settings.json
+// doesn't keep them alive — once dropped here they are never merged back in and
+// the next save rewrites the file clean.
+function dropRetiredSettings(parsed: Record<string, unknown>) {
+  delete parsed.doneSound;
+  const sound = parsed.sound;
+  if (sound && typeof sound === "object" && !Array.isArray(sound)) {
+    for (const key of ["onDone", "onError", "onPermission", "onSessionStart", "fileSessionStart"]) {
+      delete (sound as Record<string, unknown>)[key];
+    }
+  }
+  if (Array.isArray(parsed.notificationRules)) {
+    for (const rule of parsed.notificationRules) {
+      if (rule && typeof rule === "object") {
+        delete (rule as Record<string, unknown>).systemNotification;
+        delete (rule as Record<string, unknown>).showBubble;
+      }
+    }
+  }
+}
+
 function loadCompanionSettings() {
   try {
     if (existsSync(settingsPath())) {
       const parsed = JSON.parse(readFileSync(settingsPath(), "utf8")) as Record<string, unknown>;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        dropRetiredSettings(parsed);
         companionSettings = { ...companionSettings, ...parsed, ...migratePetDisplaySettings(parsed) };
       }
     }

@@ -382,16 +382,6 @@ function httpJson(options, body, timeout) {
  * responds (or it times out). Returns "allow" | "deny", or null to fall back
  * to Claude Code's native permission prompt.
  */
-// Match the pet's decision window (permissionWaitSeconds, 5-60s) plus a small
-// margin, so this poll outlasts the broker's expiry and receives its response.
-function permissionLongPollMs() {
-  const seconds = readCompanionSettings().permissionWaitSeconds;
-  const clamped = typeof seconds === "number" && Number.isFinite(seconds)
-    ? Math.max(5, Math.min(60, seconds))
-    : 30;
-  return (clamped + 5) * 1000;
-}
-
 async function requestPermissionDecision(payload) {
   const body = JSON.stringify({
     toolName: pickToolName(payload) ?? "Unknown",
@@ -407,12 +397,13 @@ async function requestPermissionDecision(payload) {
   );
   if (!created || typeof created.id !== "string") return null;
 
-  // Block Claude Code on the pet's decision. This poll sits just above the broker's
-  // decision window (permissionWaitSeconds in the app settings) so it receives the
-  // broker's expiry response, and below the PreToolUse hook timeout
-  // (PRETOOLUSE_HOOK_TIMEOUT_SECONDS = 75s) so the CLI waits for the pet the whole
-  // window instead of killing this hook and prompting itself.
-  const result = await httpJson({ path: `/permission/${created.id}`, method: "GET" }, undefined, permissionLongPollMs());
+  // Block Claude Code on the pet's decision. The GET resolves as soon as the broker
+  // settles (a decision, or its dynamic 5-60s expiry), so a fixed poll only needs
+  // to outlast the max window: 65s covers the 60s ceiling and keeps the broker the
+  // single source of truth for the window — re-reading the setting here would race
+  // the in-memory value the broker already baked in. Stays under the 75s hook
+  // timeout (5s POST + 65s poll = 70s).
+  const result = await httpJson({ path: `/permission/${created.id}`, method: "GET" }, undefined, 65000);
   if (result && (result.decision === "allow" || result.decision === "deny")) {
     return { decision: result.decision, reason: result.reason };
   }
