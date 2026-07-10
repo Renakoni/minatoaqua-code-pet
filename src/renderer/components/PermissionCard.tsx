@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { actionForTool, toolLabel } from "./toolPresentation";
 
 export interface PermissionRequestView {
@@ -11,6 +12,8 @@ interface PermissionCardProps {
   queueCount?: number;
   onAllow: () => void;
   onDeny: () => void;
+  /** Permission-card size (permissionScale). */
+  scale?: number;
 }
 
 type RiskLevel = "low" | "medium" | "high";
@@ -28,13 +31,18 @@ function getRiskLevel(tool: string, detail: string): RiskLevel {
   return "low";
 }
 
-export function PermissionCard({ request, queueCount = 0, onAllow, onDeny }: PermissionCardProps) {
+export function PermissionCard({ request, queueCount = 0, onAllow, onDeny, scale = 1 }: PermissionCardProps) {
   const rawDetail = (request.detail ?? "").trim();
   const detail = rawDetail.length > DETAIL_CAP ? `${rawDetail.slice(0, DETAIL_CAP)}…` : rawDetail;
   const risk = getRiskLevel(request.tool, rawDetail);
 
   return (
-    <section className={`pet-bubble permission-card risk-${risk}`} aria-label="Permission request" role="alertdialog">
+    <section
+      className={`pet-bubble permission-card risk-${risk}`}
+      style={{ "--bubble-scale": scale } as CSSProperties}
+      aria-label="Permission request"
+      role="alertdialog"
+    >
       <header className="bubble-head">
         <span className="bubble-eyebrow">
           <span className="bubble-dot" aria-hidden="true" />

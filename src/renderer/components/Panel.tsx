@@ -1,9 +1,13 @@
+import type { CSSProperties } from "react";
 import { PetEvent, PetState } from "../../shared/events";
 import { actionForTool, toolLabel } from "./toolPresentation";
 
 interface PanelProps {
   state: PetState;
   event: PetEvent | null;
+  /** Status-feedback size (feedbackScale) and opacity (feedbackOpacity). */
+  scale?: number;
+  opacity?: number;
 }
 
 const stateLabels: Record<PetState, string> = {
@@ -14,7 +18,7 @@ const stateLabels: Record<PetState, string> = {
   error: "Error"
 };
 
-export function Panel({ state, event }: PanelProps) {
+export function Panel({ state, event, scale = 1, opacity = 1 }: PanelProps) {
   const tool = event?.tool;
   const detail = event?.detail?.trim();
   const isError = state === "error";
@@ -36,7 +40,11 @@ export function Panel({ state, event }: PanelProps) {
   const note = (isError || !tool) && message && message !== headline ? message : undefined;
 
   return (
-    <section className={`pet-bubble panel state-${state}${notificationKind ? ` notification-${notificationKind}` : ""}`} aria-label="Pet status">
+    <section
+      className={`pet-bubble panel state-${state}${notificationKind ? ` notification-${notificationKind}` : ""}`}
+      style={{ "--bubble-scale": scale, opacity } as CSSProperties}
+      aria-label="Pet status"
+    >
       <div className="bubble-eyebrow">
         <span className="bubble-dot" aria-hidden="true" />
         {eyebrow}

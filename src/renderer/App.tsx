@@ -1,6 +1,13 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { createPetEvent, PetEvent, PetState } from "../shared/events";
-import { clampPetOpacity, clampPetScale, getPetBubbleBottom } from "../shared/petDisplaySettings";
+import {
+  clampFeedbackOpacity,
+  clampFeedbackScale,
+  clampPermissionScale,
+  clampPetOpacity,
+  clampPetScale,
+  getPetBubbleBottom
+} from "../shared/petDisplaySettings";
 import { Panel } from "./components/Panel";
 import { PermissionCard, type PermissionRequestView } from "./components/PermissionCard";
 import { Pet } from "./components/Pet";
@@ -11,7 +18,13 @@ const notificationDisplayMs = 3000;
 const showDebugPanel = import.meta.env.DEV;
 
 type PermissionRequestPayload = { id: string; toolName?: string; toolDetail?: string };
-type PetDisplaySettings = { petScale?: number; clawdOpacity?: number };
+type PetDisplaySettings = {
+  petScale?: number;
+  clawdOpacity?: number;
+  feedbackScale?: number;
+  feedbackOpacity?: number;
+  permissionScale?: number;
+};
 
 type PetCompanionApi = {
   getSettings?: () => Promise<PetDisplaySettings>;
@@ -30,7 +43,13 @@ export default function App() {
   const [state, setState] = useState<PetState>("idle");
   const [lastEvent, setLastEvent] = useState<PetEvent | null>(null);
   const [permissions, setPermissions] = useState<PermissionRequestView[]>([]);
-  const [petDisplay, setPetDisplay] = useState({ scale: 1, opacity: 1 });
+  const [petDisplay, setPetDisplay] = useState({
+    scale: 1,
+    opacity: 1,
+    feedbackScale: 1,
+    feedbackOpacity: 1,
+    permissionScale: 1
+  });
   const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
   const resetTimer = useRef<number | null>(null);
   const notificationTimer = useRef<number | null>(null);
@@ -80,7 +99,10 @@ export default function App() {
     const applySettings = (settings: PetDisplaySettings) => {
       setPetDisplay({
         scale: clampPetScale(settings.petScale),
-        opacity: clampPetOpacity(settings.clawdOpacity)
+        opacity: clampPetOpacity(settings.clawdOpacity),
+        feedbackScale: clampFeedbackScale(settings.feedbackScale),
+        feedbackOpacity: clampFeedbackOpacity(settings.feedbackOpacity),
+        permissionScale: clampPermissionScale(settings.permissionScale)
       });
     };
     const initialSettings = companion?.getSettings?.();
@@ -154,9 +176,10 @@ export default function App() {
           queueCount={permissions.length}
           onAllow={() => respondPermission(activePermission.id, "allow")}
           onDeny={() => respondPermission(activePermission.id, "deny")}
+          scale={petDisplay.permissionScale}
         />
       ) : (
-        <Panel state={state} event={lastEvent} />
+        <Panel state={state} event={lastEvent} scale={petDisplay.feedbackScale} opacity={petDisplay.feedbackOpacity} />
       )}
       <Pet state={petState} previewAnimation={previewAnimation} scale={petDisplay.scale} opacity={petDisplay.opacity} />
       {showDebugPanel && (

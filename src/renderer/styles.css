@@ -60,11 +60,25 @@ button {
   --line: rgba(255, 255, 255, 0.09);
   --surface-bottom: rgba(20, 21, 25, 0.97);
   --accent: rgba(255, 255, 255, 0.4);
+  /* Fixed width, centered in the window, scaled via --bubble-scale. The window
+     grows to fit a larger scale (getPetWindowWidth), so scaling never clips.
+     Scaling from the bottom keeps the bubble pinned above the pet — it grows
+     upward, never into the character. Keep --bubble-base-width in sync with
+     BUBBLE_BASE_WIDTH in petDisplaySettings.ts. */
+  --bubble-base-width: 236px;
+  --bubble-scale: 1;
+  box-sizing: border-box;
   position: absolute;
   z-index: 20;
   bottom: var(--pet-bubble-bottom, 204px);
-  left: 12px;
-  right: 12px;
+  left: 0;
+  right: 0;
+  width: var(--bubble-base-width);
+  margin-left: auto;
+  margin-right: auto;
+  transform: scale(var(--bubble-scale));
+  transform-origin: bottom center;
+  transition: opacity 160ms ease-out;
   border: 1px solid var(--line);
   border-radius: 15px;
   color: rgba(245, 245, 247, 0.96);
