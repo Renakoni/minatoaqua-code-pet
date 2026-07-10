@@ -118,6 +118,7 @@ let companionSettings: Record<string, any> = {
   showStatusProp: true,
   multiSessionEnabled: false,
   permissionDialogEnabled: true,
+  permissionWaitSeconds: 30,
   showSessionTitle: true,
   companionScale: 0.5,
   companionIdleAnimations: ["running", "idle", "waiting_permission"],
@@ -128,7 +129,6 @@ let companionSettings: Record<string, any> = {
   autoUpdateEnabled: false,
   petTheme: "minato-aqua",
   enabledSources: ["claude-code", "codex"],
-  doneSound: false,
   notificationsEnabled: true,
   theme: "system",
   uiStyle: "classic",
@@ -138,10 +138,10 @@ let companionSettings: Record<string, any> = {
   displayMonitorId: "primary",
   monitorPositions: [],
   notificationRules: [
-    { eventType: "done", enabled: true, systemNotification: true, playSound: true, showBubble: true },
-    { eventType: "error", enabled: true, systemNotification: true, playSound: true, showBubble: true },
-    { eventType: "permission_wait", enabled: true, systemNotification: true, playSound: true, showBubble: true },
-    { eventType: "notification", enabled: true, systemNotification: true, playSound: false, showBubble: true }
+    { eventType: "done", enabled: true, playSound: true },
+    { eventType: "error", enabled: true, playSound: true },
+    { eventType: "permission_wait", enabled: true, playSound: true },
+    { eventType: "notification", enabled: true, playSound: false }
   ],
   customPlugins: [],
   pomodoroEnabled: false,
@@ -150,14 +150,9 @@ let companionSettings: Record<string, any> = {
   sound: {
     enabled: true,
     volume: 0.6,
-    onDone: true,
-    onError: true,
-    onPermission: true,
-    onSessionStart: false,
     fileDone: null,
     fileError: null,
     filePermission: null,
-    fileSessionStart: null,
     eventFiles: {}
   },
   eventHistoryLimit: 100,
@@ -714,9 +709,7 @@ type BuiltInSound = "done" | "error" | "permission";
 type NotificationRule = {
   eventType: CompanionEventType;
   enabled: boolean;
-  systemNotification: boolean;
   playSound: boolean;
-  showBubble: boolean;
 };
 
 function normalizeTool(tool?: string) {
@@ -796,9 +789,7 @@ function defaultNotificationRule(eventType: ManagedNotificationEventType): Notif
   return {
     eventType,
     enabled: true,
-    systemNotification: true,
-    playSound: isSoundNotificationEvent(eventType),
-    showBubble: true
+    playSound: isSoundNotificationEvent(eventType)
   };
 }
 
@@ -2784,14 +2775,25 @@ function recordPermissionDecision(decision?: string) {
  * onSettled callback tells every window to dismiss its permission card.
  */
 // How long the pet waits for the user's allow/deny before Claude Code falls back
-// to its own terminal prompt. The forwarder's long-poll and the PreToolUse hook
+// to its own terminal prompt — user-configurable via the "Permission wait" slider
+// (permissionWaitSeconds). The forwarder's long-poll and the PreToolUse hook
 // timeout are set above this so the fallback is graceful (bubble dismisses + a
 // single native prompt), never a premature hook kill. See
 // PRETOOLUSE_HOOK_TIMEOUT_SECONDS.
-const PERMISSION_DECISION_WINDOW_MS = 30_000;
+const MIN_PERMISSION_WAIT_SECONDS = 5;
+const MAX_PERMISSION_WAIT_SECONDS = 60;
+const DEFAULT_PERMISSION_WAIT_SECONDS = 30;
+
+function getPermissionWaitMs() {
+  const seconds = companionSettings.permissionWaitSeconds;
+  const clamped = typeof seconds === "number" && Number.isFinite(seconds)
+    ? Math.max(MIN_PERMISSION_WAIT_SECONDS, Math.min(MAX_PERMISSION_WAIT_SECONDS, seconds))
+    : DEFAULT_PERMISSION_WAIT_SECONDS;
+  return clamped * 1000;
+}
 
 const permissionBroker = new PermissionBroker({
-  defaultTimeoutMs: PERMISSION_DECISION_WINDOW_MS,
+  defaultTimeoutMs: DEFAULT_PERMISSION_WAIT_SECONDS * 1000,
   onSettled: (pending, result) => {
     recordPermissionDecision(result.decision);
     for (const target of [petWindow, panelWindow]) {
@@ -2837,13 +2839,17 @@ function announcePermissionRequest(pending: PendingPermission) {
   updateTrayMenu();
 }
 
-function handlePermissionRequest(payload: unknown): { id: string } {
+function handlePermissionRequest(payload: unknown): { id?: string } {
+  // When the pet permission card is turned off, don't intercept: return no id so
+  // the forwarder writes nothing to Claude Code and its own terminal prompt runs.
+  if (companionSettings.permissionDialogEnabled === false) return {};
   const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
   const pending = permissionBroker.create({
     toolName: typeof body.toolName === "string" ? body.toolName : "Unknown",
     toolDetail: typeof body.toolDetail === "string" ? body.toolDetail : undefined,
     sessionId: typeof body.sessionId === "string" ? body.sessionId : undefined,
-    rawPayload: body.rawPayload && typeof body.rawPayload === "object" ? body.rawPayload as Record<string, unknown> : {}
+    rawPayload: body.rawPayload && typeof body.rawPayload === "object" ? body.rawPayload as Record<string, unknown> : {},
+    timeoutMs: getPermissionWaitMs()
   });
   announcePermissionRequest(pending);
   return { id: pending.id };
@@ -2875,14 +2881,14 @@ function getSessionHistory() {
 
 const requiredClaudeHookEvents = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
 
-// PreToolUse is the blocking permission gate: it waits on the pet for the
-// PERMISSION_DECISION_WINDOW_MS (~30s) plus the forwarder's slightly-longer
-// long-poll. Set the hook timeout above the forwarder's total runtime (~5s POST
-// + 35s poll) so Claude Code waits the whole window instead of killing the hook
-// early — which would strand the bubble and pop a duplicate native prompt. The
-// other hooks just forward events and finish in well under a second, so they
-// keep the default timeout.
-const PRETOOLUSE_HOOK_TIMEOUT_SECONDS = 45;
+// PreToolUse is the blocking permission gate: it waits on the pet for up to the
+// MAX "Permission wait" window (60s) plus the forwarder's slightly-longer
+// long-poll (~65s) and its POST (~5s). Fix the hook timeout above that worst
+// case so Claude Code never kills the hook early for any slider value; the actual
+// wait is governed by the (usually shorter) broker/forwarder window, so this
+// ceiling is never reached in practice. Other hooks forward events in well under
+// a second and keep the default timeout.
+const PRETOOLUSE_HOOK_TIMEOUT_SECONDS = 75;
 
 function isExternalNodeReadablePath(candidate: string) {
   const normalized = candidate.replace(/\\/g, "/");

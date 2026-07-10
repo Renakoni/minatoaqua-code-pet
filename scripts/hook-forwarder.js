@@ -382,6 +382,16 @@ function httpJson(options, body, timeout) {
  * responds (or it times out). Returns "allow" | "deny", or null to fall back
  * to Claude Code's native permission prompt.
  */
+// Match the pet's decision window (permissionWaitSeconds, 5-60s) plus a small
+// margin, so this poll outlasts the broker's expiry and receives its response.
+function permissionLongPollMs() {
+  const seconds = readCompanionSettings().permissionWaitSeconds;
+  const clamped = typeof seconds === "number" && Number.isFinite(seconds)
+    ? Math.max(5, Math.min(60, seconds))
+    : 30;
+  return (clamped + 5) * 1000;
+}
+
 async function requestPermissionDecision(payload) {
   const body = JSON.stringify({
     toolName: pickToolName(payload) ?? "Unknown",
@@ -397,12 +407,12 @@ async function requestPermissionDecision(payload) {
   );
   if (!created || typeof created.id !== "string") return null;
 
-  // Block Claude Code on the pet's decision. This poll sits just above the
-  // broker's ~30s decision window (PERMISSION_DECISION_WINDOW_MS in
-  // src/main/index.ts) so it receives the broker's expiry response, and below the
-  // PreToolUse hook timeout (PRETOOLUSE_HOOK_TIMEOUT_SECONDS) so the CLI waits for
-  // the pet the whole window instead of killing this hook and prompting itself.
-  const result = await httpJson({ path: `/permission/${created.id}`, method: "GET" }, undefined, 35000);
+  // Block Claude Code on the pet's decision. This poll sits just above the broker's
+  // decision window (permissionWaitSeconds in the app settings) so it receives the
+  // broker's expiry response, and below the PreToolUse hook timeout
+  // (PRETOOLUSE_HOOK_TIMEOUT_SECONDS = 75s) so the CLI waits for the pet the whole
+  // window instead of killing this hook and prompting itself.
+  const result = await httpJson({ path: `/permission/${created.id}`, method: "GET" }, undefined, permissionLongPollMs());
   if (result && (result.decision === "allow" || result.decision === "deny")) {
     return { decision: result.decision, reason: result.reason };
   }

@@ -532,6 +532,7 @@
     "doneNotification": "System notification on done",
     "soundNote": "Completion sounds play audio files; system notifications appear in the notification center.",
     "bubbleStay": "Bubble duration",
+    "permissionWait": "Permission wait",
     "toolStreamStay": "Tool stream duration",
     "eventHistory": "Event history",
     "enableMultiSession": "Enable multi-session",

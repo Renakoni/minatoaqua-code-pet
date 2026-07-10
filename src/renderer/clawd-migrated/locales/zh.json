@@ -532,6 +532,7 @@
     "doneNotification": "完成时系统通知",
     "soundNote": "完成音效播放音频文件；系统通知在任务栏通知中心显示弹窗。",
     "bubbleStay": "气泡停留",
+    "permissionWait": "权限等待",
     "toolStreamStay": "工具流停留",
     "eventHistory": "事件历史",
     "enableMultiSession": "启用多会话",
