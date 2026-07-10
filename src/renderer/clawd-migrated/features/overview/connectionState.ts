@@ -170,23 +170,3 @@ export function resolveRecheck<Status, Connection>(
   };
 }
 
-export interface OverviewActionState<Status> {
-  status: Status | null;
-  actionResult: string | null;
-}
-
-// Fold a completed hook operation into the parent-owned Overview state. The
-// message is stored HERE (not in HooksManager) so it survives the mode change
-// that unmounts HooksManager — e.g. a first-run install flips the area to the
-// workbench, but the "restart your Claude Code session" guidance stays visible.
-// A thrown operation (status null) keeps the previous status while still showing
-// its message.
-export function applyHookOperation<Status>(
-  prev: OverviewActionState<Status>,
-  outcome: { status: Status | null; message: string }
-): OverviewActionState<Status> {
-  return {
-    status: outcome.status ?? prev.status,
-    actionResult: outcome.message
-  };
-}

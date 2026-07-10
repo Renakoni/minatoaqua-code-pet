@@ -41,9 +41,9 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PermissionCard } from "./components/PermissionCard";
 import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
 import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
-import type { HookStatus } from "./components/hooks/HooksManager";
+import type { HookStatus, HookOperationOutcome } from "./components/hooks/HooksManager";
 import { OverviewSection } from "./features/overview/OverviewSection";
-import { applyHookOperation, resolveRecheck } from "./features/overview/connectionState";
+import { resolveRecheck } from "./features/overview/connectionState";
 import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
 import { getPetTheme } from "./utils/petThemes";
 
@@ -947,7 +947,7 @@ function SettingsApp() {
   const [overviewHookStatus, setOverviewHookStatus] = useState<HookStatus | null>(null);
   const [overviewHookError, setOverviewHookError] = useState(false);
   const [overviewHookChecking, setOverviewHookChecking] = useState(false);
-  const [overviewActionResult, setOverviewActionResult] = useState<string | null>(null);
+  const [overviewActionOutcome, setOverviewActionOutcome] = useState<any>(null);
   const hookCheckSeq = useRef(0);
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 
@@ -1001,7 +1001,6 @@ function SettingsApp() {
     const seq = hookCheckSeq.current + 1;
     hookCheckSeq.current = seq;
     setOverviewHookChecking(true);
-    setOverviewActionResult(null); // a fresh check clears any lingering action message
     const [hookResult, connResult] = await Promise.allSettled([
       window.companion.checkHooks(),
       window.companion.getConnectionStatus()
@@ -1016,25 +1015,26 @@ function SettingsApp() {
 
   // Refresh whenever the Overview becomes active, so an externally changed config
   // (removed forwarder, edited settings) cannot leave a stale state indefinitely.
+  // Also clears any lingering action message from a previous visit.
   useEffect(() => {
     if (activeSection !== "general") return undefined;
+    setOverviewActionOutcome(null);
     recheckOverviewHooks();
     return undefined;
   }, [activeSection]);
 
-  // A completed hook action (install/repair/remove) produces an authoritative
-  // fresh status AND a user-facing message. It supersedes any in-flight Recheck:
-  // bump the sequence to invalidate that request's finalizer and clear checking so
-  // the button can never stay stuck. The message is stored on the parent so it
-  // survives the notConfigured <-> workbench transition that unmounts HooksManager
-  // (e.g. the install restart guidance stays visible after the chain goes Ready).
-  function handleOverviewHookOperation(outcome: { operation: string; status: HookStatus | null; message: string; installed: boolean }) {
-    hookCheckSeq.current += 1;
-    setOverviewHookChecking(false);
-    setOverviewHookError(false);
-    const next = applyHookOperation({ status: overviewHookStatus, actionResult: overviewActionResult }, outcome);
-    setOverviewHookStatus(next.status);
-    setOverviewActionResult(next.actionResult);
+  // A completed hook action (install/repair/remove) yields fresh HOOK status and a
+  // structured outcome, but says nothing about the live connection/listener. So we
+  // store the structured outcome (rendered reactively), apply the fresh hook status
+  // via a functional update (preserving the latest parent state on a thrown, null
+  // status), and then kick off an authoritative FULL-CHAIN recheck. That recheck
+  // re-fetches BOTH hook and connection status and sets the error from the combined
+  // result — so a hook action can never clear the error or leave a stale connection
+  // "Ready" without a newer full-chain refresh confirming it.
+  function handleOverviewHookOperation(outcome: HookOperationOutcome) {
+    setOverviewActionOutcome(outcome);
+    setOverviewHookStatus(previous => outcome.status ?? previous);
+    recheckOverviewHooks();
   }
 
   useEffect(() => {
@@ -1175,7 +1175,7 @@ function SettingsApp() {
             hookStatus={overviewHookStatus}
             checkError={overviewHookError}
             checking={overviewHookChecking}
-            actionResult={overviewActionResult}
+            actionOutcome={overviewActionOutcome}
             onRecheck={recheckOverviewHooks}
             onOperationComplete={handleOverviewHookOperation}
           />

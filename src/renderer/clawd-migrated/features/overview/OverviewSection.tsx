@@ -4,6 +4,7 @@ import { Wrench, RefreshCw } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { ClaudeRoutingPanel } from "../../components/claude-routing/ClaudeRoutingPanel";
 import { HooksManager, type HookStatus } from "../../components/hooks/HooksManager";
+import { hookOutcomeMessage, type HookOperationOutcome } from "../../components/hooks/hookOutcome";
 import { deriveConnectionState } from "./connectionState";
 import { redactSensitiveText } from "../../../../shared/privacy";
 import { timeAgo } from "../../utils/format";
@@ -33,7 +34,7 @@ export function OverviewSection({
   hookStatus,
   checkError = false,
   checking = false,
-  actionResult = null,
+  actionOutcome = null,
   onRecheck,
   onOperationComplete
 }: {
@@ -44,9 +45,9 @@ export function OverviewSection({
   hookStatus: HookStatus | null;
   checkError?: boolean;
   checking?: boolean;
-  actionResult?: string | null;
+  actionOutcome?: HookOperationOutcome | null;
   onRecheck?: () => void;
-  onOperationComplete?: (outcome: { operation: string; status: HookStatus | null; message: string; installed: boolean }) => void;
+  onOperationComplete?: (outcome: HookOperationOutcome) => void;
 }) {
   const { t, locale } = useI18n();
   const hideSensitive = settings.hideSensitiveContent === true;
@@ -115,7 +116,7 @@ export function OverviewSection({
           <div className="connection-onboarding">
             <h3>{t("main.connectTitle", "连接 Claude Code")}</h3>
             <p>{t("connection.onboardingBody", "一键安装 hooks，Claude Code 就会把会话事件发送到桌宠。")}</p>
-            <HooksManager compact status={hookStatus} hideSensitiveContent={hideSensitive} onOperationComplete={onOperationComplete} />
+            <HooksManager compact status={hookStatus} onOperationComplete={onOperationComplete} />
             {/* Discover an externally-installed config without leaving this view. */}
             {recheckButton}
           </div>
@@ -154,7 +155,7 @@ export function OverviewSection({
             {/* Manage actions are always available in the workbench (Remove lives in
                 a consistent danger zone); Repair only shows when it can actually fix
                 the problem. Forwarder/listener failures get their own guidance. */}
-            <HooksManager actionsOnly showRepair={canRepair} status={hookStatus} hideSensitiveContent={hideSensitive} onOperationComplete={onOperationComplete} />
+            <HooksManager actionsOnly showRepair={canRepair} status={hookStatus} onOperationComplete={onOperationComplete} />
             {forwarderMissing ? (
               <div className="connection-guidance">
                 <p>{t("connection.forwarderMissingGuidance", "桌宠的 hook 转发文件缺失，通常是应用被移动或未完整安装。请重新安装或恢复应用后再检查。")}</p>
@@ -170,8 +171,11 @@ export function OverviewSection({
 
         {/* Parent-owned action feedback: rendered outside the mode branches so a
             success message (e.g. the install restart guidance) survives the
-            notConfigured <-> workbench transition that unmounts the HooksManager. */}
-        {actionResult ? <p className="hooks-result connection-action-result">{actionResult}</p> : null}
+            notConfigured <-> workbench transition that unmounts the HooksManager.
+            The message is derived HERE from the structured outcome using the
+            current locale + hide setting, so it never leaks a path stored earlier
+            when hiding was off. */}
+        {actionOutcome ? <p className="hooks-result connection-action-result">{hookOutcomeMessage(actionOutcome, t, hideSensitive)}</p> : null}
       </section>
     </section>
   );

@@ -3,61 +3,31 @@ import React, { useState } from "react";
 import { CheckCircle2, Wrench } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { StatusCard } from "../workbench/Primitives";
-import { describeHookOperationError, type HookStatus, type HookOperationResult } from "../../../../shared/hooks";
+import type { HookStatus } from "../../../../shared/hooks";
+import type { HookOperationOutcome } from "./hookOutcome";
 
 export type { HookStatus };
+export type { HookOperationOutcome };
 
-export type HookOpKind = "install" | "repair" | "remove";
-export interface HookOperationOutcome {
-  operation: HookOpKind;
-  /** Fresh status from the operation result, or null if the call threw. */
-  status: HookStatus | null;
-  /** Localized, already privacy-processed message to show the user. */
-  message: string;
-  /** True only for a fully successful install. */
-  installed: boolean;
-}
-
-const HIDDEN_KEY: Record<HookOpKind, string> = { install: "doctor.installFailedHidden", repair: "doctor.repairFailedHidden", remove: "doctor.removeFailedHidden" };
-const HIDDEN_FALLBACK: Record<HookOpKind, string> = { install: "Hook 安装失败，详情已隐藏。", repair: "Hook 修复失败，详情已隐藏。", remove: "Hook 移除失败，详情已隐藏。" };
-const FAILED_KEY: Record<HookOpKind, string> = { install: "doctor.installFailed", repair: "doctor.repairFailed", remove: "doctor.removeFailed" };
-const FAILED_FALLBACK: Record<HookOpKind, string> = { install: "安装失败: {error}", repair: "修复失败: {error}", remove: "移除失败: {error}" };
-
-// The parent (Overview) is the single owner of hook STATUS, the loading/error
-// state, AND the action-outcome message: HooksManager reports each completed
-// operation via onOperationComplete, and the parent renders the message in a
-// stable location so it survives the notConfigured <-> workbench transition that
-// unmounts this component. HooksManager renders the supplied status and performs
-// install/repair/remove; it does NOT fetch status on mount.
-export function HooksManager({ compact = false, actionsOnly = false, success = false, showRepair = true, hideSensitiveContent = false, status = null, onOperationComplete }: { compact?: boolean; actionsOnly?: boolean; success?: boolean; showRepair?: boolean; hideSensitiveContent?: boolean; status?: HookStatus | null; onOperationComplete?: (outcome: HookOperationOutcome) => void } = {}) {
+// The parent (Overview) owns hook STATUS, the loading/error state, AND the action
+// outcome. HooksManager reports each completed operation as STRUCTURED data via
+// onOperationComplete — never a pre-rendered message — so the parent can derive
+// the localized, privacy-correct text at render time (keeping it reactive to the
+// current hide setting and locale). HooksManager renders the supplied status and
+// performs install/repair/remove; it does NOT fetch status on mount.
+export function HooksManager({ compact = false, actionsOnly = false, success = false, showRepair = true, status = null, onOperationComplete }: { compact?: boolean; actionsOnly?: boolean; success?: boolean; showRepair?: boolean; status?: HookStatus | null; onOperationComplete?: (outcome: HookOperationOutcome) => void } = {}) {
   const { t } = useI18n();
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
   const [action, setAction] = useState<string | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
 
-  // Turn a failed hook-operation result into a display message. The privacy
-  // decision (structured category / generic hidden / raw) is made by
-  // describeHookOperationError; here we only localize it.
-  function failureMessage(res: Pick<HookOperationResult, "error" | "errorKind" | "forwarderPath"> | undefined, op: HookOpKind) {
-    const display = describeHookOperationError(res, hideSensitiveContent);
-    if (display.kind === "forwarder-missing") {
-      return display.path
-        ? formatText(t("doctor.forwarderMissingPath", "找不到 hook 转发文件：{path}"), { path: display.path })
-        : t("doctor.forwarderMissing", "找不到 hook 转发文件，请重新安装应用。");
-    }
-    if (display.kind === "hidden") return t(HIDDEN_KEY[op], HIDDEN_FALLBACK[op]);
-    return formatText(t(FAILED_KEY[op], FAILED_FALLBACK[op]), { error: display.text });
-  }
-
   async function handleInstall() {
     setAction("installing");
     try {
       const res = await window.companion.installHooks();
-      const installed = !!res.success && !!res.status?.installed;
-      const message = installed ? t("doctor.installDone", "安装成功！重启 Claude Code 会话后生效。") : res.success ? t("doctor.installIncomplete", "安装完成，但仍有 hooks 未配置完整。") : failureMessage(res, "install");
-      onOperationComplete?.({ operation: "install", status: res.status ?? null, message, installed });
+      onOperationComplete?.({ operation: "install", success: !!res.success, installed: !!res.success && !!res.status?.installed, status: res.status ?? null, error: res.error, errorKind: res.errorKind, forwarderPath: res.forwarderPath });
     } catch (error) {
-      onOperationComplete?.({ operation: "install", status: null, message: failureMessage({ error: error instanceof Error ? error.message : String(error) }, "install"), installed: false });
+      onOperationComplete?.({ operation: "install", success: false, installed: false, status: null, error: error instanceof Error ? error.message : String(error) });
     } finally {
       setAction(null);
     }
@@ -67,10 +37,9 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
     setAction("repairing");
     try {
       const res = await window.companion.repairHooks();
-      const message = res.success ? t("doctor.repairDone", "Hook 配置已修复。") : failureMessage(res, "repair");
-      onOperationComplete?.({ operation: "repair", status: res.status ?? null, message, installed: false });
+      onOperationComplete?.({ operation: "repair", success: !!res.success, installed: false, status: res.status ?? null, error: res.error, errorKind: res.errorKind, forwarderPath: res.forwarderPath });
     } catch (error) {
-      onOperationComplete?.({ operation: "repair", status: null, message: failureMessage({ error: error instanceof Error ? error.message : String(error) }, "repair"), installed: false });
+      onOperationComplete?.({ operation: "repair", success: false, installed: false, status: null, error: error instanceof Error ? error.message : String(error) });
     } finally {
       setAction(null);
     }
@@ -80,10 +49,9 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
     setAction("removing");
     try {
       const res = await window.companion.removeHooks();
-      const message = res.success ? t("doctor.removeDone", "已移除所有 Clawd hooks。") : failureMessage(res, "remove");
-      onOperationComplete?.({ operation: "remove", status: res.status ?? null, message, installed: false });
+      onOperationComplete?.({ operation: "remove", success: !!res.success, installed: false, status: res.status ?? null, error: res.error, errorKind: res.errorKind, forwarderPath: res.forwarderPath });
     } catch (error) {
-      onOperationComplete?.({ operation: "remove", status: null, message: failureMessage({ error: error instanceof Error ? error.message : String(error) }, "remove"), installed: false });
+      onOperationComplete?.({ operation: "remove", success: false, installed: false, status: null, error: error instanceof Error ? error.message : String(error) });
     } finally {
       setAction(null);
       setConfirmingRemove(false);
