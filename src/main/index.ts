@@ -2777,7 +2777,15 @@ function recordPermissionDecision(decision?: string) {
  * forwarder. When a request settles (user decision, timeout, or quit) the
  * onSettled callback tells every window to dismiss its permission card.
  */
+// How long the pet waits for the user's allow/deny before Claude Code falls back
+// to its own terminal prompt. The forwarder's long-poll and the PreToolUse hook
+// timeout are set above this so the fallback is graceful (bubble dismisses + a
+// single native prompt), never a premature hook kill. See
+// PRETOOLUSE_HOOK_TIMEOUT_SECONDS.
+const PERMISSION_DECISION_WINDOW_MS = 30_000;
+
 const permissionBroker = new PermissionBroker({
+  defaultTimeoutMs: PERMISSION_DECISION_WINDOW_MS,
   onSettled: (pending, result) => {
     recordPermissionDecision(result.decision);
     for (const target of [petWindow, panelWindow]) {
@@ -2860,6 +2868,15 @@ function getSessionHistory() {
 }
 
 const requiredClaudeHookEvents = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
+
+// PreToolUse is the blocking permission gate: it waits on the pet for the
+// PERMISSION_DECISION_WINDOW_MS (~30s) plus the forwarder's slightly-longer
+// long-poll. Set the hook timeout above the forwarder's total runtime (~5s POST
+// + 35s poll) so Claude Code waits the whole window instead of killing the hook
+// early — which would strand the bubble and pop a duplicate native prompt. The
+// other hooks just forward events and finish in well under a second, so they
+// keep the default timeout.
+const PRETOOLUSE_HOOK_TIMEOUT_SECONDS = 45;
 
 function isExternalNodeReadablePath(candidate: string) {
   const normalized = candidate.replace(/\\/g, "/");
@@ -2949,7 +2966,7 @@ function getHooksStatus() {
   const hookCount = requiredClaudeHookEvents.length - missingEvents.length;
   const commandMatches = requiredClaudeHookEvents.every(eventName => {
     const entries = getHookEntries(settings, eventName);
-    return entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName, { requireCurrentForwarder: true })));
+    return entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName, { requireCurrentForwarder: true }) && (eventName !== "PreToolUse" || hook?.timeout === PRETOOLUSE_HOOK_TIMEOUT_SECONDS)));
   });
 
   return {
@@ -2979,7 +2996,9 @@ function installHooks() {
     for (const eventName of requiredClaudeHookEvents) {
       const entries = Array.isArray(hooks[eventName]) ? [...hooks[eventName]] : [];
       const existingIndex = entries.findIndex(entry => entry && typeof entry === "object" && Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => isClawdHookCommand(hook?.command)));
-      const clawdEntry = { matcher: "*", hooks: [{ type: "command", command: getHookCommand(eventName) }] };
+      const hookCommand: Record<string, unknown> = { type: "command", command: getHookCommand(eventName) };
+      if (eventName === "PreToolUse") hookCommand.timeout = PRETOOLUSE_HOOK_TIMEOUT_SECONDS;
+      const clawdEntry = { matcher: "*", hooks: [hookCommand] };
       if (existingIndex >= 0) entries[existingIndex] = clawdEntry;
       else entries.push(clawdEntry);
       hooks[eventName] = entries;
