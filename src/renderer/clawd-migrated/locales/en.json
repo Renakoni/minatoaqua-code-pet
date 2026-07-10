@@ -307,6 +307,7 @@
     "recheck": "Recheck",
     "rechecking": "Rechecking…",
     "checkFailed": "Couldn't refresh the connection. Try again.",
+    "settingsUnreadable": "Claude Code settings could not be read. Check that the settings file is valid and that the app has permission to read it.",
     "forwarderMissingGuidance": "The pet's hook forwarder file is missing — usually the app was moved or not fully installed. Reinstall or restore the app, then recheck.",
     "listenerDownGuidance": "The local listener isn't running, so events can't arrive. Restart the pet app; this updates automatically once it recovers.",
     "title": "Connection status",

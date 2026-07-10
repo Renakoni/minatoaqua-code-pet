@@ -307,6 +307,7 @@
     "recheck": "重新检查",
     "rechecking": "检查中…",
     "checkFailed": "无法刷新连接，请重试。",
+    "settingsUnreadable": "无法读取 Claude Code 设置。请检查设置文件格式是否有效，以及应用是否具有读取权限。",
     "forwarderMissingGuidance": "桌宠的 hook 转发文件缺失，通常是应用被移动或未完整安装。请重新安装或恢复应用后再检查。",
     "listenerDownGuidance": "本地监听未运行，无法接收事件。请重启桌宠应用；监听恢复后此处会自动更新。",
     "title": "连接状态",

@@ -20,6 +20,12 @@ export type ConnectionRowState = "healthy" | "waiting" | "partial" | "repair" | 
 //  - workbench:     the factual delivery-chain rows (+ contextual actions)
 export type ConnectionMode = "loading" | "error" | "notConfigured" | "workbench";
 
+// Why the area is in `error` mode. These are materially different problems:
+//  - check-failed:        a Recheck IPC request failed — retrying may fix it
+//  - settings-unreadable: the settings file is present but corrupt/unreadable —
+//                         retrying will not help; the file needs attention
+export type ConnectionErrorReason = "check-failed" | "settings-unreadable";
+
 // The derivation intentionally needs only a subset of the shared HookStatus; a
 // Pick keeps it tied to the single source of truth so it cannot silently drift.
 export type HookStatusInput = Pick<HookStatus, "hookCount" | "requiredCount" | "missingEvents" | "commandMatches" | "configReadError" | "forwarder">;
@@ -32,6 +38,9 @@ export interface ConnectionInput {
 
 export interface ConnectionFacts {
   mode: ConnectionMode;
+  /** Present only in `error` mode; distinguishes a transient check failure from
+      an unreadable settings file so the UI can give accurate remediation. */
+  errorReason: ConnectionErrorReason | null;
   requiredCount: number;
   configuredCount: number;
   configComplete: boolean;
@@ -91,10 +100,18 @@ export function deriveConnectionState(
   const canRepair = needsHookRepair && forwarderOk;
 
   let mode: ConnectionMode;
-  if (checkError || hookStatus === null) {
-    mode = checkError ? "error" : "loading";
-  } else if (hookStatus.configReadError) {
+  let errorReason: ConnectionErrorReason | null = null;
+  if (checkError) {
+    // A Recheck request failed — retrying may fix it.
     mode = "error";
+    errorReason = "check-failed";
+  } else if (hookStatus === null) {
+    mode = "loading";
+  } else if (hookStatus.configReadError) {
+    // The settings file is present but unreadable/corrupt; retrying won't help,
+    // so this is a distinct, factual error rather than a transient refresh failure.
+    mode = "error";
+    errorReason = "settings-unreadable";
   } else if (configuredCount === 0) {
     // No Clawd hooks are currently configured. This is intentionally NOT a claim
     // about historical first use — it also covers hooks removed or wiped
@@ -106,6 +123,7 @@ export function deriveConnectionState(
 
   return {
     mode,
+    errorReason,
     requiredCount,
     configuredCount,
     configComplete,
@@ -149,5 +167,26 @@ export function resolveRecheck<Status, Connection>(
     status: hookResult.status === "fulfilled" ? hookResult.value : undefined,
     connection: connResult.status === "fulfilled" ? connResult.value : undefined,
     error: !(hookResult.status === "fulfilled" && connResult.status === "fulfilled")
+  };
+}
+
+export interface OverviewActionState<Status> {
+  status: Status | null;
+  actionResult: string | null;
+}
+
+// Fold a completed hook operation into the parent-owned Overview state. The
+// message is stored HERE (not in HooksManager) so it survives the mode change
+// that unmounts HooksManager — e.g. a first-run install flips the area to the
+// workbench, but the "restart your Claude Code session" guidance stays visible.
+// A thrown operation (status null) keeps the previous status while still showing
+// its message.
+export function applyHookOperation<Status>(
+  prev: OverviewActionState<Status>,
+  outcome: { status: Status | null; message: string }
+): OverviewActionState<Status> {
+  return {
+    status: outcome.status ?? prev.status,
+    actionResult: outcome.message
   };
 }

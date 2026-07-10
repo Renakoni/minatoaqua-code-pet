@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveConnectionState, resolveRecheck, type HookStatusInput } from "../src/renderer/clawd-migrated/features/overview/connectionState";
+import { deriveConnectionState, resolveRecheck, applyHookOperation, type HookStatusInput } from "../src/renderer/clawd-migrated/features/overview/connectionState";
 
 // A fully-installed, current, present-forwarder status: the "everything is wired"
 // baseline that individual tests degrade one link at a time.
@@ -20,17 +20,31 @@ describe("deriveConnectionState: mode selection", () => {
     expect(facts.healthy).toBe(false);
   });
 
-  it("is an error when the check itself failed", () => {
+  it("is a transient check-failed error when a Recheck request failed", () => {
     const facts = deriveConnectionState(healthyHooks, { serverListening: true }, true);
     expect(facts.mode).toBe("error");
+    expect(facts.errorReason).toBe("check-failed");
   });
 
-  it("is an error when the settings file could not be read (never silent first-run)", () => {
+  it("is a distinct settings-unreadable error for a corrupt/unreadable settings file", () => {
+    // A successful refresh that reports configReadError is NOT a transient retry
+    // failure — it needs its own factual remediation, not "try again".
     const facts = deriveConnectionState(
       { ...healthyHooks, hookCount: 0, missingEvents: healthyHooks.missingEvents, configReadError: true },
       { serverListening: true }
     );
     expect(facts.mode).toBe("error");
+    expect(facts.errorReason).toBe("settings-unreadable");
+  });
+
+  it("a check failure outranks configReadError (the fetch itself did not complete)", () => {
+    const facts = deriveConnectionState({ ...healthyHooks, configReadError: true }, { serverListening: true }, true);
+    expect(facts.errorReason).toBe("check-failed");
+  });
+
+  it("has no error reason outside error mode", () => {
+    expect(deriveConnectionState(null, { serverListening: true }).errorReason).toBeNull();
+    expect(deriveConnectionState(healthyHooks, { serverListening: true }).errorReason).toBeNull();
   });
 
   it("is notConfigured when no Clawd hooks are configured", () => {
@@ -141,5 +155,37 @@ describe("resolveRecheck: full-chain combine semantics", () => {
 
   it("is an error and applies neither when both fail", () => {
     expect(resolveRecheck(fail(), fail())).toEqual({ status: undefined, connection: undefined, error: true });
+  });
+});
+
+describe("applyHookOperation: action feedback is retained in parent state", () => {
+  it("keeps a successful install's restart guidance while updating status (survives the workbench transition)", () => {
+    // Before: first-run onboarding (no status). After install, status flips the
+    // area to the workbench, but the restart guidance must remain.
+    const next = applyHookOperation(
+      { status: null, actionResult: null },
+      { status: { installed: true } as any, message: "Installed. Restart your Claude Code session to take effect." }
+    );
+    expect(next.status).toEqual({ installed: true });
+    expect(next.actionResult).toBe("Installed. Restart your Claude Code session to take effect.");
+  });
+
+  it("keeps a successful removal's confirmation while updating status", () => {
+    const next = applyHookOperation(
+      { status: { installed: true } as any, actionResult: null },
+      { status: { installed: false, hookCount: 0 } as any, message: "Removed all Clawd hooks." }
+    );
+    expect(next.status).toMatchObject({ hookCount: 0 });
+    expect(next.actionResult).toBe("Removed all Clawd hooks.");
+  });
+
+  it("preserves the previous status when an operation threw (no fresh status) but still shows its message", () => {
+    const prevStatus = { installed: true } as any;
+    const next = applyHookOperation(
+      { status: prevStatus, actionResult: "old" },
+      { status: null, message: "Install failed. Details are hidden." }
+    );
+    expect(next.status).toBe(prevStatus);
+    expect(next.actionResult).toBe("Install failed. Details are hidden.");
   });
 });

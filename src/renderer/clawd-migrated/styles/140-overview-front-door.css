@@ -563,6 +563,20 @@
 }
 .connection-guidance p { color: var(--overview-faint); font-size: 12px; line-height: 1.5; }
 
+/* Parent-owned action outcome, pinned to the connection surface so it reads as a
+   full-width row (and survives the onboarding <-> workbench swap). */
+.overview-connection .connection-action-result {
+  margin: 0;
+  padding: 10px 14px;
+  border: 0;
+  border-top: 1px solid var(--overview-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--overview-ink);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 @media (max-width: 720px) {
   .overview-workbench .ccs-provider-content {
     grid-template-columns: 1fr;

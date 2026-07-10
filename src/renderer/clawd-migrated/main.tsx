@@ -43,7 +43,7 @@ import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
 import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
 import type { HookStatus } from "./components/hooks/HooksManager";
 import { OverviewSection } from "./features/overview/OverviewSection";
-import { resolveRecheck } from "./features/overview/connectionState";
+import { applyHookOperation, resolveRecheck } from "./features/overview/connectionState";
 import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
 import { getPetTheme } from "./utils/petThemes";
 
@@ -947,6 +947,7 @@ function SettingsApp() {
   const [overviewHookStatus, setOverviewHookStatus] = useState<HookStatus | null>(null);
   const [overviewHookError, setOverviewHookError] = useState(false);
   const [overviewHookChecking, setOverviewHookChecking] = useState(false);
+  const [overviewActionResult, setOverviewActionResult] = useState<string | null>(null);
   const hookCheckSeq = useRef(0);
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 
@@ -1000,6 +1001,7 @@ function SettingsApp() {
     const seq = hookCheckSeq.current + 1;
     hookCheckSeq.current = seq;
     setOverviewHookChecking(true);
+    setOverviewActionResult(null); // a fresh check clears any lingering action message
     const [hookResult, connResult] = await Promise.allSettled([
       window.companion.checkHooks(),
       window.companion.getConnectionStatus()
@@ -1020,22 +1022,19 @@ function SettingsApp() {
     return undefined;
   }, [activeSection]);
 
-  // A hook action (install/repair/remove) produces an authoritative fresh status,
-  // so it supersedes any in-flight Recheck: bump the sequence to invalidate that
-  // request's finalizer AND clear checking here so the button can never stay stuck
-  // spinning. The Overview derives its state directly from this status.
-  function handleOverviewHookStatusChange(status: HookStatus) {
+  // A completed hook action (install/repair/remove) produces an authoritative
+  // fresh status AND a user-facing message. It supersedes any in-flight Recheck:
+  // bump the sequence to invalidate that request's finalizer and clear checking so
+  // the button can never stay stuck. The message is stored on the parent so it
+  // survives the notConfigured <-> workbench transition that unmounts HooksManager
+  // (e.g. the install restart guidance stays visible after the chain goes Ready).
+  function handleOverviewHookOperation(outcome: { operation: string; status: HookStatus | null; message: string; installed: boolean }) {
     hookCheckSeq.current += 1;
-    setOverviewHookError(false);
     setOverviewHookChecking(false);
-    setOverviewHookStatus(status);
-  }
-
-  function handleOverviewHookInstallSuccess(status: HookStatus) {
-    hookCheckSeq.current += 1;
     setOverviewHookError(false);
-    setOverviewHookChecking(false);
-    setOverviewHookStatus(status);
+    const next = applyHookOperation({ status: overviewHookStatus, actionResult: overviewActionResult }, outcome);
+    setOverviewHookStatus(next.status);
+    setOverviewActionResult(next.actionResult);
   }
 
   useEffect(() => {
@@ -1176,9 +1175,9 @@ function SettingsApp() {
             hookStatus={overviewHookStatus}
             checkError={overviewHookError}
             checking={overviewHookChecking}
+            actionResult={overviewActionResult}
             onRecheck={recheckOverviewHooks}
-            onHookStatusChange={handleOverviewHookStatusChange}
-            onHookInstallSuccess={handleOverviewHookInstallSuccess}
+            onOperationComplete={handleOverviewHookOperation}
           />
         )}
 

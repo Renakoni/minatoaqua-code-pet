@@ -7,22 +7,32 @@ import { describeHookOperationError, type HookStatus, type HookOperationResult }
 
 export type { HookStatus };
 
-type HookOpKind = "install" | "repair" | "remove";
+export type HookOpKind = "install" | "repair" | "remove";
+export interface HookOperationOutcome {
+  operation: HookOpKind;
+  /** Fresh status from the operation result, or null if the call threw. */
+  status: HookStatus | null;
+  /** Localized, already privacy-processed message to show the user. */
+  message: string;
+  /** True only for a fully successful install. */
+  installed: boolean;
+}
+
 const HIDDEN_KEY: Record<HookOpKind, string> = { install: "doctor.installFailedHidden", repair: "doctor.repairFailedHidden", remove: "doctor.removeFailedHidden" };
 const HIDDEN_FALLBACK: Record<HookOpKind, string> = { install: "Hook 安装失败，详情已隐藏。", repair: "Hook 修复失败，详情已隐藏。", remove: "Hook 移除失败，详情已隐藏。" };
 const FAILED_KEY: Record<HookOpKind, string> = { install: "doctor.installFailed", repair: "doctor.repairFailed", remove: "doctor.removeFailed" };
 const FAILED_FALLBACK: Record<HookOpKind, string> = { install: "安装失败: {error}", repair: "修复失败: {error}", remove: "移除失败: {error}" };
 
-// The parent (Overview) is the single owner of hook STATUS and the loading/error
-// state; HooksManager only renders the supplied status and performs the
-// install/repair/remove actions, reporting the fresh status (carried on each
-// operation result) back to the parent. It does NOT fetch status on mount — a
-// competing fetch used to strand the parent's in-flight Recheck.
-export function HooksManager({ compact = false, actionsOnly = false, success = false, showRepair = true, hideSensitiveContent = false, status = null, onStatusChange, onInstallSuccess }: { compact?: boolean; actionsOnly?: boolean; success?: boolean; showRepair?: boolean; hideSensitiveContent?: boolean; status?: HookStatus | null; onStatusChange?: (status: HookStatus) => void; onInstallSuccess?: (status: HookStatus) => void } = {}) {
+// The parent (Overview) is the single owner of hook STATUS, the loading/error
+// state, AND the action-outcome message: HooksManager reports each completed
+// operation via onOperationComplete, and the parent renders the message in a
+// stable location so it survives the notConfigured <-> workbench transition that
+// unmounts this component. HooksManager renders the supplied status and performs
+// install/repair/remove; it does NOT fetch status on mount.
+export function HooksManager({ compact = false, actionsOnly = false, success = false, showRepair = true, hideSensitiveContent = false, status = null, onOperationComplete }: { compact?: boolean; actionsOnly?: boolean; success?: boolean; showRepair?: boolean; hideSensitiveContent?: boolean; status?: HookStatus | null; onOperationComplete?: (outcome: HookOperationOutcome) => void } = {}) {
   const { t } = useI18n();
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
   const [action, setAction] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   // Turn a failed hook-operation result into a display message. The privacy
@@ -44,11 +54,10 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
     try {
       const res = await window.companion.installHooks();
       const installed = !!res.success && !!res.status?.installed;
-      setResult(installed ? t("doctor.installDone", "安装成功！重启 Claude Code 会话后生效。") : res.success ? t("doctor.installIncomplete", "安装完成，但仍有 hooks 未配置完整。") : failureMessage(res, "install"));
-      if (res.status) onStatusChange?.(res.status);
-      if (installed && res.status) onInstallSuccess?.(res.status);
+      const message = installed ? t("doctor.installDone", "安装成功！重启 Claude Code 会话后生效。") : res.success ? t("doctor.installIncomplete", "安装完成，但仍有 hooks 未配置完整。") : failureMessage(res, "install");
+      onOperationComplete?.({ operation: "install", status: res.status ?? null, message, installed });
     } catch (error) {
-      setResult(failureMessage({ error: error instanceof Error ? error.message : String(error) }, "install"));
+      onOperationComplete?.({ operation: "install", status: null, message: failureMessage({ error: error instanceof Error ? error.message : String(error) }, "install"), installed: false });
     } finally {
       setAction(null);
     }
@@ -58,10 +67,10 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
     setAction("repairing");
     try {
       const res = await window.companion.repairHooks();
-      setResult(res.success ? t("doctor.repairDone", "Hook 配置已修复。") : failureMessage(res, "repair"));
-      if (res.status) onStatusChange?.(res.status);
+      const message = res.success ? t("doctor.repairDone", "Hook 配置已修复。") : failureMessage(res, "repair");
+      onOperationComplete?.({ operation: "repair", status: res.status ?? null, message, installed: false });
     } catch (error) {
-      setResult(failureMessage({ error: error instanceof Error ? error.message : String(error) }, "repair"));
+      onOperationComplete?.({ operation: "repair", status: null, message: failureMessage({ error: error instanceof Error ? error.message : String(error) }, "repair"), installed: false });
     } finally {
       setAction(null);
     }
@@ -71,10 +80,10 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
     setAction("removing");
     try {
       const res = await window.companion.removeHooks();
-      setResult(res.success ? t("doctor.removeDone", "已移除所有 Clawd hooks。") : failureMessage(res, "remove"));
-      if (res.status) onStatusChange?.(res.status);
+      const message = res.success ? t("doctor.removeDone", "已移除所有 Clawd hooks。") : failureMessage(res, "remove");
+      onOperationComplete?.({ operation: "remove", status: res.status ?? null, message, installed: false });
     } catch (error) {
-      setResult(failureMessage({ error: error instanceof Error ? error.message : String(error) }, "remove"));
+      onOperationComplete?.({ operation: "remove", status: null, message: failureMessage({ error: error instanceof Error ? error.message : String(error) }, "remove"), installed: false });
     } finally {
       setAction(null);
       setConfirmingRemove(false);
@@ -111,8 +120,6 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
           {action === "repairing" ? t("doctor.repairing", "修复中...") : t("doctor.repairConfig", "修复配置")}
         </button>}
       </div>}
-
-      {result && <p className="hooks-result">{result}</p>}
 
       {/* Remove is destructive (it edits Claude Code settings), so it lives in a
           de-emphasized zone and requires an explicit confirmation. It is offered

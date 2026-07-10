@@ -33,9 +33,9 @@ export function OverviewSection({
   hookStatus,
   checkError = false,
   checking = false,
+  actionResult = null,
   onRecheck,
-  onHookStatusChange,
-  onHookInstallSuccess
+  onOperationComplete
 }: {
   settings: any;
   updateSettings?: (settings: any) => void;
@@ -44,9 +44,9 @@ export function OverviewSection({
   hookStatus: HookStatus | null;
   checkError?: boolean;
   checking?: boolean;
+  actionResult?: string | null;
   onRecheck?: () => void;
-  onHookStatusChange: (status: HookStatus) => void;
-  onHookInstallSuccess: (status: HookStatus) => void;
+  onOperationComplete?: (outcome: { operation: string; status: HookStatus | null; message: string; installed: boolean }) => void;
 }) {
   const { t, locale } = useI18n();
   const hideSensitive = settings.hideSensitiveContent === true;
@@ -56,6 +56,7 @@ export function OverviewSection({
   const facts = deriveConnectionState(hookStatus, connection, checkError);
   const {
     mode,
+    errorReason,
     requiredCount,
     configuredCount,
     configComplete,
@@ -105,14 +106,16 @@ export function OverviewSection({
           <div className="connection-loading">{t("status.checking", "检查中…")}</div>
         ) : mode === "error" ? (
           <div className="connection-check-error">
-            <p>{t("connection.checkFailed", "无法读取 hook 状态，请重试。")}</p>
+            <p>{errorReason === "settings-unreadable"
+              ? t("connection.settingsUnreadable", "无法读取 Claude Code 设置。请检查设置文件格式是否有效，以及应用是否具有读取权限。")
+              : t("connection.checkFailed", "无法刷新连接，请重试。")}</p>
             {recheckButton}
           </div>
         ) : mode === "notConfigured" ? (
           <div className="connection-onboarding">
             <h3>{t("main.connectTitle", "连接 Claude Code")}</h3>
             <p>{t("connection.onboardingBody", "一键安装 hooks，Claude Code 就会把会话事件发送到桌宠。")}</p>
-            <HooksManager compact status={hookStatus} hideSensitiveContent={hideSensitive} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
+            <HooksManager compact status={hookStatus} hideSensitiveContent={hideSensitive} onOperationComplete={onOperationComplete} />
             {/* Discover an externally-installed config without leaving this view. */}
             {recheckButton}
           </div>
@@ -151,7 +154,7 @@ export function OverviewSection({
             {/* Manage actions are always available in the workbench (Remove lives in
                 a consistent danger zone); Repair only shows when it can actually fix
                 the problem. Forwarder/listener failures get their own guidance. */}
-            <HooksManager actionsOnly showRepair={canRepair} status={hookStatus} hideSensitiveContent={hideSensitive} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
+            <HooksManager actionsOnly showRepair={canRepair} status={hookStatus} hideSensitiveContent={hideSensitive} onOperationComplete={onOperationComplete} />
             {forwarderMissing ? (
               <div className="connection-guidance">
                 <p>{t("connection.forwarderMissingGuidance", "桌宠的 hook 转发文件缺失，通常是应用被移动或未完整安装。请重新安装或恢复应用后再检查。")}</p>
@@ -164,6 +167,11 @@ export function OverviewSection({
             ) : null}
           </>
         )}
+
+        {/* Parent-owned action feedback: rendered outside the mode branches so a
+            success message (e.g. the install restart guidance) survives the
+            notConfigured <-> workbench transition that unmounts the HooksManager. */}
+        {actionResult ? <p className="hooks-result connection-action-result">{actionResult}</p> : null}
       </section>
     </section>
   );
