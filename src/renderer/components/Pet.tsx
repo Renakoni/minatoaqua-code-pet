@@ -79,6 +79,8 @@ const animationAliases: Record<string, AnimationKey> = {
 interface PetProps {
   state: PetState;
   previewAnimation?: { key: string; nonce: number } | null;
+  scale?: number;
+  opacity?: number;
 }
 
 function normalizeAnimationKey(value: string | null | undefined, fallback: AnimationKey): AnimationKey {
@@ -86,13 +88,13 @@ function normalizeAnimationKey(value: string | null | undefined, fallback: Anima
   return animationAliases[value] ?? fallback;
 }
 
-export function Pet({ state, previewAnimation }: PetProps) {
+export function Pet({ state, previewAnimation, scale = 1, opacity = 1 }: PetProps) {
   const stateKey = stateAnimationKeys[state];
   const animationKey = previewAnimation ? normalizeAnimationKey(previewAnimation.key, stateKey) : stateKey;
   const imageKey = previewAnimation ? `${animationKey}:${previewAnimation.nonce}` : animationKey;
 
   return (
-    <div className={`pet pet-${state}`}>
+    <div className={`pet pet-${state}`} style={{ transform: `scale(${scale})`, opacity }}>
       <img key={imageKey} src={animationImages[animationKey]} alt={animationKey} draggable={false} />
     </div>
   );

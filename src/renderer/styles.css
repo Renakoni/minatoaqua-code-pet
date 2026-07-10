@@ -39,6 +39,8 @@ button {
   display: grid;
   place-items: center;
   filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.25));
+  transform-origin: bottom center;
+  transition: opacity 160ms ease-out;
 }
 
 .pet img {
@@ -60,7 +62,7 @@ button {
   --accent: rgba(255, 255, 255, 0.4);
   position: absolute;
   z-index: 20;
-  bottom: 204px;
+  bottom: var(--pet-bubble-bottom, 204px);
   left: 12px;
   right: 12px;
   border: 1px solid var(--line);
