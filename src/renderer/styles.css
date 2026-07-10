@@ -171,8 +171,8 @@ button {
 .state-completed .panel { --accent: #8caf95; }
 .state-error .panel { --accent: #cf866b; }
 .state-permission-prompt .panel { --accent: #c6a56a; }
-.notification-attention { --accent: #c6a56a; }
-.notification-info { --accent: #7f9daa; }
+.panel.notification-attention { --accent: #c6a56a; }
+.panel.notification-info { --accent: #7f9daa; }
 
 /* Monospace target on one line; truncate from the left so the filename / tail
    (the useful part of a path) stays visible. */

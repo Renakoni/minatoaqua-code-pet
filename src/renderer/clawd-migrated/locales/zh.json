@@ -514,7 +514,15 @@
     "thoughtBubble": "思维泡",
     "card": "卡片",
     "bubbleToolStream": "气泡 / 工具流",
-    "permissionPopup": "权限弹窗"
+    "permissionPopup": "权限弹窗",
+    "petAppearance": "桌宠外观",
+    "petSize": "桌宠大小",
+    "petOpacity": "桌宠透明度",
+    "statusFeedback": "状态反馈",
+    "feedbackSize": "反馈大小",
+    "feedbackOpacity": "反馈透明度",
+    "permissionConfirmation": "权限确认",
+    "permissionCardSize": "权限卡片大小"
   },
   "behavior": {
     "launchAtLogin": "开机自启",

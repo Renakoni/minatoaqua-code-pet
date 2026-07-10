@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React from "react";
-import { Bell, Bot, Gauge, KeyRound, MonitorCheck, MousePointer2, Radio, Shield, Sparkles, Timer } from "lucide-react";
+import { Bell, Bot, Gauge, KeyRound, LockKeyhole, MessageSquareText, MonitorCheck, MousePointer2, Radio, RotateCcw, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
 import { defaultSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import minatoAquaCover from "../../../assets/themes/minato-aqua-cover.png";
@@ -137,36 +137,38 @@ export function SettingsSection({
             </div>
           </GroupCard>
 
-          <div className="section-grid-2col">
-            <GroupCard title={t("appearance.overallScale", "整体缩放")}>
-              <Slider label={t("appearance.viewScale", "视图缩放")} min={0.7} max={1.45} step={0.05} value={settings.petScale} format={v => `${Math.round(v * 100)}%`} onChange={petScale => updateSettings({ petScale })} />
-              <Slider label={t("appearance.viewportScale", "视窗缩放")} min={0.7} max={2.5} step={0.05} value={settings.viewScale ?? settings.petScale} format={v => `${Math.round(v * 100)}%`} onChange={viewScale => updateSettings({ viewScale })} />
-              <Slider label={t("appearance.opacity", "整体透明")} min={0.45} max={1} step={0.05} value={settings.petOpacity} format={v => `${Math.round(v * 100)}%`} onChange={petOpacity => updateSettings({ petOpacity })} />
+          <div className="pet-display-controls">
+            <GroupCard
+              className="pet-display-group pet-display-group-primary"
+              icon={<SlidersHorizontal size={17} />}
+              title={t("appearance.petAppearance", "桌宠外观")}
+              action={<button type="button" className="group-reset-button" title={t("common.reset", "重置")} aria-label={t("common.reset", "重置")} disabled={settings.petScale === defaultSettings.petScale && settings.clawdScale === defaultSettings.clawdScale && settings.clawdOpacity === defaultSettings.clawdOpacity} onClick={() => updateSettings({ petScale: defaultSettings.petScale, clawdScale: defaultSettings.clawdScale, clawdOpacity: defaultSettings.clawdOpacity })}><RotateCcw size={14} /></button>}
+            >
+              <Slider label={t("appearance.petSize", "桌宠大小")} min={0.7} max={1.35} step={0.05} value={settings.petScale} format={v => `${Math.round(v * 100)}%`} onChange={petScale => updateSettings({ petScale })} />
+              <Slider label={t("appearance.petOpacity", "桌宠透明度")} min={0.5} max={1} step={0.05} value={settings.clawdOpacity} format={v => `${Math.round(v * 100)}%`} onChange={clawdOpacity => updateSettings({ clawdOpacity })} />
             </GroupCard>
 
-            <GroupCard title={activePetTheme.characterName}>
-              <Slider label={t("appearance.size", "尺寸")} min={0.7} max={1.35} step={0.05} value={settings.clawdScale} format={v => `${Math.round(v * 100)}%`} onChange={clawdScale => updateSettings({ clawdScale })} />
-              <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.clawdOpacity} format={v => `${Math.round(v * 100)}%`} onChange={clawdOpacity => updateSettings({ clawdOpacity })} />
+            <GroupCard
+              className={`pet-display-group${settings.showBubbles ? "" : " pet-display-group-disabled"}`}
+              icon={<MessageSquareText size={17} />}
+              title={t("appearance.statusFeedback", "状态反馈")}
+              action={<button type="button" className="group-reset-button" title={t("common.reset", "重置")} aria-label={t("common.reset", "重置")} disabled={!settings.showBubbles || (settings.feedbackScale === defaultSettings.feedbackScale && settings.feedbackOpacity === defaultSettings.feedbackOpacity)} onClick={() => updateSettings({ feedbackScale: defaultSettings.feedbackScale, feedbackOpacity: defaultSettings.feedbackOpacity })}><RotateCcw size={14} /></button>}
+            >
+              <Slider disabled={!settings.showBubbles} label={t("appearance.feedbackSize", "反馈大小")} min={0.75} max={1.35} step={0.05} value={settings.feedbackScale} format={v => `${Math.round(v * 100)}%`} onChange={feedbackScale => updateSettings({ feedbackScale })} />
+              <Slider disabled={!settings.showBubbles} label={t("appearance.feedbackOpacity", "反馈透明度")} min={0.5} max={1} step={0.05} value={settings.feedbackOpacity} format={v => `${Math.round(v * 100)}%`} onChange={feedbackOpacity => updateSettings({ feedbackOpacity })} />
             </GroupCard>
 
-            <GroupCard title={t("appearance.thoughtBubble", "思维泡")}>
-              <Slider label={t("appearance.size", "尺寸")} min={0.75} max={1.35} step={0.05} value={settings.thoughtScale} format={v => `${Math.round(v * 100)}%`} onChange={thoughtScale => updateSettings({ thoughtScale })} />
-              <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.thoughtOpacity} format={v => `${Math.round(v * 100)}%`} onChange={thoughtOpacity => updateSettings({ thoughtOpacity })} />
-            </GroupCard>
-
-            <GroupCard title={t("appearance.card", "卡片")}>
-              <Slider label={t("appearance.size", "尺寸")} min={0.75} max={1.25} step={0.05} value={settings.cardScale} format={v => `${Math.round(v * 100)}%`} onChange={cardScale => updateSettings({ cardScale })} />
-              <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.cardOpacity} format={v => `${Math.round(v * 100)}%`} onChange={cardOpacity => updateSettings({ cardOpacity })} />
-            </GroupCard>
-
-            <GroupCard title={t("appearance.bubbleToolStream", "气泡 / 工具流")}>
-              <Slider label={t("appearance.size", "尺寸")} min={0.6} max={2} step={0.05} value={settings.bubbleScale} format={v => `${Math.round(v * 100)}%`} onChange={bubbleScale => updateSettings({ bubbleScale })} />
-              <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.bubbleOpacity} format={v => `${Math.round(v * 100)}%`} onChange={bubbleOpacity => updateSettings({ bubbleOpacity })} />
-            </GroupCard>
-
-            <GroupCard title={t("appearance.permissionPopup", "权限弹窗")}>
-              <Slider label={t("appearance.size", "尺寸")} min={0.4} max={2} step={0.05} value={settings.permissionScale} format={v => `${Math.round(v * 100)}%`} onChange={permissionScale => updateSettings({ permissionScale })} />
-              <Slider label={t("appearance.opacity", "透明")} min={0.45} max={1} step={0.05} value={settings.permissionOpacity} format={v => `${Math.round(v * 100)}%`} onChange={permissionOpacity => updateSettings({ permissionOpacity })} />
+            <GroupCard
+              className="pet-display-group"
+              icon={<ShieldCheck size={17} />}
+              title={t("appearance.permissionConfirmation", "权限确认")}
+              action={<button type="button" className="group-reset-button" title={t("common.reset", "重置")} aria-label={t("common.reset", "重置")} disabled={settings.permissionScale === defaultSettings.permissionScale} onClick={() => updateSettings({ permissionScale: defaultSettings.permissionScale })}><RotateCcw size={14} /></button>}
+            >
+              <Slider label={t("appearance.permissionCardSize", "权限卡片大小")} min={0.85} max={1.25} step={0.05} value={settings.permissionScale} format={v => `${Math.round(v * 100)}%`} onChange={permissionScale => updateSettings({ permissionScale })} />
+              <div className="pet-display-fixed-row">
+                <span>{t("appearance.opacity", "透明度")}</span>
+                <strong><LockKeyhole size={13} aria-hidden="true" />100%</strong>
+              </div>
             </GroupCard>
           </div>
 
