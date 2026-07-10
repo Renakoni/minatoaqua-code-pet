@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_FEEDBACK_OPACITY,
   DEFAULT_FEEDBACK_SCALE,
+  clampPetOpacity,
+  clampPetScale,
+  getPetBubbleBottom,
+  getPetWindowHeight,
   migratePetDisplaySettings
 } from "../src/shared/petDisplaySettings";
 
@@ -61,5 +65,25 @@ describe("migratePetDisplaySettings", () => {
       clawdOpacity: 0.5,
       permissionScale: 1.25
     });
+  });
+
+  it("keeps bubbles above the scaled pet without scaling the bubble itself", () => {
+    expect(getPetBubbleBottom(0.7)).toBe(146);
+    expect(getPetBubbleBottom(1)).toBe(204);
+    expect(getPetBubbleBottom(1.35)).toBe(271);
+  });
+
+  it("grows the bottom-anchored pet window when the pet is larger than default", () => {
+    expect(getPetWindowHeight(0.7, false)).toBe(242);
+    expect(getPetWindowHeight(1, false)).toBe(300);
+    expect(getPetWindowHeight(1.35, false)).toBe(367);
+    expect(getPetWindowHeight(0.7, true)).toBe(412);
+    expect(getPetWindowHeight(1.35, true)).toBe(537);
+  });
+
+  it("clamps externally supplied pet display values before rendering", () => {
+    expect(clampPetScale(2)).toBe(1.35);
+    expect(clampPetOpacity(1.4)).toBe(1);
+    expect(clampPetOpacity(0)).toBe(0.5);
   });
 });

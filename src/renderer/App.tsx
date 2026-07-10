@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { createPetEvent, PetEvent, PetState } from "../shared/events";
+import { clampPetOpacity, clampPetScale, getPetBubbleBottom } from "../shared/petDisplaySettings";
 import { Panel } from "./components/Panel";
 import { PermissionCard, type PermissionRequestView } from "./components/PermissionCard";
 import { Pet } from "./components/Pet";
@@ -10,8 +11,11 @@ const notificationDisplayMs = 3000;
 const showDebugPanel = import.meta.env.DEV;
 
 type PermissionRequestPayload = { id: string; toolName?: string; toolDetail?: string };
+type PetDisplaySettings = { petScale?: number; clawdOpacity?: number };
 
 type PetCompanionApi = {
+  getSettings?: () => Promise<PetDisplaySettings>;
+  onSettings?: (callback: (settings: PetDisplaySettings) => void) => () => void;
   onPreviewPetAnimation: (callback: (animationKey: string) => void) => () => void;
   onPermissionRequest?: (callback: (request: PermissionRequestPayload) => void) => () => void;
   onPermissionResolved?: (callback: (payload: { id: string }) => void) => () => void;
@@ -26,6 +30,7 @@ export default function App() {
   const [state, setState] = useState<PetState>("idle");
   const [lastEvent, setLastEvent] = useState<PetEvent | null>(null);
   const [permissions, setPermissions] = useState<PermissionRequestView[]>([]);
+  const [petDisplay, setPetDisplay] = useState({ scale: 1, opacity: 1 });
   const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
   const resetTimer = useRef<number | null>(null);
   const notificationTimer = useRef<number | null>(null);
@@ -68,6 +73,19 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = window.petAPI?.onPetEvent(applyEvent);
     return () => unsubscribe?.();
+  }, []);
+
+  useEffect(() => {
+    const companion = petCompanion();
+    const applySettings = (settings: PetDisplaySettings) => {
+      setPetDisplay({
+        scale: clampPetScale(settings.petScale),
+        opacity: clampPetOpacity(settings.clawdOpacity)
+      });
+    };
+    const initialSettings = companion?.getSettings?.();
+    if (initialSettings) void initialSettings.then(applySettings);
+    return companion?.onSettings?.(applySettings);
   }, []);
 
   // Permission requests come from the main-process broker (the /permission
@@ -126,9 +144,10 @@ export default function App() {
 
   const activePermission = permissions[0];
   const petState: PetState = activePermission ? "permission-prompt" : state;
+  const appStyle = { "--pet-bubble-bottom": `${getPetBubbleBottom(petDisplay.scale)}px` } as CSSProperties;
 
   return (
-    <main className={`app state-${petState}`}>
+    <main className={`app state-${petState}`} style={appStyle}>
       {activePermission ? (
         <PermissionCard
           request={activePermission}
@@ -139,7 +158,7 @@ export default function App() {
       ) : (
         <Panel state={state} event={lastEvent} />
       )}
-      <Pet state={petState} previewAnimation={previewAnimation} />
+      <Pet state={petState} previewAnimation={previewAnimation} scale={petDisplay.scale} opacity={petDisplay.opacity} />
       {showDebugPanel && (
         <div className="debug-panel">
           <button onClick={() => applyDebugEvent(createPetEvent("idle", { title: "Idle" }))}>Idle</button>
