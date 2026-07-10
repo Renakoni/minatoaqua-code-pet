@@ -947,7 +947,7 @@ function SettingsApp() {
   const [overviewHookStatus, setOverviewHookStatus] = useState<HookStatus | null>(null);
   const [overviewHookError, setOverviewHookError] = useState(false);
   const [overviewHookChecking, setOverviewHookChecking] = useState(false);
-  const [overviewActionOutcome, setOverviewActionOutcome] = useState<any>(null);
+  const [overviewActionOutcome, setOverviewActionOutcome] = useState<HookOperationOutcome | null>(null);
   const hookCheckSeq = useRef(0);
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 
@@ -997,7 +997,11 @@ function SettingsApp() {
   // response can never overwrite a newer one. The error is set from the combined
   // outcome — cleared only when BOTH required checks succeed — and checking is
   // cleared exactly once, here, by the owning request.
-  async function recheckOverviewHooks() {
+  async function recheckOverviewHooks({ preserveActionOutcome = false }: { preserveActionOutcome?: boolean } = {}) {
+    // A manual/route Recheck clears any prior action message so it cannot linger
+    // and contradict the freshly-fetched facts; the automatic post-action recheck
+    // preserves the just-produced outcome.
+    if (!preserveActionOutcome) setOverviewActionOutcome(null);
     const seq = hookCheckSeq.current + 1;
     hookCheckSeq.current = seq;
     setOverviewHookChecking(true);
@@ -1015,10 +1019,9 @@ function SettingsApp() {
 
   // Refresh whenever the Overview becomes active, so an externally changed config
   // (removed forwarder, edited settings) cannot leave a stale state indefinitely.
-  // Also clears any lingering action message from a previous visit.
+  // The default recheck also clears any lingering action message from a prior visit.
   useEffect(() => {
     if (activeSection !== "general") return undefined;
-    setOverviewActionOutcome(null);
     recheckOverviewHooks();
     return undefined;
   }, [activeSection]);
@@ -1034,7 +1037,7 @@ function SettingsApp() {
   function handleOverviewHookOperation(outcome: HookOperationOutcome) {
     setOverviewActionOutcome(outcome);
     setOverviewHookStatus(previous => outcome.status ?? previous);
-    recheckOverviewHooks();
+    void recheckOverviewHooks({ preserveActionOutcome: true });
   }
 
   useEffect(() => {
@@ -1176,7 +1179,7 @@ function SettingsApp() {
             checkError={overviewHookError}
             checking={overviewHookChecking}
             actionOutcome={overviewActionOutcome}
-            onRecheck={recheckOverviewHooks}
+            onRecheck={() => void recheckOverviewHooks()}
             onOperationComplete={handleOverviewHookOperation}
           />
         )}

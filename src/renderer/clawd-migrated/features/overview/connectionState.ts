@@ -169,4 +169,3 @@ export function resolveRecheck<Status, Connection>(
     error: !(hookResult.status === "fulfilled" && connResult.status === "fulfilled")
   };
 }
-
