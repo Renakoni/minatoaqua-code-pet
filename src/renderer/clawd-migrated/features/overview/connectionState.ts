@@ -9,6 +9,7 @@
 // absence never marks the link down. Repair/Remove are offered ONLY for the
 // links Repair can actually fix (hook configuration / command), never for a
 // forwarder-file or listener problem that Repair cannot resolve.
+import type { HookStatus } from "../../../../shared/hooks";
 
 export type ConnectionRowState = "healthy" | "waiting" | "partial" | "repair" | "unavailable";
 
@@ -19,16 +20,9 @@ export type ConnectionRowState = "healthy" | "waiting" | "partial" | "repair" | 
 //  - workbench:     the factual delivery-chain rows (+ contextual actions)
 export type ConnectionMode = "loading" | "error" | "notConfigured" | "workbench";
 
-export interface HookStatusInput {
-  installed: boolean;
-  configExists: boolean;
-  configReadError?: boolean;
-  hookCount: number;
-  requiredCount: number;
-  missingEvents: string[];
-  commandMatches: boolean;
-  forwarder?: { expectedPath: string; exists: boolean };
-}
+// The derivation intentionally needs only a subset of the shared HookStatus; a
+// Pick keeps it tied to the single source of truth so it cannot silently drift.
+export type HookStatusInput = Pick<HookStatus, "hookCount" | "requiredCount" | "missingEvents" | "commandMatches" | "configReadError" | "forwarder">;
 
 export interface ConnectionInput {
   serverListening?: boolean;
@@ -130,5 +124,30 @@ export function deriveConnectionState(
     forwarderState: forwarderOk ? "healthy" : "unavailable",
     listenerState: listening ? "healthy" : "unavailable",
     recentEventState: hasRecentEvent ? "healthy" : "waiting"
+  };
+}
+
+export interface RecheckOutcome<Status, Connection> {
+  /** Fresh hook status to apply, if that request succeeded. */
+  status?: Status;
+  /** Fresh connection status to apply, if that request succeeded. */
+  connection?: Connection;
+  /** The recheck is an error unless BOTH required requests succeeded. */
+  error: boolean;
+}
+
+// Combine the two settled results of a full-chain Recheck (hook status +
+// connection status). Only fulfilled values are applied, so a failed request
+// preserves the previous data; the error is set unless BOTH succeed — a hook
+// success paired with a connection failure is still an error, and a connection
+// failure alone never clears the error.
+export function resolveRecheck<Status, Connection>(
+  hookResult: PromiseSettledResult<Status>,
+  connResult: PromiseSettledResult<Connection>
+): RecheckOutcome<Status, Connection> {
+  return {
+    status: hookResult.status === "fulfilled" ? hookResult.value : undefined,
+    connection: connResult.status === "fulfilled" ? connResult.value : undefined,
+    error: !(hookResult.status === "fulfilled" && connResult.status === "fulfilled")
   };
 }

@@ -148,6 +148,26 @@ describe("isCurrentClawdCommand", () => {
   });
 });
 
+describe("isCurrentClawdCommand: duplicate critical flags are non-canonical", () => {
+  // The forwarder runtime keeps the LAST occurrence of a duplicated flag, so a
+  // first-match check could wrongly pass. A duplicate must require repair.
+  function dupPort(first: number, last: number) {
+    return `node "${EXPECTED.forwarderPath}" Stop --settings "${EXPECTED.settingsPath}" --app-path "${EXPECTED.appPath}" --app-root "${EXPECTED.appRoot}" --port ${first} --port ${last}`;
+  }
+
+  it("rejects a duplicated --port regardless of which value is correct", () => {
+    expect(isCurrentClawdCommand(dupPort(17321, 9999), "Stop", EXPECTED)).toBe(false); // first correct, last wrong
+    expect(isCurrentClawdCommand(dupPort(9999, 17321), "Stop", EXPECTED)).toBe(false); // first wrong, last correct
+    expect(isCurrentClawdCommand(dupPort(17321, 17321), "Stop", EXPECTED)).toBe(false); // same value duplicated
+  });
+
+  it("surfaces a duplicated flag as a stale event in evaluateHookConfig", () => {
+    const settings = fullSettings();
+    (settings.hooks as any).Stop = [{ matcher: "*", hooks: [{ type: "command", command: dupPort(17321, 9999) }] }];
+    expect(evaluateHookConfig(settings, baseOptions).staleEvents).toEqual(["Stop"]);
+  });
+});
+
 describe("repair de-duplication (canonicalizeEventEntries / stripClawdCommands)", () => {
   it("strips every Clawd command while preserving third-party hooks and dropping empty entries", () => {
     const entries = [

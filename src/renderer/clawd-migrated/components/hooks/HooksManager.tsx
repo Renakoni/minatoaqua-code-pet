@@ -1,9 +1,9 @@
 // @ts-nocheck
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { CheckCircle2, Wrench } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { StatusCard } from "../workbench/Primitives";
-import { describeHookOperationError, type HookStatus } from "../../../../shared/hooks";
+import { describeHookOperationError, type HookStatus, type HookOperationResult } from "../../../../shared/hooks";
 
 export type { HookStatus };
 
@@ -13,10 +13,14 @@ const HIDDEN_FALLBACK: Record<HookOpKind, string> = { install: "Hook 安装失�
 const FAILED_KEY: Record<HookOpKind, string> = { install: "doctor.installFailed", repair: "doctor.repairFailed", remove: "doctor.removeFailed" };
 const FAILED_FALLBACK: Record<HookOpKind, string> = { install: "安装失败: {error}", repair: "修复失败: {error}", remove: "移除失败: {error}" };
 
-export function HooksManager({ compact = false, actionsOnly = false, success = false, showRepair = true, hideSensitiveContent = false, onStatusChange, onInstallSuccess }: { compact?: boolean; actionsOnly?: boolean; success?: boolean; showRepair?: boolean; hideSensitiveContent?: boolean; onStatusChange?: (status: HookStatus) => void; onInstallSuccess?: (status: HookStatus) => void } = {}) {
+// The parent (Overview) is the single owner of hook STATUS and the loading/error
+// state; HooksManager only renders the supplied status and performs the
+// install/repair/remove actions, reporting the fresh status (carried on each
+// operation result) back to the parent. It does NOT fetch status on mount — a
+// competing fetch used to strand the parent's in-flight Recheck.
+export function HooksManager({ compact = false, actionsOnly = false, success = false, showRepair = true, hideSensitiveContent = false, status = null, onStatusChange, onInstallSuccess }: { compact?: boolean; actionsOnly?: boolean; success?: boolean; showRepair?: boolean; hideSensitiveContent?: boolean; status?: HookStatus | null; onStatusChange?: (status: HookStatus) => void; onInstallSuccess?: (status: HookStatus) => void } = {}) {
   const { t } = useI18n();
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
-  const [status, setStatus] = useState<HookStatus | null>(null);
   const [action, setAction] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
@@ -24,7 +28,7 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
   // Turn a failed hook-operation result into a display message. The privacy
   // decision (structured category / generic hidden / raw) is made by
   // describeHookOperationError; here we only localize it.
-  function failureMessage(res: { error?: string; errorKind?: string; forwarderPath?: string } | undefined, op: HookOpKind) {
+  function failureMessage(res: Pick<HookOperationResult, "error" | "errorKind" | "forwarderPath"> | undefined, op: HookOpKind) {
     const display = describeHookOperationError(res, hideSensitiveContent);
     if (display.kind === "forwarder-missing") {
       return display.path
@@ -35,28 +39,14 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
     return formatText(t(FAILED_KEY[op], FAILED_FALLBACK[op]), { error: display.text });
   }
 
-  function updateHookStatus(next: HookStatus) {
-    setStatus(next);
-    onStatusChange?.(next);
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-    window.companion.checkHooks()
-      .then(next => { if (!cancelled) updateHookStatus(next); })
-      .catch(() => { /* the Overview owns the check-error state; ignore here */ });
-    return () => { cancelled = true; };
-  }, []);
-
   async function handleInstall() {
     setAction("installing");
     try {
       const res = await window.companion.installHooks();
-      const nextStatus = await window.companion.checkHooks();
-      const installed = !!res.success && nextStatus.installed && nextStatus.commandMatches && nextStatus.missingEvents.length === 0;
+      const installed = !!res.success && !!res.status?.installed;
       setResult(installed ? t("doctor.installDone", "安装成功！重启 Claude Code 会话后生效。") : res.success ? t("doctor.installIncomplete", "安装完成，但仍有 hooks 未配置完整。") : failureMessage(res, "install"));
-      updateHookStatus(nextStatus);
-      if (installed) onInstallSuccess?.(nextStatus);
+      if (res.status) onStatusChange?.(res.status);
+      if (installed && res.status) onInstallSuccess?.(res.status);
     } catch (error) {
       setResult(failureMessage({ error: error instanceof Error ? error.message : String(error) }, "install"));
     } finally {
@@ -69,7 +59,7 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
     try {
       const res = await window.companion.repairHooks();
       setResult(res.success ? t("doctor.repairDone", "Hook 配置已修复。") : failureMessage(res, "repair"));
-      updateHookStatus(await window.companion.checkHooks());
+      if (res.status) onStatusChange?.(res.status);
     } catch (error) {
       setResult(failureMessage({ error: error instanceof Error ? error.message : String(error) }, "repair"));
     } finally {
@@ -82,7 +72,7 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
     try {
       const res = await window.companion.removeHooks();
       setResult(res.success ? t("doctor.removeDone", "已移除所有 Clawd hooks。") : failureMessage(res, "remove"));
-      updateHookStatus(await window.companion.checkHooks());
+      if (res.status) onStatusChange?.(res.status);
     } catch (error) {
       setResult(failureMessage({ error: error instanceof Error ? error.message : String(error) }, "remove"));
     } finally {
@@ -93,7 +83,7 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
 
   const configuredLabel = formatText(t("doctor.configuredCount", "已配置 {count} / {total} 个事件"), { count: status?.hookCount ?? 0, total: status?.requiredCount ?? 6 });
   const missingLabel = status?.missingEvents && status.missingEvents.length > 0 ? formatText(t("doctor.missingPrefix", "缺少: {events}"), { events: status.missingEvents.join(", ") }) : undefined;
-  const mismatchLabel = status && !status.commandMatches && status.configExists ? t("doctor.mismatchHint", "命令路径不匹配，建议修复") : undefined;
+  const mismatchLabel = status && !status.commandMatches && status.configExists ? t("doctor.mismatchHint", "命令与当前配置不一致，建议修复") : undefined;
   const hookMeta = [missingLabel, mismatchLabel].filter(Boolean).join(" · ");
   const showManage = !compact || actionsOnly;
 

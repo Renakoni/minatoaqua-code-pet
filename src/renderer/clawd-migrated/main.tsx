@@ -43,6 +43,7 @@ import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
 import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
 import type { HookStatus } from "./components/hooks/HooksManager";
 import { OverviewSection } from "./features/overview/OverviewSection";
+import { resolveRecheck } from "./features/overview/connectionState";
 import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
 import { getPetTheme } from "./utils/petThemes";
 
@@ -901,7 +902,7 @@ function StateProp({ state }: { state: PetState }) {
 
 function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
-  const { settings, updateSettings, connection, refreshConnection, events, petState, toolStreams, clearActivityHistory } = useCompanion();
+  const { settings, updateSettings, connection, applyConnection, events, petState, toolStreams, clearActivityHistory } = useCompanion();
   const activePetTheme = getPetTheme(settings.petTheme);
   // Character chrome (anchor icon, character name in the version bar) only
   // belongs to the pet interface theme; light/dark stay neutral.
@@ -988,22 +989,27 @@ function SettingsApp() {
     };
   }, [activeSection]);
 
-  // Refresh the WHOLE connection chain (hook facts + connection status) with an
-  // explicit in-flight guard. A sequence number ignores out-of-order responses,
-  // the checking flag disables repeated clicks, and the error flag is cleared
-  // only on SUCCESS — so a Retry never briefly shows stale "Ready" data before
-  // the new check resolves.
-  function recheckOverviewHooks() {
+  // Refresh the WHOLE connection chain — hook facts AND connection status — as one
+  // guarded request. Both raw promises are settled together so a connection-status
+  // failure is not silently swallowed; results (including the connection status)
+  // are applied only when this request's sequence is still current, so an older
+  // response can never overwrite a newer one. The error is set from the combined
+  // outcome — cleared only when BOTH required checks succeed — and checking is
+  // cleared exactly once, here, by the owning request.
+  async function recheckOverviewHooks() {
     const seq = hookCheckSeq.current + 1;
     hookCheckSeq.current = seq;
     setOverviewHookChecking(true);
-    const hooks = window.companion.checkHooks()
-      .then(status => { if (hookCheckSeq.current === seq) { setOverviewHookStatus(status); setOverviewHookError(false); } })
-      .catch(() => { if (hookCheckSeq.current === seq) setOverviewHookError(true); });
-    const conn = refreshConnection ? refreshConnection() : Promise.resolve();
-    return Promise.allSettled([hooks, conn]).then(() => {
-      if (hookCheckSeq.current === seq) setOverviewHookChecking(false);
-    });
+    const [hookResult, connResult] = await Promise.allSettled([
+      window.companion.checkHooks(),
+      window.companion.getConnectionStatus()
+    ]);
+    if (hookCheckSeq.current !== seq) return; // superseded by a newer check or an action
+    const outcome = resolveRecheck(hookResult, connResult);
+    if (outcome.status) setOverviewHookStatus(outcome.status);
+    if (outcome.connection) applyConnection?.(outcome.connection);
+    setOverviewHookError(outcome.error);
+    setOverviewHookChecking(false);
   }
 
   // Refresh whenever the Overview becomes active, so an externally changed config
@@ -1014,19 +1020,21 @@ function SettingsApp() {
     return undefined;
   }, [activeSection]);
 
-  // The Overview connection area derives its state (not-configured onboarding vs
-  // the factual workbench) directly from the hook status; HooksManager owns the
-  // inline install/repair progress and success feedback. Bump the sequence so an
-  // in-flight background check cannot overwrite a just-installed/repaired status.
+  // A hook action (install/repair/remove) produces an authoritative fresh status,
+  // so it supersedes any in-flight Recheck: bump the sequence to invalidate that
+  // request's finalizer AND clear checking here so the button can never stay stuck
+  // spinning. The Overview derives its state directly from this status.
   function handleOverviewHookStatusChange(status: HookStatus) {
     hookCheckSeq.current += 1;
     setOverviewHookError(false);
+    setOverviewHookChecking(false);
     setOverviewHookStatus(status);
   }
 
   function handleOverviewHookInstallSuccess(status: HookStatus) {
     hookCheckSeq.current += 1;
     setOverviewHookError(false);
+    setOverviewHookChecking(false);
     setOverviewHookStatus(status);
   }
 

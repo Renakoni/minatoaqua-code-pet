@@ -112,7 +112,7 @@ export function OverviewSection({
           <div className="connection-onboarding">
             <h3>{t("main.connectTitle", "连接 Claude Code")}</h3>
             <p>{t("connection.onboardingBody", "一键安装 hooks，Claude Code 就会把会话事件发送到桌宠。")}</p>
-            <HooksManager compact hideSensitiveContent={hideSensitive} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
+            <HooksManager compact status={hookStatus} hideSensitiveContent={hideSensitive} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
             {/* Discover an externally-installed config without leaving this view. */}
             {recheckButton}
           </div>
@@ -151,7 +151,7 @@ export function OverviewSection({
             {/* Manage actions are always available in the workbench (Remove lives in
                 a consistent danger zone); Repair only shows when it can actually fix
                 the problem. Forwarder/listener failures get their own guidance. */}
-            <HooksManager actionsOnly showRepair={canRepair} hideSensitiveContent={hideSensitive} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
+            <HooksManager actionsOnly showRepair={canRepair} status={hookStatus} hideSensitiveContent={hideSensitive} onStatusChange={onHookStatusChange} onInstallSuccess={onHookInstallSuccess} />
             {forwarderMissing ? (
               <div className="connection-guidance">
                 <p>{t("connection.forwarderMissingGuidance", "桌宠的 hook 转发文件缺失，通常是应用被移动或未完整安装。请重新安装或恢复应用后再检查。")}</p>

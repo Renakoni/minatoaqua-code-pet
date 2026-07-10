@@ -12,6 +12,7 @@ import { getPetWindowHeight, getPetWindowWidth, migratePetDisplaySettings } from
 import { redactDisplayEvent } from "../shared/privacy";
 import { canonicalizeEventEntries, evaluateHookConfig, isClawdHookCommand } from "./hookConfig";
 import { isReadableRegularFile } from "./fsAccess";
+import type { HookStatus, HookOperationResult } from "../shared/hooks";
 import {
   addCcSwitchProvider,
   deleteCcSwitchProvider,
@@ -2957,7 +2958,7 @@ function getHookCommand(eventName: string) {
   ].join(" ");
 }
 
-function getHooksStatus() {
+function getHooksStatus(): HookStatus {
   const path = getClaudeSettingsPath();
   const configExists = existsSync(path);
 
@@ -3001,7 +3002,7 @@ function getHooksStatus() {
   };
 }
 
-function installHooks() {
+function installHooks(): HookOperationResult {
   try {
     const path = getClaudeSettingsPath();
     const forwarderPath = getHookForwarderPath();
@@ -3030,24 +3031,22 @@ function installHooks() {
   }
 }
 
-function repairHooks() {
-  // Repair fixes any drifted dimension — missing events, outdated command paths,
-  // and PreToolUse timeout — so it does not report a per-item count (that would
-  // undercount command/timeout-only fixes). Success is reported factually and the
-  // refreshed status carries the real post-repair facts.
+function repairHooks(): HookOperationResult {
+  // Repair fixes any drifted dimension — missing events, duplicates, outdated
+  // paths/port/settings, and PreToolUse timeout — via a full reinstall, so it does
+  // not report a per-item count. Success is factual; the refreshed status carries
+  // the real post-repair facts. Any structured failure is propagated verbatim.
   const result = installHooks();
-  const after = getHooksStatus();
   return {
     success: result.success,
-    status: after,
-    install: result,
-    error: result.success ? undefined : result.error,
-    errorKind: result.success ? undefined : (result as { errorKind?: string }).errorKind,
-    forwarderPath: result.success ? undefined : (result as { forwarderPath?: string }).forwarderPath
+    status: getHooksStatus(),
+    error: result.error,
+    errorKind: result.errorKind,
+    forwarderPath: result.forwarderPath
   };
 }
 
-function removeHooks() {
+function removeHooks(): HookOperationResult {
   try {
     const path = getClaudeSettingsPath();
     if (!existsSync(path)) return { success: true, removed: 0, status: getHooksStatus() };

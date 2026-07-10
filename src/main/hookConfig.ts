@@ -34,6 +34,15 @@ function pathArgMatches(command: string, flag: string, expected: string): boolea
   return value !== undefined && normalizeComparablePath(value) === normalizeComparablePath(expected);
 }
 
+// How many times a `--flag` token appears. The forwarder's runtime parser keeps
+// the LAST occurrence of a duplicated flag, so a first-match validation could
+// wrongly pass; a canonical command must contain each critical flag exactly once.
+function flagOccurrences(command: string, flag: string): number {
+  return (command.match(new RegExp(`(?:^|\\s)${flag}(?=\\s|$)`, "g")) ?? []).length;
+}
+
+const CRITICAL_FLAGS = ["--port", "--settings", "--app-path", "--app-root"];
+
 export interface ExpectedHookCommand {
   /** Absolute path of the current hook-forwarder.js. */
   forwarderPath: string;
@@ -66,9 +75,11 @@ export function isClawdHookCommand(command: unknown, eventName?: string): boolea
 export function isCurrentClawdCommand(command: unknown, eventName: string, expected: ExpectedHookCommand): boolean {
   if (!isClawdHookCommand(command, eventName)) return false;
   const cmd = command as string;
+  // A duplicated critical flag is non-canonical — the runtime would use the last
+  // occurrence, so require each to appear exactly once and be repaired otherwise.
+  if (CRITICAL_FLAGS.some(flag => flagOccurrences(cmd, flag) !== 1)) return false;
   if (normalizeComparablePath(extractHookForwarderPath(cmd)) !== normalizeComparablePath(expected.forwarderPath)) return false;
-  const port = extractFlag(cmd, "--port");
-  if (port === undefined || Number(port) !== expected.port) return false;
+  if (Number(extractFlag(cmd, "--port")) !== expected.port) return false;
   if (!pathArgMatches(cmd, "--settings", expected.settingsPath)) return false;
   if (!pathArgMatches(cmd, "--app-path", expected.appPath)) return false;
   if (!pathArgMatches(cmd, "--app-root", expected.appRoot)) return false;

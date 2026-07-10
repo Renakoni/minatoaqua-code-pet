@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveConnectionState, type HookStatusInput } from "../src/renderer/clawd-migrated/features/overview/connectionState";
+import { deriveConnectionState, resolveRecheck, type HookStatusInput } from "../src/renderer/clawd-migrated/features/overview/connectionState";
 
 // A fully-installed, current, present-forwarder status: the "everything is wired"
 // baseline that individual tests degrade one link at a time.
@@ -118,5 +118,28 @@ describe("deriveConnectionState: listener availability vs recent-event history",
     expect(facts.canRepair).toBe(false);
     expect([facts.configState, facts.commandState, facts.forwarderState, facts.listenerState, facts.recentEventState])
       .toEqual(["healthy", "healthy", "healthy", "healthy", "healthy"]);
+  });
+});
+
+describe("resolveRecheck: full-chain combine semantics", () => {
+  const ok = (value: string) => ({ status: "fulfilled", value }) as PromiseFulfilledResult<string>;
+  const fail = () => ({ status: "rejected", reason: new Error("boom") }) as PromiseRejectedResult;
+
+  it("applies both and clears the error when both requests succeed", () => {
+    expect(resolveRecheck(ok("S"), ok("C"))).toEqual({ status: "S", connection: "C", error: false });
+  });
+
+  it("keeps the error and does not apply hook status when the hook check fails", () => {
+    expect(resolveRecheck(fail(), ok("C"))).toEqual({ status: undefined, connection: "C", error: true });
+  });
+
+  it("keeps the error and preserves previous connection when the connection check fails", () => {
+    // A hook success paired with a connection failure must NOT clear the error,
+    // and the failed connection is not applied (previous data is preserved).
+    expect(resolveRecheck(ok("S"), fail())).toEqual({ status: "S", connection: undefined, error: true });
+  });
+
+  it("is an error and applies neither when both fail", () => {
+    expect(resolveRecheck(fail(), fail())).toEqual({ status: undefined, connection: undefined, error: true });
   });
 });
