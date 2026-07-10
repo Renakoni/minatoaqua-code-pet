@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
-import { getPetWindowHeight, migratePetDisplaySettings } from "../shared/petDisplaySettings";
+import { getPetWindowHeight, getPetWindowWidth, migratePetDisplaySettings } from "../shared/petDisplaySettings";
 import {
   addCcSwitchProvider,
   deleteCcSwitchProvider,
@@ -192,8 +192,8 @@ if (!singleInstanceLock) {
 }
 
 function getPetWindowBounds() {
-  const width = 260;
-  const height = getPetWindowHeight(companionSettings.petScale, false);
+  const width = getPetWindowWidth(companionSettings.feedbackScale, companionSettings.permissionScale);
+  const height = getPetWindowHeight(companionSettings.petScale, false, companionSettings.feedbackScale);
   const cursorPoint = screen.getCursorScreenPoint();
   const workArea = screen.getDisplayNearestPoint(cursorPoint).workArea;
 
@@ -217,10 +217,16 @@ function setPetWindowExpanded(expanded: boolean, force = false) {
   if (expanded === petExpanded && !force) return;
   const bounds = petWindow.getBounds();
   const bottom = bounds.y + bounds.height;
-  const height = getPetWindowHeight(companionSettings.petScale, expanded);
+  const centerX = bounds.x + bounds.width / 2;
+  const width = getPetWindowWidth(companionSettings.feedbackScale, companionSettings.permissionScale);
+  const bubbleScale = expanded ? companionSettings.permissionScale : companionSettings.feedbackScale;
+  const height = getPetWindowHeight(companionSettings.petScale, expanded, bubbleScale);
   const workArea = screen.getDisplayNearestPoint({ x: bounds.x, y: bottom }).workArea;
   const y = Math.max(workArea.y, bottom - height);
-  petWindow.setBounds({ x: bounds.x, y, width: bounds.width, height });
+  // Keep the character put: pin the bottom edge and the horizontal centre while
+  // the window grows for a scaled bubble, clamped so it stays on-screen.
+  const x = Math.max(workArea.x, Math.min(Math.round(centerX - width / 2), workArea.x + workArea.width - width));
+  petWindow.setBounds({ x, y, width, height });
   petExpanded = expanded;
 }
 
@@ -3185,6 +3191,8 @@ app.whenReady().then(() => {
     const previousPetEnabled = companionSettings.petEnabled;
     const previousAlwaysOnTop = companionSettings.alwaysOnTop;
     const previousPetScale = companionSettings.petScale;
+    const previousFeedbackScale = companionSettings.feedbackScale;
+    const previousPermissionScale = companionSettings.permissionScale;
     const mergedSettings = { ...companionSettings, ...next };
     companionSettings = { ...mergedSettings, ...migratePetDisplaySettings(mergedSettings) };
     saveCompanionSettings();
@@ -3198,7 +3206,11 @@ app.whenReady().then(() => {
       applyPetAlwaysOnTopSetting();
       updateTrayMenu();
     }
-    if (previousPetScale !== companionSettings.petScale) setPetWindowExpanded(petExpanded, true);
+    if (previousPetScale !== companionSettings.petScale
+      || previousFeedbackScale !== companionSettings.feedbackScale
+      || previousPermissionScale !== companionSettings.permissionScale) {
+      setPetWindowExpanded(petExpanded, true);
+    }
     broadcastCompanionSettings();
     broadcastCompanionConnection();
     return companionSettings;
