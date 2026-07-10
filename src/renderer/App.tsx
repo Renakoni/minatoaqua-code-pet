@@ -13,8 +13,8 @@ import { PermissionCard, type PermissionRequestView } from "./components/Permiss
 import { Pet } from "./components/Pet";
 import { nextPetState } from "./state/petStateMachine";
 
-const completedResetMs = 3000;
-const notificationDisplayMs = 3000;
+const defaultBubbleSeconds = 8;
+const soundClipMs = 3000;
 const showDebugPanel = import.meta.env.DEV;
 
 type PermissionRequestPayload = { id: string; toolName?: string; toolDetail?: string };
@@ -24,6 +24,8 @@ type PetDisplaySettings = {
   feedbackScale?: number;
   feedbackOpacity?: number;
   permissionScale?: number;
+  bubbleDuration?: number;
+  sound?: { volume?: number } | null;
 };
 
 type PetCompanionApi = {
@@ -33,6 +35,7 @@ type PetCompanionApi = {
   onPermissionRequest?: (callback: (request: PermissionRequestPayload) => void) => () => void;
   onPermissionResolved?: (callback: (payload: { id: string }) => void) => () => void;
   respondPermission?: (response: { id: string; decision: "allow" | "deny"; reason?: string }) => Promise<void>;
+  onPlaySound?: (callback: (dataUrl: string) => void) => () => void;
 };
 
 function petCompanion(): PetCompanionApi | undefined {
@@ -54,6 +57,10 @@ export default function App() {
   const resetTimer = useRef<number | null>(null);
   const notificationTimer = useRef<number | null>(null);
   const stableEvent = useRef<PetEvent | null>(null);
+  // "Bubble stay" (bubbleDuration) and sound volume live in refs so the timers
+  // and the play-sound handler read the latest value without re-subscribing.
+  const bubbleDurationMsRef = useRef(defaultBubbleSeconds * 1000);
+  const soundVolumeRef = useRef(0.6);
 
   function applyEvent(event: PetEvent) {
     if (notificationTimer.current) {
@@ -67,7 +74,7 @@ export default function App() {
       notificationTimer.current = window.setTimeout(() => {
         setLastEvent(current => current?.id === event.id ? previous : current);
         notificationTimer.current = null;
-      }, notificationDisplayMs);
+      }, bubbleDurationMsRef.current);
       return;
     }
 
@@ -104,10 +111,34 @@ export default function App() {
         feedbackOpacity: clampFeedbackOpacity(settings.feedbackOpacity),
         permissionScale: clampPermissionScale(settings.permissionScale)
       });
+      const seconds = typeof settings.bubbleDuration === "number" && settings.bubbleDuration > 0
+        ? Math.min(120, settings.bubbleDuration)
+        : defaultBubbleSeconds;
+      bubbleDurationMsRef.current = seconds * 1000;
+      const volume = settings.sound?.volume;
+      soundVolumeRef.current = typeof volume === "number" ? Math.max(0, Math.min(1, volume)) : 0.6;
     };
     const initialSettings = companion?.getSettings?.();
     if (initialSettings) void initialSettings.then(applySettings);
     return companion?.onSettings?.(applySettings);
+  }, []);
+
+  // The floating pet is the always-alive window, so it plays notification sounds
+  // (done/error/permission). The main process gates on sound.enabled + rules
+  // before sending, so here we just play the clip at the current volume.
+  useEffect(() => {
+    return petCompanion()?.onPlaySound?.(dataUrl => {
+      try {
+        const audio = new Audio(dataUrl);
+        audio.volume = soundVolumeRef.current;
+        const stop = window.setTimeout(() => { audio.pause(); audio.currentTime = 0; }, soundClipMs);
+        audio.addEventListener("ended", () => window.clearTimeout(stop), { once: true });
+        // play() rejects (autoplay policy, decode/device error) inside a Promise
+        // the sync try/catch can't see, so handle it here to avoid an unhandled
+        // rejection and clear the clip timer.
+        audio.play().catch(() => window.clearTimeout(stop));
+      } catch { /* audio playback is best-effort */ }
+    });
   }, []);
 
   // Permission requests come from the main-process broker (the /permission
@@ -152,7 +183,7 @@ export default function App() {
         setState("idle");
         stableEvent.current = idleEvent;
         setLastEvent(idleEvent);
-      }, completedResetMs);
+      }, bubbleDurationMsRef.current);
     }
 
     return () => {

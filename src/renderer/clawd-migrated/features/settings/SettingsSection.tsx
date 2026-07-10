@@ -188,6 +188,7 @@ export function SettingsSection({
           <GroupCard icon={<Timer size={18} />} title={t("sections.time", "时间与提示")}>
             <Toggle label={t("behavior.permissionDialog", "权限申请卡片")} checked={settings.permissionDialogEnabled} onChange={permissionDialogEnabled => updateSettings({ permissionDialogEnabled })} />
             <Slider label={t("behavior.bubbleStay", "气泡停留")} min={3} max={18} step={1} value={settings.bubbleDuration} format={v => `${v} ${t("common.seconds", "秒")}`} onChange={bubbleDuration => updateSettings({ bubbleDuration })} />
+            <Slider label={t("behavior.permissionWait", "权限等待")} min={5} max={60} step={5} value={settings.permissionWaitSeconds} format={v => `${v} ${t("common.seconds", "秒")}`} onChange={permissionWaitSeconds => updateSettings({ permissionWaitSeconds })} />
             <Slider label={t("behavior.toolStreamStay", "工具流停留")} min={0.3} max={3} step={0.1} value={settings.toolStreamMinDuration} format={v => `${v.toFixed(1)} ${t("common.seconds", "秒")}`} onChange={toolStreamMinDuration => updateSettings({ toolStreamMinDuration })} />
           </GroupCard>
         </>}

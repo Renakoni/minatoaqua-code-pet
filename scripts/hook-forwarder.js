@@ -397,12 +397,13 @@ async function requestPermissionDecision(payload) {
   );
   if (!created || typeof created.id !== "string") return null;
 
-  // Block Claude Code on the pet's decision. This poll sits just above the
-  // broker's ~30s decision window (PERMISSION_DECISION_WINDOW_MS in
-  // src/main/index.ts) so it receives the broker's expiry response, and below the
-  // PreToolUse hook timeout (PRETOOLUSE_HOOK_TIMEOUT_SECONDS) so the CLI waits for
-  // the pet the whole window instead of killing this hook and prompting itself.
-  const result = await httpJson({ path: `/permission/${created.id}`, method: "GET" }, undefined, 35000);
+  // Block Claude Code on the pet's decision. The GET resolves as soon as the broker
+  // settles (a decision, or its dynamic 5-60s expiry), so a fixed poll only needs
+  // to outlast the max window: 65s covers the 60s ceiling and keeps the broker the
+  // single source of truth for the window — re-reading the setting here would race
+  // the in-memory value the broker already baked in. Stays under the 75s hook
+  // timeout (5s POST + 65s poll = 70s).
+  const result = await httpJson({ path: `/permission/${created.id}`, method: "GET" }, undefined, 65000);
   if (result && (result.decision === "allow" || result.decision === "deny")) {
     return { decision: result.decision, reason: result.reason };
   }

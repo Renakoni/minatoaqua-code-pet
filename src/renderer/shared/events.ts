@@ -279,6 +279,7 @@ export interface CompanionSettings {
   showStatusProp: boolean;
   multiSessionEnabled: boolean;
   permissionDialogEnabled: boolean;
+  permissionWaitSeconds: number;
   showSessionTitle: boolean;
   companionScale: number;
   companionIdleAnimations: string[];
@@ -289,7 +290,6 @@ export interface CompanionSettings {
   autoUpdateEnabled: boolean;
   petTheme: PetThemeId;
   enabledSources: ProviderId[];
-  doneSound: boolean;
   notificationsEnabled: boolean;
   theme: "light" | "dark" | "system";
   uiStyle: "classic" | "liquid";
@@ -343,14 +343,9 @@ export interface IdleAnimConfig {
 export interface SoundSettings {
   enabled: boolean;
   volume: number;
-  onDone: boolean;
-  onError: boolean;
-  onPermission: boolean;
-  onSessionStart: boolean;
   fileDone: string | null;
   fileError: string | null;
   filePermission: string | null;
-  fileSessionStart: string | null;
   eventFiles?: Partial<Record<CompanionEventType, string | null>>;
 }
 
@@ -476,9 +471,7 @@ export interface EventHistoryEntry {
 export interface NotificationRule {
   eventType: CompanionEventType;
   enabled: boolean;
-  systemNotification: boolean;
   playSound: boolean;
-  showBubble: boolean;
 }
 
 export type PluginPermission = "event" | "network" | "filesystem" | "shell";
@@ -703,6 +696,7 @@ export const defaultSettings: CompanionSettings = {
   showStatusProp: true,
   multiSessionEnabled: false,
   permissionDialogEnabled: true,
+  permissionWaitSeconds: 30,
   showSessionTitle: true,
   companionScale: 0.5,
   companionIdleAnimations: ["running", "idle", "waiting_permission"],
@@ -713,7 +707,6 @@ export const defaultSettings: CompanionSettings = {
   autoUpdateEnabled: true,
   petTheme: "minato-aqua",
   enabledSources: ["claude-code"],
-  doneSound: false,
   notificationsEnabled: true,
   theme: "system",
   uiStyle: "classic",
@@ -723,10 +716,10 @@ export const defaultSettings: CompanionSettings = {
   displayMonitorId: "",
   monitorPositions: [],
   notificationRules: [
-    { eventType: "done", enabled: true, systemNotification: true, playSound: true, showBubble: true },
-    { eventType: "error", enabled: true, systemNotification: true, playSound: true, showBubble: true },
-    { eventType: "permission_wait", enabled: true, systemNotification: true, playSound: true, showBubble: true },
-    { eventType: "notification", enabled: true, systemNotification: true, playSound: false, showBubble: true }
+    { eventType: "done", enabled: true, playSound: true },
+    { eventType: "error", enabled: true, playSound: true },
+    { eventType: "permission_wait", enabled: true, playSound: true },
+    { eventType: "notification", enabled: true, playSound: false }
   ],
   customPlugins: [],
   pomodoroEnabled: false,
@@ -735,14 +728,9 @@ export const defaultSettings: CompanionSettings = {
   sound: {
     enabled: true,
     volume: 0.5,
-    onDone: true,
-    onError: true,
-    onPermission: true,
-    onSessionStart: false,
     fileDone: null,
     fileError: null,
     filePermission: null,
-    fileSessionStart: null,
     eventFiles: {}
   },
   eventHistoryLimit: 40,

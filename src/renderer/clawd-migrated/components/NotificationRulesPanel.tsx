@@ -47,9 +47,7 @@ export function NotificationRulesPanel({ settings, updateSettings }: { settings:
   const defaultRule = (eventType: SoundEventType): NotificationRule => ({
     eventType,
     enabled: true,
-    systemNotification: true,
-    playSound: true,
-    showBubble: true
+    playSound: true
   });
 
   const rulesByEvent = useMemo(() => new Map(rules.map(rule => [rule.eventType, rule])), [rules]);
@@ -58,7 +56,7 @@ export function NotificationRulesPanel({ settings, updateSettings }: { settings:
     updateSettings({
       notificationRules: [
         ...rules.filter(rule => rule.eventType !== eventType),
-        { ...existing, ...patch, eventType, enabled: true, systemNotification: true }
+        { ...existing, ...patch, eventType, enabled: true }
       ]
     });
   };
