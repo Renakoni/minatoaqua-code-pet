@@ -88,6 +88,8 @@ contextBridge.exposeInMainWorld("companion", {
   getSessionHistory: () => ipcRenderer.invoke("companion:get-session-history"),
   clearEventHistory: () => ipcRenderer.invoke("companion:clear-event-history"),
   exportEventHistoryFile: () => ipcRenderer.invoke("companion:export-event-history-file"),
+  getDataDirectory: () => ipcRenderer.invoke("companion:get-data-directory"),
+  openDataDirectory: () => ipcRenderer.invoke("companion:open-data-directory"),
   getMonitors: () => ipcRenderer.invoke("companion:get-monitors"),
   getPlugins: () => ipcRenderer.invoke("companion:get-plugins"),
   getClaudeResources: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-resources", force),

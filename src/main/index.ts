@@ -9,6 +9,7 @@ import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
 import { getPetWindowHeight, getPetWindowWidth, migratePetDisplaySettings } from "../shared/petDisplaySettings";
+import { redactDisplayEvent } from "../shared/privacy";
 import {
   addCcSwitchProvider,
   deleteCcSwitchProvider,
@@ -90,9 +91,7 @@ let updateStatus: UpdateStatus = {
   downloading: false
 };
 let companionSettings: Record<string, any> = {
-  port: eventPort,
-  token: "minato-aqua-local",
-  privacyMode: "detailed",
+  hideSensitiveContent: false,
   showBubbles: true,
   editPosition: false,
   alwaysOnTop: true,
@@ -913,7 +912,9 @@ function handleCompanionAlerts(event: CompanionEvent) {
   // pet, but never as a system toast. Only "attention" (and the other managed
   // events) raise a Windows notification.
   if (companionSettings.notificationsEnabled !== false && event.notificationKind !== "info") {
-    showWindowsNotification(event);
+    const configuredLanguage = companionSettings.language;
+    const displayLanguage = configuredLanguage === "zh" || (configuredLanguage === "auto" && app.getLocale().toLowerCase().startsWith("zh")) ? "zh" : "en";
+    showWindowsNotification(companionSettings.hideSensitiveContent ? redactDisplayEvent(event, displayLanguage) : event);
   }
 
   if (isSoundNotificationEvent(event.event) && rule.enabled !== false && rule.playSound !== false) {
@@ -2542,8 +2543,6 @@ function getConnectionStatus() {
   return {
     port: eventPort,
     serverListening: Boolean(eventServer?.listening),
-    tokenSet: true,
-    privacyMode: companionSettings.privacyMode,
     connected: Boolean(latest),
     activeSessionId: sessionId,
     activeClientType: "desktop",
@@ -2563,6 +2562,9 @@ function settingsPath() {
 // doesn't keep them alive — once dropped here they are never merged back in and
 // the next save rewrites the file clean.
 function dropRetiredSettings(parsed: Record<string, unknown>) {
+  delete parsed.port;
+  delete parsed.token;
+  delete parsed.privacyMode;
   delete parsed.doneSound;
   const sound = parsed.sound;
   if (sound && typeof sound === "object" && !Array.isArray(sound)) {
@@ -3336,6 +3338,11 @@ app.whenReady().then(() => {
     panelWindow?.webContents.send("pet-snapshot", getSnapshot());
   });
   ipcMain.handle("companion:export-event-history-file", () => undefined);
+  ipcMain.handle("companion:get-data-directory", () => app.getPath("userData"));
+  ipcMain.handle("companion:open-data-directory", async () => {
+    const error = await shell.openPath(app.getPath("userData"));
+    return error ? { ok: false, error } : { ok: true };
+  });
   ipcMain.handle("companion:get-monitors", () => screen.getAllDisplays().map(display => ({ id: String(display.id), label: display.label || `Display ${display.id}`, bounds: display.bounds, workArea: display.workArea, scaleFactor: display.scaleFactor })));
   ipcMain.handle("companion:get-plugins", () => companionSettings.customPlugins);
   ipcMain.handle("companion:get-claude-resources", (_, force?: boolean) => getClaudeResourcesSnapshot(Boolean(force)));
@@ -3363,7 +3370,6 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("companion:get-stats", () => getStats());
   ipcMain.handle("companion:reset-stats", () => {
-    eventHistory = [];
     runtimeStats = createRuntimeStats();
     runtimeStatsDirty = true;
     saveRuntimeStats(true);

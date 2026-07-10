@@ -181,7 +181,7 @@ function writeCachedTokenStats(data: unknown) {
   }
 }
 
-export function TokenPanel() {
+export function TokenPanel({ hideSensitiveContent = false }: { hideSensitiveContent?: boolean }) {
   const { t, locale } = useI18n();
   const zh = locale === "zh";
   const [stats, setStats] = useState<any | null>(() => readCachedTokenStats());
@@ -383,9 +383,9 @@ export function TokenPanel() {
       <TokenDisclosure title={t("stats.projectRanking", "Projects")} summary={projectSummary}>
         {(stats.projectTotals ?? []).length === 0 ? <p className="note">{t("stats.noData", "无数据")}</p> : (
           <div className="token-project-list">
-            {projectRows.map((p: any) => (
+            {projectRows.map((p: any, index: number) => (
               <article key={p.projectPath} className="token-project-row">
-                <div><strong>{p.projectName}</strong><p>{p.projectPath}</p></div>
+                <div><strong>{hideSensitiveContent ? `${t("stats.project", "项目")} ${index + 1}` : p.projectName}</strong><p>{hideSensitiveContent ? t("privacy.detailsHidden", "详情已隐藏") : p.projectPath}</p></div>
                 <span>{fmtTok(p.totalTokens)}</span>
                 <span>{fmtUsd(p.costUsd)}</span>
                 <time>{p.lastActivity ? new Date(p.lastActivity).toLocaleDateString() : "—"}</time>
@@ -402,7 +402,7 @@ export function TokenPanel() {
             <div className="token-table-header"><span>{t("stats.timeProject", "Time / Project")}</span><span>{t("stats.model", "Model")}</span><span>{t("stats.tokens", "Tokens")}</span><span>{t("stats.cost", "Cost")}</span></div>
             {highRequestRows.map((r: any) => (
               <div key={r.id} className="token-table-row">
-                <span><b>{new Date(r.timestamp).toLocaleString()}</b><small>{r.projectName}</small></span>
+                <span><b>{new Date(r.timestamp).toLocaleString()}</b><small>{hideSensitiveContent ? t("privacy.detailsHidden", "详情已隐藏") : r.projectName}</small></span>
                 <span className="token-model-name">{r.model}</span>
                 <span>{fmtTok(r.totalTokens)}</span>
                 <span>{r.priced ? fmtUsd(r.costUsd) : "—"}</span>

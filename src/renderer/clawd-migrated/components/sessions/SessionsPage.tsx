@@ -10,7 +10,7 @@ const emptySnapshot: ClaudeSessionSnapshot = {
   projectsDir: "~/.claude/projects"
 };
 
-export function SessionsPage() {
+export function SessionsPage({ hideSensitiveContent = false }: { hideSensitiveContent?: boolean }) {
   const { locale } = useI18n();
   const zh = locale === "zh";
   const [snapshot, setSnapshot] = useState<ClaudeSessionSnapshot>(emptySnapshot);
@@ -43,15 +43,15 @@ export function SessionsPage() {
     const needle = query.trim().toLowerCase();
     if (!needle) return snapshot.sessions;
     return snapshot.sessions.filter(session => [
-      session.title,
-      session.firstPrompt,
-      session.projectName,
-      session.projectPath,
+      hideSensitiveContent ? "" : session.title,
+      hideSensitiveContent ? "" : session.firstPrompt,
+      hideSensitiveContent ? "" : session.projectName,
+      hideSensitiveContent ? "" : session.projectPath,
       session.sessionId,
       session.model,
-      session.branch
+      hideSensitiveContent ? "" : session.branch
     ].filter(Boolean).join(" ").toLowerCase().includes(needle));
-  }, [query, snapshot.sessions]);
+  }, [hideSensitiveContent, query, snapshot.sessions]);
 
   const selected = filteredSessions.find(session => session.filePath === selectedPath) ?? filteredSessions[0] ?? null;
   const previewMessages = useMemo(() => {
@@ -122,8 +122,8 @@ export function SessionsPage() {
             <div className="session-viewer-empty">{zh ? "没有发现 Claude Code 历史会话。" : "No Claude Code sessions found."}</div>
           ) : filteredSessions.map(session => (
             <button key={session.filePath} className={`session-viewer-row ${selected?.filePath === session.filePath ? "active" : ""}`} onClick={() => setSelectedPath(session.filePath)}>
-              <strong>{compactTitle(session.title)}</strong>
-              <p className="session-viewer-project-path">{session.projectPath || session.projectName}</p>
+              <strong>{hideSensitiveContent ? `${zh ? "会话" : "Session"} ${session.sessionId.slice(0, 8)}` : compactTitle(session.title)}</strong>
+              <p className="session-viewer-project-path">{hideSensitiveContent ? (zh ? "详情已隐藏" : "Details hidden") : session.projectPath || session.projectName}</p>
               <footer>
                 <em className={session.status}>{session.status}</em>
                 <span>{session.messageCount} {zh ? "条事件" : "events"}</span>
@@ -138,7 +138,7 @@ export function SessionsPage() {
             <>
               <header>
                 <div>
-                  <h2>{selected.title}</h2>
+                  <h2>{hideSensitiveContent ? `${zh ? "会话" : "Session"} ${selected.sessionId.slice(0, 8)}` : selected.title}</h2>
                 </div>
                 <div className="session-viewer-actions">
                   <button className="session-resume-button" onClick={() => void resumeSession(selected)}><Play size={14} />{zh ? "恢复" : "Resume"}</button>
@@ -147,15 +147,15 @@ export function SessionsPage() {
 
               <div className="session-viewer-meta">
                 <Meta label="Model" value={selected.model || unknownValue(zh)} />
-                <Meta label={zh ? "Git 分支" : "Git branch"} value={selected.branch || unknownValue(zh)} />
+                <Meta label={zh ? "Git 分支" : "Git branch"} value={hideSensitiveContent ? (zh ? "已隐藏" : "Hidden") : selected.branch || unknownValue(zh)} />
                 <Meta label={zh ? "消息" : "Messages"} value={String(detail?.totalMessages ?? selected.messageCount)} />
                 <Meta label={zh ? "最后活动" : "Last activity"} value={formatDateTime(selected.lastMessageAt)} />
               </div>
 
               <div className="session-message-list" aria-busy={detailLoading}>
                 {detailLoading ? <div className="session-viewer-empty small">{zh ? "加载消息中..." : "Loading messages..."}</div> : null}
-                {!detailLoading && previewMessages.length === 0 ? <div className="session-viewer-empty small">{zh ? "没有可预览的消息。" : "No messages to preview."}</div> : null}
-                {previewMessages.map(message => (
+                {!detailLoading && (hideSensitiveContent || previewMessages.length === 0) ? <div className="session-viewer-empty small">{hideSensitiveContent ? (zh ? "敏感内容已隐藏。" : "Sensitive content is hidden.") : (zh ? "没有可预览的消息。" : "No messages to preview.")}</div> : null}
+                {!hideSensitiveContent && previewMessages.map(message => (
                   <section key={message.id} className={`session-message-row ${message.role}`}>
                     <div>
                       <strong>{roleLabel(message.role, zh)}</strong>

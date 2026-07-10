@@ -1,12 +1,12 @@
 // @ts-nocheck
 import React from "react";
-import { Bell, Bot, Gauge, KeyRound, LockKeyhole, MessageSquareText, MonitorCheck, MousePointer2, Radio, RotateCcw, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
+import { Bell, Bot, Gauge, LockKeyhole, MessageSquareText, MonitorCheck, MousePointer2, Radio, RotateCcw, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
 import { defaultSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import minatoAquaCover from "../../../assets/themes/minato-aqua-cover.png";
 import { NotificationRulesPanel } from "../../components/NotificationRulesPanel";
 import { DoctorPanel } from "../../components/DoctorPanel";
-import { ConnectionDetail, Field, GroupCard, LanguageSegmented, Segmented, SettingsInfoRow, Slider, ThemeSegmented, Toggle } from "../../components/workbench/Primitives";
+import { ConnectionDetail, GroupCard, LanguageSegmented, SettingsInfoRow, Slider, ThemeSegmented, Toggle } from "../../components/workbench/Primitives";
 import { shortSession, timeAgo } from "../../utils/format";
 import { getPetTheme, petThemes } from "../../utils/petThemes";
 
@@ -57,7 +57,6 @@ export function SettingsSection({
             { id: "general", icon: <Gauge size={14} />, label: t("settings.subtabs.general", "通用") },
             { id: "pet", icon: <Bot size={14} />, label: t("settings.subtabs.pet", "桌宠") },
             { id: "notifications", icon: <Bell size={14} />, label: t("settings.subtabs.notifications", "通知") },
-            { id: "privacy", icon: <Shield size={14} />, label: t("settings.subtabs.privacy", "隐私与数据") },
             { id: "diagnostics", icon: <MonitorCheck size={14} />, label: t("settings.subtabs.diagnostics", "诊断") },
             { id: "about", icon: <Sparkles size={14} />, label: t("settings.subtabs.about", "关于") }
           ].map(tab => (
@@ -97,18 +96,23 @@ export function SettingsSection({
             <Toggle label={t("behavior.autoUpdate", "启动时自动检查更新")} checked={settings.autoUpdateEnabled} onChange={autoUpdateEnabled => updateSettings({ autoUpdateEnabled })} />
             <Toggle label={t("behavior.openSettingsOnStart", "启动时打开配置面板")} checked={settings.openSettingsOnStart} onChange={openSettingsOnStart => updateSettings({ openSettingsOnStart })} />
           </GroupCard>
+
+          <GroupCard icon={<Shield size={18} />} title={t("sections.contentDisplay", "内容显示")}>
+            <Toggle label={t("appearance.hideSensitiveContent", "隐藏敏感内容")} checked={settings.hideSensitiveContent} onChange={hideSensitiveContent => updateSettings({ hideSensitiveContent })} />
+            <p className="note">{t("appearance.hideSensitiveContentNote", "隐藏界面和系统通知中的路径与内容；权限确认仍显示决策所需详情。")}</p>
+          </GroupCard>
         </>}
 
         {activeSettingsSubsection === "diagnostics" && <>
           <GroupCard icon={<Radio size={18} />} title={t("sections.connectionDetails", "连接详情")}>
             <div className="connection-detail-grid">
-              <ConnectionDetail label={t("fields.status", "状态")} value={connection.connected ? t("status.connected", "已连接") : connection.serverListening ? t("status.waiting", "等待 Claude 会话") : t("status.notListening", "本地服务未监听")} />
+              <ConnectionDetail label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} />
               <ConnectionDetail label={t("fields.client", "客户端")} value={connection.activeClientLabel ?? t("pet.unknownClient", "未知客户端")} />
               <ConnectionDetail label={t("fields.sessionId", "会话 ID")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} />
               <ConnectionDetail label={t("fields.lastActive", "最后活动")} value={connection.lastEventAt ? timeAgo(connection.lastEventAt, now) : t("common.none", "暂无")} />
             </div>
           </GroupCard>
-          <DoctorPanel />
+          <DoctorPanel hideSensitiveContent={settings.hideSensitiveContent} />
         </>}
 
         {activeSettingsSubsection === "pet" && <>
@@ -193,40 +197,6 @@ export function SettingsSection({
           </GroupCard>
         </>}
 
-        {activeSettingsSubsection === "privacy" && <>
-          <GroupCard icon={<Shield size={18} />} title={t("sections.privacyData", "隐私与数据")}>
-            <div className="settings-columns compact">
-              <section className="settings-group">
-                <h3 className="panel-subtitle">{t("sections.privacyMode", "隐私模式")}</h3>
-                <Segmented value={settings.privacyMode} onChange={privacyMode => updateSettings({ privacyMode })} />
-                <p className="note">{t("settings.privacyModeNote", "Safe mode only shows tool types; standard mode shows file names and search patterns; detailed mode can show truncated command summaries.")}</p>
-              </section>
-              <section className="settings-group">
-                <h3 className="panel-subtitle">{t("sections.localData", "本地数据")}</h3>
-                <Slider label={t("behavior.eventHistory", "事件历史")} min={12} max={100} step={4} value={settings.eventHistoryLimit} format={v => `${v} ${t("common.items", "条")}`} onChange={eventHistoryLimit => updateSettings({ eventHistoryLimit })} />
-              </section>
-            </div>
-          </GroupCard>
-
-          <GroupCard icon={<KeyRound size={18} />} title={t("sections.localAccess", "本地事件接入")}>
-            <div className="settings-columns compact">
-              <section className="settings-group">
-                <Field label={t("fields.eventPort", "事件端口")}>
-                  <input value={settings.port} onChange={event => updateSettings({ port: Number(event.target.value) || defaultSettings.port })} />
-                </Field>
-                <Field label={t("fields.localToken", "本地 token")}>
-                  <input value={settings.token} onChange={event => updateSettings({ token: event.target.value })} />
-                </Field>
-              </section>
-              <section className="settings-group">
-                <SettingsInfoRow label={t("fields.status", "状态")} value={connection.serverListening ? t("status.listening", "正在监听") : t("status.notListening", "未监听")} />
-                <SettingsInfoRow label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} />
-                <p className="note">{t("settings.localAccessNote", "端口和 token 修改后需要重启应用才会影响本地事件入口。")}</p>
-              </section>
-            </div>
-          </GroupCard>
-        </>}
-
         {activeSettingsSubsection === "about" && <>
           <GroupCard icon={<Sparkles size={18} />} title={t("settings.about.title", "关于 Chara Desk")}>
             <div className="settings-about-panel">
@@ -245,7 +215,6 @@ export function SettingsSection({
             <div className="settings-info-list">
               <SettingsInfoRow label={t("settings.about.version", "版本")} value={`v${appVersion}`} />
               <SettingsInfoRow label={t("settings.about.product", "产品定位")} value={t("settings.about.productValue", "Claude Code 桌宠与本地控制面板")} />
-              <SettingsInfoRow label={t("status.localServer", "本地监听")} value={connection.serverListening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")} />
               <SettingsInfoRow label={t("fields.sessionId", "会话 ID")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} />
               <SettingsInfoRow label={t("update.status", "更新状态")} value={updateStatus.downloaded ? t("update.ready", "已下载") : updateStatus.available ? t("update.availableShort", "发现新版本") : updateStatus.upToDate ? t("update.upToDate", "已是最新版本") : updateStatus.error ? t("update.errorShort", "检查失败") : t("common.idle", "待机")} />
             </div>

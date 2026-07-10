@@ -1,7 +1,8 @@
 ﻿// @ts-nocheck
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CompanionConnectionStatus, CompanionEvent, CompanionSession, CompanionSettings, PermissionRequest, PetState } from "../shared/events";
 import { defaultSettings, stateFromEvent } from "../shared/events";
+import { redactDisplayEvent } from "../../shared/privacy";
 import { getPetTheme } from "./utils/petThemes";
 
 export interface ToolStream {
@@ -37,10 +38,8 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
   const keepEventList = options.keepEventList ?? true;
   const [settings, setSettings] = useState<CompanionSettings>(defaultSettings);
   const [connection, setConnection] = useState<CompanionConnectionStatus>({
-    port: defaultSettings.port,
+    port: 0,
     serverListening: false,
-    tokenSet: true,
-    privacyMode: defaultSettings.privacyMode,
     connected: false
   });
   const [events, setEvents] = useState<CompanionEvent[]>([]);
@@ -332,6 +331,29 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
     setActivePermissions(prev => prev.filter(permission => permission.id !== id));
   }
 
-  return { settings, updateSettings, connection, events, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, mainSessionId, companionSlotRef, respondToPermission };
+  async function clearActivityHistory() {
+    await window.companion.clearEventHistory();
+    setEvents([]);
+    setCurrentEvent(null);
+    setToolStreams([]);
+    sessionsRef.current.clear();
+    setSessions([]);
+    setExitingSessions(new Set());
+    setMainSessionId(null);
+    mainSessionIdRef.current = null;
+    if (activePermissions.length === 0) setPetState("idle");
+  }
+
+  const displayLanguage = settings.language === "zh" || (settings.language === "auto" && document.documentElement.lang.startsWith("zh")) ? "zh" : "en";
+  const displayEvents = useMemo(() => settings.hideSensitiveContent ? events.map(event => redactDisplayEvent(event, displayLanguage)) : events, [displayLanguage, events, settings.hideSensitiveContent]);
+  const displayCurrentEvent = useMemo(() => settings.hideSensitiveContent && currentEvent ? redactDisplayEvent(currentEvent, displayLanguage) : currentEvent, [currentEvent, displayLanguage, settings.hideSensitiveContent]);
+  const displayToolStreams = useMemo(() => settings.hideSensitiveContent ? toolStreams.map(stream => ({ ...stream, event: redactDisplayEvent(stream.event, displayLanguage) })) : toolStreams, [displayLanguage, toolStreams, settings.hideSensitiveContent]);
+  const displaySessions = useMemo(() => settings.hideSensitiveContent ? sessions.map(session => ({
+    ...session,
+    title: `${displayLanguage === "zh" ? "会话" : "Session"} ${session.sessionId.slice(0, 6)}`,
+    lastEvent: session.lastEvent ? redactDisplayEvent(session.lastEvent, displayLanguage) : session.lastEvent
+  })) : sessions, [displayLanguage, sessions, settings.hideSensitiveContent]);
+
+  return { settings, updateSettings, connection, events: displayEvents, currentEvent: displayCurrentEvent, petState, toolStreams: displayToolStreams, activePermissions, sessions: displaySessions, exitingSessions, mainSessionId, companionSlotRef, respondToPermission, clearActivityHistory };
 }
 

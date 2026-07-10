@@ -8,6 +8,7 @@ import {
   clampPetScale,
   getPetBubbleBottom
 } from "../shared/petDisplaySettings";
+import { redactDisplayEvent } from "../shared/privacy";
 import { Panel } from "./components/Panel";
 import { PermissionCard, type PermissionRequestView } from "./components/PermissionCard";
 import { Pet } from "./components/Pet";
@@ -26,6 +27,8 @@ type PetDisplaySettings = {
   permissionScale?: number;
   bubbleDuration?: number;
   sound?: { volume?: number } | null;
+  hideSensitiveContent?: boolean;
+  language?: "auto" | "zh" | "en";
 };
 
 type PetCompanionApi = {
@@ -53,6 +56,8 @@ export default function App() {
     feedbackOpacity: 1,
     permissionScale: 1
   });
+  const [hideSensitiveContent, setHideSensitiveContent] = useState(false);
+  const [displayLanguage, setDisplayLanguage] = useState<"zh" | "en">(() => navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en");
   const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
   const resetTimer = useRef<number | null>(null);
   const notificationTimer = useRef<number | null>(null);
@@ -117,6 +122,8 @@ export default function App() {
       bubbleDurationMsRef.current = seconds * 1000;
       const volume = settings.sound?.volume;
       soundVolumeRef.current = typeof volume === "number" ? Math.max(0, Math.min(1, volume)) : 0.6;
+      setHideSensitiveContent(settings.hideSensitiveContent === true);
+      setDisplayLanguage(settings.language === "zh" || (settings.language === "auto" && navigator.language.toLowerCase().startsWith("zh")) ? "zh" : "en");
     };
     const initialSettings = companion?.getSettings?.();
     if (initialSettings) void initialSettings.then(applySettings);
@@ -198,6 +205,7 @@ export default function App() {
   const activePermission = permissions[0];
   const petState: PetState = activePermission ? "permission-prompt" : state;
   const appStyle = { "--pet-bubble-bottom": `${getPetBubbleBottom(petDisplay.scale)}px` } as CSSProperties;
+  const displayEvent = hideSensitiveContent && lastEvent ? redactDisplayEvent(lastEvent, displayLanguage) : lastEvent;
 
   return (
     <main className={`app state-${petState}`} style={appStyle}>
@@ -210,7 +218,7 @@ export default function App() {
           scale={petDisplay.permissionScale}
         />
       ) : (
-        <Panel state={state} event={lastEvent} scale={petDisplay.feedbackScale} opacity={petDisplay.feedbackOpacity} />
+        <Panel state={state} event={displayEvent} scale={petDisplay.feedbackScale} opacity={petDisplay.feedbackOpacity} />
       )}
       <Pet state={petState} previewAnimation={previewAnimation} scale={petDisplay.scale} opacity={petDisplay.opacity} />
       {showDebugPanel && (

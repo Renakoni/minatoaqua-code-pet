@@ -21,7 +21,7 @@ function updateStatusText(report: DoctorReport, t: (path: string, fallback?: str
   return report.update.autoUpdateEnabled ? t("doctor.updateWaitingAuto", "Waiting for automatic check") : t("doctor.updateAutoDisabled", "Automatic check disabled");
 }
 
-export function DoctorPanel() {
+export function DoctorPanel({ hideSensitiveContent = false }: { hideSensitiveContent?: boolean }) {
   const { t, locale } = useI18n();
   const [report, setReport] = useState<DoctorReport | null>(null);
   const refresh = () => window.companion.getDoctorReport().then(setReport).catch(() => setReport(null));
@@ -45,7 +45,7 @@ export function DoctorPanel() {
     [t("doctor.recentConnection", "最近连接"), report.connection.connected ? t("doctor.eventWithin90s", "90 秒内收到事件") : t("doctor.waitingEvent", "等待 Claude Code 事件"), report.connection.connected],
     [t("doctor.hooks", "Hook 配置"), primaryHooks?.installed ? t("hooks.installed", "已安装") : `${t("doctor.missing", "缺少")} ${primaryHooks?.missingEvents.length ?? 0} ${t("common.items", "项")}`, primaryHooks?.installed ?? false],
     [t("doctor.hookCommand", "Hook 命令"), primaryHooks?.commandMatches ? t("doctor.commandMatches", "匹配当前 forwarder") : t("doctor.needsRepair", "需要修复"), primaryHooks?.commandMatches ?? false],
-    ["Forwarder", primaryForwarderExists ? primaryForwarderPath : t("doctor.fileMissing", "文件不存在"), primaryForwarderExists],
+    ["Forwarder", primaryForwarderExists ? (hideSensitiveContent ? t("privacy.detailsHidden", "详情已隐藏") : primaryForwarderPath) : t("doctor.fileMissing", "文件不存在"), primaryForwarderExists],
     [t("doctor.autoStart", "自动启动"), report.forwarder.autoStartMarkerExists ? t("doctor.enabled", "已开启") : t("doctor.disabled", "未开启"), true],
     [t("doctor.autoUpdate", "自动更新"), report.update.autoUpdateEnabled ? t("doctor.enabled", "已开启") : t("doctor.disabled", "未开启"), true],
     [t("doctor.updateStatus", "更新状态"), updateStatusText(report, t), !report.update.error],
@@ -70,7 +70,7 @@ export function DoctorPanel() {
       <div className="panel-divider" />
       <div className="doctor-summary">
         <div><strong>{t("doctor.version", "版本")}</strong><span>{report.appVersion}</span></div>
-        <div><strong>{t("status.recentEvent", "最近事件")}</strong><span>{report.recent.lastEventTitle ?? t("common.none", "暂无")}</span></div>
+        <div><strong>{t("status.recentEvent", "最近事件")}</strong><span>{hideSensitiveContent && report.recent.lastEventTitle ? t("privacy.detailsHidden", "详情已隐藏") : report.recent.lastEventTitle ?? t("common.none", "暂无")}</span></div>
         <div><strong>{t("doctor.generatedAt", "生成时间")}</strong><span>{new Date(report.generatedAt).toLocaleString(locale === "zh" ? "zh-CN" : "en-US")}</span></div>
       </div>
       {primaryHooks && !primaryHooks.installed && <p className="note">{t("doctor.hookHint", "可在上方 Hook 区域使用安装/修复按钮重新配置 Claude Code hooks。")}</p>}

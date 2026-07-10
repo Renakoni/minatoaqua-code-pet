@@ -159,7 +159,7 @@ export function NotificationRulesPanel({ settings, updateSettings }: { settings:
       </div>
 
       <p className="note">{t("sound.hint", "音频文件仅支持 wav/mp3；长音频最多播放 3 秒。")}</p>
-      {pathLines.length > 0 ? (
+      {pathLines.length > 0 && !settings.hideSensitiveContent ? (
         <div className="sound-path-tips">
           <span>{t("sound.pathTips", "当前音频路径")}</span>
           {pathLines.map(item => (
