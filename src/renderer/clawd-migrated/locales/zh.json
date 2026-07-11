@@ -29,11 +29,8 @@
       "about": "关于"
     },
     "about": {
-      "title": "关于 Chara Desk",
       "description": "面向 Claude Code 的本地桌宠和工作台。",
-      "version": "版本",
-      "product": "产品定位",
-      "productValue": "Claude Code 桌宠与本地控制面板"
+      "character": "桌宠角色"
     },
     "title": "Chara Desk",
     "eyebrow": "设置",
@@ -315,7 +312,6 @@
     "disconnected": "未连接",
     "lastEvent": "最近事件",
     "activeSession": "活跃会话",
-    "noSession": "无活跃会话",
     "clientType": "客户端类型",
     "serverStatus": "服务器状态",
     "listening": "监听中",
@@ -385,7 +381,8 @@
     "ready": "已下载",
     "availableShort": "发现新版本",
     "errorShort": "检查失败",
-    "lastChecked": "上次检查"
+    "lastChecked": "上次检查",
+    "notChecked": "尚未检查"
   },
   "notifications": {
     "title": "通知和音效",
@@ -496,7 +493,6 @@
   "fields": {
     "status": "状态",
     "client": "客户端",
-    "sessionId": "会话 ID",
     "lastActive": "最后活动"
   },
   "appearance": {

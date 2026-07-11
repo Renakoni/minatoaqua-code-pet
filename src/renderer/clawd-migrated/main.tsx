@@ -1189,7 +1189,6 @@ function SettingsApp() {
             <SettingsSection
               settings={settings}
               updateSettings={updateSettings}
-              connection={connection}
               activeSettingsSubsection={activeSettingsSubsection}
               setActiveSettingsSubsection={setActiveSettingsSubsection}
               sectionContentRef={sectionContentRef}

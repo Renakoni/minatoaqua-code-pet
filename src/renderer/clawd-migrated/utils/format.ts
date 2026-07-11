@@ -1,8 +1,3 @@
-export function shortSession(sessionId?: string, fallback = "No session") {
-  if (!sessionId) return fallback;
-  return sessionId.length > 12 ? `${sessionId.slice(0, 6)}...${sessionId.slice(-4)}` : sessionId;
-}
-
 export function timeAgo(timestamp: number | undefined, now = Date.now()) {
   const isZh = document.documentElement.lang.startsWith("zh");
   if (!timestamp) return isZh ? "暂无" : "None";

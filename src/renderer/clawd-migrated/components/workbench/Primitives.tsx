@@ -17,8 +17,8 @@ export function StatusCard({ icon, label, value, meta, tone }: { icon: React.Rea
   return <article className={`status-card ${tone}`}>{icon}<span>{label}</span><strong>{value}</strong>{meta ? <small>{meta}</small> : null}</article>;
 }
 
-export function SettingsInfoRow({ label, value }: { label: string; value: string }) {
-  return <div className="settings-info-row"><span>{label}</span><strong>{value}</strong></div>;
+export function SettingsInfoRow({ label, value, title, tone }: { label: string; value: string; title?: string; tone?: "danger" }) {
+  return <div className="settings-info-row"><span>{label}</span><strong className={tone ? `tone-${tone}` : undefined} title={title}>{value}</strong></div>;
 }
 
 export function Toggle({ label, checked, onChange }: { label: React.ReactNode; checked: boolean; onChange: (value: boolean) => void }) {
