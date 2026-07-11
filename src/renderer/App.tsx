@@ -12,6 +12,8 @@ import { redactDisplayEvent } from "../shared/privacy";
 import { Panel } from "./components/Panel";
 import { PermissionCard, type PermissionRequestView } from "./components/PermissionCard";
 import { Pet } from "./components/Pet";
+import { type PetAnimationKey } from "../shared/petAnimationKeys";
+import { type IdleAnimationConfig, planIdleAnimation, startIdleAnimator } from "./state/petIdleAnimator";
 import { nextPetState } from "./state/petStateMachine";
 
 const defaultBubbleSeconds = 8;
@@ -30,6 +32,7 @@ type PetDisplaySettings = {
   hideSensitiveContent?: boolean;
   language?: "auto" | "zh" | "en";
   stateAnimations?: Record<string, string> | null;
+  idleAnim?: IdleAnimationConfig | null;
 };
 
 type PetCompanionApi = {
@@ -59,6 +62,8 @@ export default function App() {
   });
   const [hideSensitiveContent, setHideSensitiveContent] = useState(false);
   const [stateAnimations, setStateAnimations] = useState<Record<string, string>>({});
+  const [idleAnimConfig, setIdleAnimConfig] = useState<IdleAnimationConfig | null>(null);
+  const [idleAnimation, setIdleAnimation] = useState<PetAnimationKey | null>(null);
   const [displayLanguage, setDisplayLanguage] = useState<"zh" | "en">(() => navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en");
   const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
   const resetTimer = useRef<number | null>(null);
@@ -127,6 +132,11 @@ export default function App() {
       setHideSensitiveContent(settings.hideSensitiveContent === true);
       const mappings = settings.stateAnimations;
       setStateAnimations(mappings && typeof mappings === "object" && !Array.isArray(mappings) ? mappings : {});
+      // Settings broadcasts always deliver a fresh object; keep the previous
+      // reference when the config is unchanged so unrelated saves don't reset
+      // the rotation timers below.
+      const idleAnim = settings.idleAnim && typeof settings.idleAnim === "object" ? settings.idleAnim : null;
+      setIdleAnimConfig(previous => JSON.stringify(previous) === JSON.stringify(idleAnim) ? previous : idleAnim);
       setDisplayLanguage(settings.language === "zh" || (settings.language === "auto" && navigator.language.toLowerCase().startsWith("zh")) ? "zh" : "en");
     };
     const initialSettings = companion?.getSettings?.();
@@ -208,6 +218,23 @@ export default function App() {
 
   const activePermission = permissions[0];
   const petState: PetState = activePermission ? "permission-prompt" : state;
+
+  // Random idle rotation runs only while the pet is actually idling (a pending
+  // permission counts as busy); leaving idle or changing the config stops the
+  // animator, which also clears any sprite it is currently showing.
+  useEffect(() => {
+    if (petState !== "idle") {
+      setIdleAnimation(null);
+      return;
+    }
+    const plan = planIdleAnimation(idleAnimConfig);
+    if (!plan) {
+      setIdleAnimation(null);
+      return;
+    }
+    return startIdleAnimator(plan, setIdleAnimation);
+  }, [petState, idleAnimConfig]);
+
   const appStyle = { "--pet-bubble-bottom": `${getPetBubbleBottom(petDisplay.scale)}px` } as CSSProperties;
   const displayEvent = hideSensitiveContent && lastEvent ? redactDisplayEvent(lastEvent, displayLanguage) : lastEvent;
 
@@ -224,7 +251,7 @@ export default function App() {
       ) : (
         <Panel state={state} event={displayEvent} scale={petDisplay.feedbackScale} opacity={petDisplay.feedbackOpacity} />
       )}
-      <Pet state={petState} stateAnimations={stateAnimations} previewAnimation={previewAnimation} scale={petDisplay.scale} opacity={petDisplay.opacity} />
+      <Pet state={petState} stateAnimations={stateAnimations} idleAnimation={idleAnimation} previewAnimation={previewAnimation} scale={petDisplay.scale} opacity={petDisplay.opacity} />
       {showDebugPanel && (
         <div className="debug-panel">
           <button onClick={() => applyDebugEvent(createPetEvent("idle", { title: "Idle" }))}>Idle</button>

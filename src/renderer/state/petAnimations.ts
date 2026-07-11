@@ -34,9 +34,13 @@ export interface ResolvedPetAnimation {
 export function resolvePetAnimation(
   state: PetState,
   stateAnimations: Record<string, string> | null | undefined,
-  previewAnimation: { key: string; nonce: number } | null | undefined
+  previewAnimation: { key: string; nonce: number } | null | undefined,
+  idleAnimation?: PetAnimationKey | null
 ): ResolvedPetAnimation {
-  const stateKey = petStateAnimationKeys[state];
+  // While idling, a running idle-rotation sprite replaces the state's base
+  // animation; the user's mapping is then applied on top of that base key,
+  // mirroring the settings panel's preview semantics.
+  const stateKey = state === "idle" && idleAnimation ? idleAnimation : petStateAnimationKeys[state];
   // An invalid mapping value falls back to the state's default animation
   // rather than breaking the pet.
   const mappedKey = normalizeAnimationKey(stateAnimations?.[stateKey], stateKey);

@@ -61,6 +61,26 @@ describe("resolvePetAnimation: action mapping reaches the real pet", () => {
     expect(resolvePetAnimation("running", undefined, null).animationKey).toBe("running");
   });
 
+  it("shows the idle-rotation sprite while idling", () => {
+    expect(resolvePetAnimation("idle", {}, null, "extra_action_5").animationKey).toBe("extra_action_5");
+  });
+
+  it("ignores an idle-rotation sprite outside the idle state", () => {
+    expect(resolvePetAnimation("running", {}, null, "extra_action_5").animationKey).toBe("running");
+    expect(resolvePetAnimation("permission-prompt", {}, null, "extra_action_5").animationKey).toBe("waiting_permission");
+  });
+
+  it("applies the user's mapping on top of the rotation base key, like the panel preview", () => {
+    expect(resolvePetAnimation("idle", { running: "extra_action_7" }, null, "running").animationKey)
+      .toBe("extra_action_7");
+  });
+
+  it("lets a preview beat the idle rotation", () => {
+    const resolved = resolvePetAnimation("idle", {}, { key: "extra_action_9", nonce: 3 }, "extra_action_5");
+    expect(resolved.animationKey).toBe("extra_action_9");
+    expect(resolved.imageKey).toBe("extra_action_9:3");
+  });
+
   it("lets a preview override the mapping and stamps the nonce for restarts", () => {
     const resolved = resolvePetAnimation("running", { running: "extra_action_5" }, { key: "extra_action_9", nonce: 42 });
     expect(resolved.animationKey).toBe("extra_action_9");
