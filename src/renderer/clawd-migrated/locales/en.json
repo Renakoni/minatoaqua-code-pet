@@ -31,11 +31,8 @@
       "about": "About"
     },
     "about": {
-      "title": "About Chara Desk",
       "description": "A local desktop companion and workbench for Claude Code.",
-      "version": "Version",
-      "product": "Product",
-      "productValue": "Claude Code desktop companion and local control panel"
+      "character": "Companion character"
     },
     "themeLabel": "Theme",
     "themeLight": "Light",
@@ -315,7 +312,6 @@
     "disconnected": "Disconnected",
     "lastEvent": "Last event",
     "activeSession": "Active session",
-    "noSession": "No active session",
     "clientType": "Client type",
     "serverStatus": "Server status",
     "listening": "Listening",
@@ -385,7 +381,8 @@
     "ready": "Downloaded",
     "availableShort": "Update available",
     "errorShort": "Check failed",
-    "lastChecked": "Last checked"
+    "lastChecked": "Last checked",
+    "notChecked": "Not checked yet"
   },
   "notifications": {
     "title": "Notifications and sound",
@@ -496,7 +493,6 @@
   "fields": {
     "status": "Status",
     "client": "Client",
-    "sessionId": "Session ID",
     "lastActive": "Last active"
   },
   "appearance": {

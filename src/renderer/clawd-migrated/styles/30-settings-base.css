@@ -147,47 +147,74 @@ pre { margin: 0; max-height: 280px; overflow: auto; padding: 13px; color: #f9e6b
   border-radius: 8px;
   box-shadow: 0 10px 26px rgba(43, 31, 21, 0.06);
 }
-.settings-about-panel {
+.settings-about-page {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 16px;
-  padding: 2px 0 16px;
-  border-bottom: 1px solid var(--line);
+  justify-items: center;
+  gap: 6px;
+  padding: 36px 20px 26px;
+  text-align: center;
 }
-.settings-about-mark {
-  width: 62px;
-  height: 62px;
+.settings-about-portrait {
+  width: 112px;
+  height: 140px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  object-fit: cover;
+  object-position: 50% 10%;
+  box-shadow: 0 16px 38px rgba(43, 31, 21, 0.18);
+}
+.settings-about-portrait-fallback {
   display: grid;
   place-items: center;
-  border: 1px solid rgba(234, 187, 88, 0.34);
-  border-radius: 8px;
   color: var(--honey);
   background: rgba(234, 187, 88, 0.12);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 880;
-  letter-spacing: 0;
 }
-.settings-about-copy {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-.settings-about-copy strong {
+.settings-about-name {
+  margin: 0;
   color: var(--ink);
-  font-size: 18px;
-  line-height: 1.2;
+  font-family: "Clawd Display", "Segoe UI", sans-serif;
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
 }
-.settings-about-copy span {
+.settings-about-version {
+  padding: 3px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+}
+.settings-about-tagline {
+  margin: 6px 0 2px;
+  max-width: 52ch;
   color: var(--muted);
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 .settings-about-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 8px;
+  margin-top: 8px;
+}
+.settings-about-facts {
+  width: min(100%, 460px);
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+}
+.settings-about-credit {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
 }
 .settings-info-list {
   display: grid;
@@ -227,17 +254,6 @@ pre { margin: 0; max-height: 280px; overflow: auto; padding: 13px; color: #f9e6b
   }
   .settings-subtab {
     flex: 1 1 auto;
-  }
-  .settings-about-panel {
-    grid-template-columns: 56px minmax(0, 1fr);
-  }
-  .settings-about-mark {
-    width: 54px;
-    height: 54px;
-  }
-  .settings-about-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
   }
   .settings-info-row {
     grid-template-columns: 1fr;

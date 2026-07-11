@@ -1031,32 +1031,36 @@
   background: var(--settings-surface-raised);
 }
 
-.settings-page .settings-about-panel {
-  grid-template-columns: 64px minmax(0, 1fr) auto;
-  gap: 16px;
-  padding: 2px 0 16px;
-  border-bottom: 1px solid var(--settings-line);
+.settings-page .settings-about-portrait {
+  border-color: var(--settings-line-strong);
+  box-shadow: 0 18px 44px oklch(12% 0.006 75 / 0.18);
 }
 
-.settings-page .settings-about-mark {
-  width: 62px;
-  height: 62px;
-  border: 1px solid oklch(77% 0.105 82 / 0.34);
-  border-radius: 8px;
+.settings-page .settings-about-portrait-fallback {
   color: var(--settings-accent);
-  background: var(--settings-accent-soft);
-  font-size: 13px;
-  font-weight: 780;
+  background: var(--settings-surface-raised);
 }
 
-.settings-page .settings-about-copy strong {
+.settings-page .settings-about-name {
   color: var(--settings-ink);
-  font-size: 18px;
-  font-weight: 760;
 }
 
-.settings-page .settings-about-copy span {
+.settings-page .settings-about-version {
+  border-color: var(--settings-line-strong);
   color: var(--settings-muted);
+  background: var(--settings-surface-raised);
+}
+
+.settings-page .settings-about-tagline {
+  color: var(--settings-muted);
+}
+
+.settings-page .settings-about-facts {
+  border-top-color: var(--settings-line);
+}
+
+.settings-page .settings-about-credit {
+  color: var(--settings-faint);
 }
 
 .settings-page .settings-info-row {
@@ -1071,6 +1075,10 @@
 
 .settings-page .settings-info-row strong {
   color: var(--settings-ink);
+}
+
+.settings-page .settings-info-row strong.tone-danger {
+  color: var(--settings-danger);
 }
 
 .settings-page::-webkit-scrollbar,
@@ -1189,13 +1197,8 @@
 
   .settings-page .theme-style-row,
   .settings-page .notification-global-grid,
-  .settings-page .monitor-field,
-  .settings-page .settings-about-panel {
+  .settings-page .monitor-field {
     grid-template-columns: 1fr;
-  }
-
-  .settings-page .settings-about-actions {
-    justify-content: flex-start;
   }
 
   .settings-page .notification-rules-head {

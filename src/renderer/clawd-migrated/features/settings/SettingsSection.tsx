@@ -6,13 +6,11 @@ import { useI18n } from "../../useI18n";
 import minatoAquaCover from "../../../assets/themes/minato-aqua-cover.png";
 import { NotificationRulesPanel } from "../../components/NotificationRulesPanel";
 import { GroupCard, LanguageSegmented, SettingsInfoRow, Slider, ThemeSegmented, Toggle } from "../../components/workbench/Primitives";
-import { shortSession } from "../../utils/format";
 import { getPetTheme, petThemes } from "../../utils/petThemes";
 
 export function SettingsSection({
   settings,
   updateSettings,
-  connection,
   activeSettingsSubsection,
   setActiveSettingsSubsection,
   sectionContentRef,
@@ -25,7 +23,6 @@ export function SettingsSection({
 }: {
   settings: any;
   updateSettings: (settings: any) => void;
-  connection: any;
   activeSettingsSubsection: string;
   setActiveSettingsSubsection: (section: string) => void;
   sectionContentRef: React.MutableRefObject<HTMLDivElement | null>;
@@ -41,6 +38,19 @@ export function SettingsSection({
   const petThemeCovers: Record<string, string> = {
     "minato-aqua": minatoAquaCover
   };
+  const aboutCover = petThemeCovers[activePetTheme.id];
+  // Mirrors the footer's update state machine faithfully (same priority order)
+  // instead of collapsing every in-between state to "idle".
+  const aboutUpdateValue = updateStatus.error ? updateStatus.error
+    : updateStatus.downloaded ? t("update.ready", "已下载")
+    : updateStatus.downloading ? t("update.downloading", "下载中 {progress}%").replace("{progress}", String(Math.round(updateStatus.progress ?? 0)))
+    : checkingUpdate || updateStatus.checking ? t("update.checking", "正在检查更新...")
+    : updateStatus.available ? `${t("update.availableShort", "发现新版本")}${updateStatus.version ? ` v${updateStatus.version}` : ""}`
+    : updateStatus.upToDate ? t("update.upToDate", "已是最新版本")
+    : t("update.notChecked", "尚未检查");
+  const aboutUpdateTitle = updateStatus.error ? updateStatus.error
+    : updateStatus.lastCheckedAt ? `${t("update.lastChecked", "上次检查")}: ${new Date(updateStatus.lastCheckedAt).toLocaleString()}`
+    : undefined;
 
   return (
     <section className="settings-page">
@@ -181,29 +191,28 @@ export function SettingsSection({
           </GroupCard>
         </>}
 
-        {activeSettingsSubsection === "about" && <>
-          <GroupCard icon={<Sparkles size={18} />} title={t("settings.about.title", "关于 Chara Desk")}>
-            <div className="settings-about-panel">
-              <div className="settings-about-mark">Aqua</div>
-              <div className="settings-about-copy">
-                <strong>Chara Desk</strong>
-                <span>{t("settings.about.description", "面向 Claude Code 的本地桌宠和工作台。")}</span>
-              </div>
-              <div className="settings-about-actions">
-                <button className="inline-action" onClick={() => window.companion.openExternal("https://github.com/Renakoni/minatoaqua-code-pet")}>GitHub</button>
-                <button className="inline-action" onClick={handleCheckUpdate} disabled={checkingUpdate || updateStatus.checking || updateStatus.downloading}>
-                  {checkingUpdate || updateStatus.checking ? t("update.checkShort", "检查中...") : t("update.check", "检查更新")}
-                </button>
-              </div>
+        {activeSettingsSubsection === "about" && (
+          <div className="settings-about-page">
+            {aboutCover ? (
+              <img className="settings-about-portrait" src={aboutCover} alt="" draggable={false} />
+            ) : (
+              <div className="settings-about-portrait settings-about-portrait-fallback">{activePetTheme.characterName}</div>
+            )}
+            <h3 className="settings-about-name">Chara Desk</h3>
+            <span className="settings-about-version">{appVersion ? `v${appVersion}` : "—"}</span>
+            <p className="settings-about-tagline">{t("settings.about.description", "面向 Claude Code 的本地桌宠和工作台。")}</p>
+            <div className="settings-about-actions">
+              <button className="inline-action" onClick={() => window.companion.openExternal("https://github.com/Renakoni/minatoaqua-code-pet")}>GitHub</button>
+              <button className="inline-action" onClick={handleCheckUpdate} disabled={checkingUpdate || updateStatus.checking || updateStatus.downloading}>
+                {checkingUpdate || updateStatus.checking ? t("update.checkShort", "检查中...") : t("update.check", "检查更新")}
+              </button>
             </div>
-            <div className="settings-info-list">
-              <SettingsInfoRow label={t("settings.about.version", "版本")} value={`v${appVersion}`} />
-              <SettingsInfoRow label={t("settings.about.product", "产品定位")} value={t("settings.about.productValue", "Claude Code 桌宠与本地控制面板")} />
-              <SettingsInfoRow label={t("fields.sessionId", "会话 ID")} value={shortSession(connection.activeSessionId, t("connection.noSession", "无会话"))} />
-              <SettingsInfoRow label={t("update.status", "更新状态")} value={updateStatus.downloaded ? t("update.ready", "已下载") : updateStatus.available ? t("update.availableShort", "发现新版本") : updateStatus.upToDate ? t("update.upToDate", "已是最新版本") : updateStatus.error ? t("update.errorShort", "检查失败") : t("common.idle", "待机")} />
+            <div className="settings-info-list settings-about-facts">
+              <SettingsInfoRow label={t("update.status", "更新状态")} value={aboutUpdateValue} title={aboutUpdateTitle} tone={updateStatus.error ? "danger" : undefined} />
             </div>
-          </GroupCard>
-        </>}
+            <p className="settings-about-credit">{t("settings.about.character", "桌宠角色")} · {activePetTheme.displayName}</p>
+          </div>
+        )}
       </div>
     </section>
   );
