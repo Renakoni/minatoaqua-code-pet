@@ -1019,11 +1019,13 @@ function SettingsApp() {
     setOverviewHookChecking(false);
   }
 
-  // Refresh whenever the Overview becomes active, so an externally changed config
-  // (removed forwarder, edited settings) cannot leave a stale state indefinitely.
-  // The default recheck also clears any lingering action message from a prior visit.
+  // Refresh whenever a section carrying a connection surface becomes active
+  // (Overview, and Settings with its connection-management card), so an
+  // externally changed config (removed forwarder, edited settings) cannot leave
+  // a stale state indefinitely. The default recheck also clears any lingering
+  // action message from a prior visit.
   useEffect(() => {
-    if (activeSection !== "general") return undefined;
+    if (activeSection !== "general" && activeSection !== "settings") return undefined;
     recheckOverviewHooks();
     return undefined;
   }, [activeSection]);
@@ -1176,7 +1178,6 @@ function SettingsApp() {
             settings={settings}
             updateSettings={updateSettings}
             connection={connection}
-            now={now}
             hookStatus={overviewHookStatus}
             checkError={overviewHookError}
             checking={overviewHookChecking}
@@ -1191,6 +1192,14 @@ function SettingsApp() {
             <SettingsSection
               settings={settings}
               updateSettings={updateSettings}
+              connection={connection}
+              now={now}
+              hookStatus={overviewHookStatus}
+              hookCheckError={overviewHookError}
+              hookChecking={overviewHookChecking}
+              hookActionOutcome={overviewActionOutcome}
+              onHookRecheck={() => void recheckOverviewHooks()}
+              onHookOperationComplete={handleOverviewHookOperation}
               activeSettingsSubsection={activeSettingsSubsection}
               setActiveSettingsSubsection={setActiveSettingsSubsection}
               sectionContentRef={sectionContentRef}

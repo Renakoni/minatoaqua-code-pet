@@ -7,11 +7,10 @@ import { HooksManager, type HookStatus } from "../../components/hooks/HooksManag
 import { hookOutcomeMessage, type HookOperationOutcome } from "../../components/hooks/hookOutcome";
 import { deriveConnectionState } from "./connectionState";
 import { redactSensitiveText } from "../../../../shared/privacy";
-import { timeAgo } from "../../utils/format";
 
 type ConnectionRowState = "healthy" | "waiting" | "partial" | "repair" | "unavailable";
 
-function ConnectionRow({ label, value, state }: { label: string; value: string; state: ConnectionRowState }) {
+export function ConnectionRow({ label, value, state }: { label: string; value: string; state: ConnectionRowState }) {
   return (
     <div className={`connection-row state-${state}`}>
       <span className="connection-row-dot" aria-hidden="true" />
@@ -27,10 +26,12 @@ function ConnectionRow({ label, value, state }: { label: string; value: string; 
 // onboarding for an installed-but-broken config — that keeps the workbench with a
 // contextual Repair. Repair is offered only for problems Repair can fix (hook
 // config/command); forwarder-file and listener failures get their own guidance.
+// The Overview stays compact: it keeps the three hook-chain rows and contextual
+// actions, while the always-on facts (local listener, recent event) and the
+// destructive Remove live in Settings → Connection details.
 export function OverviewSection({
   settings,
   connection,
-  now,
   hookStatus,
   checkError = false,
   checking = false,
@@ -41,7 +42,6 @@ export function OverviewSection({
   settings: any;
   updateSettings?: (settings: any) => void;
   connection: any;
-  now: number;
   hookStatus: HookStatus | null;
   checkError?: boolean;
   checking?: boolean;
@@ -70,9 +70,7 @@ export function OverviewSection({
     listenerDown,
     configState,
     commandState,
-    forwarderState,
-    listenerState,
-    recentEventState
+    forwarderState
   } = facts;
 
   const recheckButton = onRecheck ? (
@@ -89,16 +87,24 @@ export function OverviewSection({
 
       <section className="overview-connection">
         <header className="workbench-section-head">
-          <div>
-            <span>{t("settings.tabs.general", "总览")}</span>
-            <h2>{t("sections.connectionDetails", "连接详情")}</h2>
-          </div>
+          <h2>{t("sections.connectionDetails", "连接详情")}</h2>
           {mode === "workbench" ? (
             <div className="connection-head-actions">
+              {onRecheck ? (
+                <button
+                  type="button"
+                  className="connection-recheck icon-only"
+                  onClick={onRecheck}
+                  disabled={checking}
+                  title={t("connection.recheck", "重新检查")}
+                  aria-label={t("connection.recheck", "重新检查")}
+                >
+                  <RefreshCw size={13} className={checking ? "spin" : undefined} />
+                </button>
+              ) : null}
               <span className={`overview-state-badge ${healthy ? "good" : listening ? "wait" : "bad"}`}>
                 {healthy ? t("status.ready", "已就绪") : listening ? t("status.needsAttention", "需要处理") : t("status.notListening", "未监听")}
               </span>
-              {recheckButton}
             </div>
           ) : null}
         </header>
@@ -140,22 +146,12 @@ export function OverviewSection({
                 value={forwarderOk ? t("connection.available", "可用") : t("doctor.fileMissing", "文件不存在")}
                 state={forwarderState}
               />
-              <ConnectionRow
-                label={t("status.localServer", "本地监听")}
-                value={listening ? `127.0.0.1:${connection.port}` : t("status.notListening", "未监听")}
-                state={listenerState}
-              />
-              <ConnectionRow
-                label={t("status.recentEvent", "最近事件")}
-                value={connection.lastEventAt ? timeAgo(connection.lastEventAt, now) : t("connection.waitingFirstEvent", "等待首个事件")}
-                state={recentEventState}
-              />
             </div>
 
-            {/* Manage actions are always available in the workbench (Remove lives in
-                a consistent danger zone); Repair only shows when it can actually fix
-                the problem. Forwarder/listener failures get their own guidance. */}
-            <HooksManager actionsOnly showRepair={canRepair} status={hookStatus} onOperationComplete={onOperationComplete} />
+            {/* Repair shows only when it can actually fix the problem; the
+                destructive Remove lives in Settings → Connection details.
+                Forwarder/listener failures get their own guidance. */}
+            {canRepair ? <HooksManager actionsOnly showRepair showRemove={false} status={hookStatus} onOperationComplete={onOperationComplete} /> : null}
             {forwarderMissing ? (
               <div className="connection-guidance">
                 <p>{t("connection.forwarderMissingGuidance", "桌宠的 hook 转发文件缺失，通常是应用被移动或未完整安装。请重新安装或恢复应用后再检查。")}</p>

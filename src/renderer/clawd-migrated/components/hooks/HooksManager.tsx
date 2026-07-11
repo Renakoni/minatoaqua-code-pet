@@ -15,7 +15,7 @@ export type { HookOperationOutcome };
 // the localized, privacy-correct text at render time (keeping it reactive to the
 // current hide setting and locale). HooksManager renders the supplied status and
 // performs install/repair/remove; it does NOT fetch status on mount.
-export function HooksManager({ compact = false, actionsOnly = false, success = false, showRepair = true, status = null, onOperationComplete }: { compact?: boolean; actionsOnly?: boolean; success?: boolean; showRepair?: boolean; status?: HookStatus | null; onOperationComplete?: (outcome: HookOperationOutcome) => void } = {}) {
+export function HooksManager({ compact = false, actionsOnly = false, success = false, showRepair = true, showRemove = true, status = null, onOperationComplete }: { compact?: boolean; actionsOnly?: boolean; success?: boolean; showRepair?: boolean; showRemove?: boolean; status?: HookStatus | null; onOperationComplete?: (outcome: HookOperationOutcome) => void } = {}) {
   const { t } = useI18n();
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
   const [action, setAction] = useState<string | null>(null);
@@ -90,9 +90,10 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
       </div>}
 
       {/* Remove is destructive (it edits Claude Code settings), so it lives in a
-          de-emphasized zone and requires an explicit confirmation. It is offered
-          consistently whenever the manage actions show, not only alongside Repair. */}
-      {showManage && <div className="hooks-danger-zone">
+          de-emphasized zone and requires an explicit confirmation. Surfaces that
+          shouldn't carry a destructive action (the Overview) opt out via
+          showRemove; the management card in Settings keeps it. */}
+      {showManage && showRemove && <div className="hooks-danger-zone">
         {confirmingRemove ? (
           <>
             <span className="hooks-danger-prompt">{t("doctor.removeConfirm", "确定从 Claude Code 配置中移除所有 hooks？")}</span>

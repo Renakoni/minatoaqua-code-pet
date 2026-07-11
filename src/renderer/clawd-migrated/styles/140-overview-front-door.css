@@ -1,5 +1,8 @@
 /* === Overview Front Door Refinement === */
-.overview-workbench {
+/* .connection-management (Settings → Connection details) reuses the connection
+   rows and their --overview-* ramp, so it shares this scope. */
+.overview-workbench,
+.connection-management {
   --overview-ink: oklch(23% 0.011 75);
   --overview-muted: oklch(49% 0.011 75);
   --overview-faint: oklch(63% 0.01 75);
@@ -31,7 +34,8 @@
   letter-spacing: 0;
 }
 
-[data-theme=dark] .overview-workbench {
+[data-theme=dark] .overview-workbench,
+[data-theme=dark] .connection-management {
   --overview-ink: oklch(91% 0.012 78);
   --overview-muted: oklch(60% 0.01 78);
   --overview-faint: oklch(49% 0.009 78);
@@ -457,12 +461,6 @@
   background: var(--overview-surface-raised);
 }
 
-.overview-connection .workbench-section-head span {
-  color: var(--overview-faint);
-  font-size: 10px;
-  font-weight: 700;
-}
-
 .overview-connection .workbench-section-head h2 {
   color: var(--overview-ink);
   font-size: 14px;
@@ -522,7 +520,13 @@
   border-top: 1px solid var(--overview-line);
 }
 
-.connection-head-actions { display: flex; align-items: center; gap: 10px; }
+/* The extra specificity beats 130's generic `.workbench-section-head > div`
+   grid rule, which used to stack the badge and the recheck button vertically. */
+.overview-connection .workbench-section-head > .connection-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
 .connection-recheck {
   display: inline-flex;
@@ -541,6 +545,25 @@
 .connection-recheck:disabled { opacity: .6; cursor: default; }
 .connection-recheck .spin { animation: connection-recheck-spin .8s linear infinite; }
 @keyframes connection-recheck-spin { to { transform: rotate(360deg); } }
+
+/* Compact header variant: a square icon button matching the badge height. */
+.connection-recheck.icon-only {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* The settings-page recheck (GroupCard action) reuses the same spinner. */
+.group-reset-button .spin { animation: connection-recheck-spin .8s linear infinite; }
+
+/* Settings → Connection details: the GroupCard provides the outer chrome, so
+   the rows sit in their own hairline frame inside it. */
+.connection-management .connection-rows {
+  border: 1px solid var(--overview-line);
+  border-radius: 9px;
+  overflow: hidden;
+}
 
 /* Check-failed state: never leave the area stuck on "Checking…"; offer Retry. */
 .connection-check-error {

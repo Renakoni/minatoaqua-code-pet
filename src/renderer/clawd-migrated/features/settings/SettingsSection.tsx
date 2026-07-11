@@ -1,16 +1,25 @@
 // @ts-nocheck
 import React from "react";
-import { Bell, Bot, Gauge, LockKeyhole, MessageSquareText, MousePointer2, RotateCcw, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
+import { Bell, Bot, Cable, Gauge, LockKeyhole, MessageSquareText, MousePointer2, RefreshCw, RotateCcw, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
 import { defaultSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import minatoAquaCover from "../../../assets/themes/minato-aqua-cover.png";
 import { NotificationRulesPanel } from "../../components/NotificationRulesPanel";
 import { GroupCard, LanguageSegmented, SettingsInfoRow, Slider, ThemeSegmented, Toggle } from "../../components/workbench/Primitives";
+import { ConnectionManagement } from "./ConnectionManagement";
 import { getPetTheme, petThemes } from "../../utils/petThemes";
 
 export function SettingsSection({
   settings,
   updateSettings,
+  connection,
+  now,
+  hookStatus,
+  hookCheckError = false,
+  hookChecking = false,
+  hookActionOutcome = null,
+  onHookRecheck,
+  onHookOperationComplete,
   activeSettingsSubsection,
   setActiveSettingsSubsection,
   sectionContentRef,
@@ -23,6 +32,14 @@ export function SettingsSection({
 }: {
   settings: any;
   updateSettings: (settings: any) => void;
+  connection: any;
+  now: number;
+  hookStatus: any;
+  hookCheckError?: boolean;
+  hookChecking?: boolean;
+  hookActionOutcome?: any;
+  onHookRecheck?: () => void;
+  onHookOperationComplete?: (outcome: any) => void;
   activeSettingsSubsection: string;
   setActiveSettingsSubsection: (section: string) => void;
   sectionContentRef: React.MutableRefObject<HTMLDivElement | null>;
@@ -106,6 +123,34 @@ export function SettingsSection({
           <GroupCard icon={<Shield size={18} />} title={t("sections.contentDisplay", "内容显示")}>
             <Toggle label={t("appearance.hideSensitiveContent", "隐藏路径与内容")} checked={settings.hideSensitiveContent} onChange={hideSensitiveContent => updateSettings({ hideSensitiveContent })} />
             <p className="note">{t("appearance.hideSensitiveContentNote", "在界面和系统通知中隐藏文件路径与消息内容；仅改变屏幕上的显示，不会删除或加密任何本地数据。权限确认仍会显示决策所需的详情。")}</p>
+          </GroupCard>
+
+          <GroupCard
+            icon={<Cable size={18} />}
+            title={t("sections.connectionDetails", "连接详情")}
+            action={onHookRecheck ? (
+              <button
+                type="button"
+                className="group-reset-button"
+                title={t("connection.recheck", "重新检查")}
+                aria-label={t("connection.recheck", "重新检查")}
+                disabled={hookChecking}
+                onClick={onHookRecheck}
+              >
+                <RefreshCw size={14} className={hookChecking ? "spin" : undefined} />
+              </button>
+            ) : undefined}
+          >
+            <ConnectionManagement
+              hideSensitive={settings.hideSensitiveContent === true}
+              connection={connection}
+              now={now}
+              hookStatus={hookStatus}
+              checkError={hookCheckError}
+              actionOutcome={hookActionOutcome}
+              onRecheck={onHookRecheck}
+              onOperationComplete={onHookOperationComplete}
+            />
           </GroupCard>
         </>}
 
