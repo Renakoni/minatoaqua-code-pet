@@ -27,10 +27,22 @@ export function normalizeAnimationKey(value: string | null | undefined, fallback
   return isPetAnimationKey(value) ? value : fallback;
 }
 
-export function normalizeAnimationKeys(values: string[] | undefined, fallback: PetAnimationKey[] = ["idle"]): PetAnimationKey[] {
-  // Invalid entries are dropped, not translated; an empty result falls back.
-  const unique = [...new Set((values ?? []).filter(isPetAnimationKey))];
-  return unique.length > 0 ? unique : fallback;
+export function normalizeAnimationKeys(values: string[] | undefined): PetAnimationKey[] {
+  // Validation only: invalid entries are dropped, never translated, and an
+  // empty result stays empty. An empty pool means rotation cannot run — the
+  // same rule for the settings UI, the panel preview, and the live pet.
+  return [...new Set((values ?? []).filter(isPetAnimationKey))];
+}
+
+// Toggle a sprite in the idle pool. The pool never drops below one sprite:
+// turning rotation off is the master switch's job, not an implicit side
+// effect of emptying the pool. Returns the SAME array when the toggle is
+// blocked so callers can skip saving.
+export function toggleIdlePoolSprite(pool: PetAnimationKey[], key: PetAnimationKey): PetAnimationKey[] {
+  if (pool.includes(key)) {
+    return pool.length === 1 ? pool : pool.filter(sprite => sprite !== key);
+  }
+  return [...pool, key];
 }
 
 export function animationKeyForPetState(state: PetState): PetAnimationKey {
