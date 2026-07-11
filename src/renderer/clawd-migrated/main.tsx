@@ -41,9 +41,9 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PermissionCard } from "./components/PermissionCard";
 import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
 import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
-import type { HookStatus, HookOperationOutcome } from "./components/hooks/HooksManager";
 import { OverviewSection } from "./features/overview/OverviewSection";
-import { isConnectionSurfaceVisible, resolveRecheck } from "./features/overview/connectionState";
+import { connectionSurfaceKey } from "./features/overview/connectionState";
+import { useConnectionSurface } from "./features/overview/useConnectionSurface";
 import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
 import { getPetTheme } from "./utils/petThemes";
 
@@ -946,11 +946,15 @@ function SettingsApp() {
     try { return localStorage.getItem("clawd-onboarding-done") === "1"; } catch { return true; }
   });
   const [onboardingStep, setOnboardingStep] = useState(0);
-  const [overviewHookStatus, setOverviewHookStatus] = useState<HookStatus | null>(null);
-  const [overviewHookError, setOverviewHookError] = useState(false);
-  const [overviewHookChecking, setOverviewHookChecking] = useState(false);
-  const [overviewActionOutcome, setOverviewActionOutcome] = useState<HookOperationOutcome | null>(null);
-  const hookCheckSeq = useRef(0);
+  // Connection-surface controller (status / checking / error / action outcome,
+  // the seq-guarded full-chain recheck, and the navigation-driven refresh) —
+  // extracted to a hook so the behavior is covered by the regression harness.
+  const connectionSurface = useConnectionSurface({
+    surfaceKey: connectionSurfaceKey(activeSection, activeSettingsSubsection),
+    checkHooks: () => window.companion.checkHooks(),
+    getConnectionStatus: () => window.companion.getConnectionStatus(),
+    applyConnection: next => applyConnection?.(next)
+  });
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 
   useEffect(() => {
@@ -991,61 +995,6 @@ function SettingsApp() {
       window.clearInterval(statsInterval);
     };
   }, [activeSection]);
-
-  // Refresh the WHOLE connection chain — hook facts AND connection status — as one
-  // guarded request. Both raw promises are settled together so a connection-status
-  // failure is not silently swallowed; results (including the connection status)
-  // are applied only when this request's sequence is still current, so an older
-  // response can never overwrite a newer one. The error is set from the combined
-  // outcome — cleared only when BOTH required checks succeed — and checking is
-  // cleared exactly once, here, by the owning request.
-  async function recheckOverviewHooks({ preserveActionOutcome = false }: { preserveActionOutcome?: boolean } = {}) {
-    // A manual/route Recheck clears any prior action message so it cannot linger
-    // and contradict the freshly-fetched facts; the automatic post-action recheck
-    // preserves the just-produced outcome.
-    if (!preserveActionOutcome) setOverviewActionOutcome(null);
-    const seq = hookCheckSeq.current + 1;
-    hookCheckSeq.current = seq;
-    setOverviewHookChecking(true);
-    const [hookResult, connResult] = await Promise.allSettled([
-      window.companion.checkHooks(),
-      window.companion.getConnectionStatus()
-    ]);
-    if (hookCheckSeq.current !== seq) return; // superseded by a newer check or an action
-    const outcome = resolveRecheck(hookResult, connResult);
-    if (outcome.status) setOverviewHookStatus(outcome.status);
-    if (outcome.connection) applyConnection?.(outcome.connection);
-    setOverviewHookError(outcome.error);
-    setOverviewHookChecking(false);
-  }
-
-  // Refresh whenever a connection surface actually becomes visible — the
-  // Overview, or Settings while its General subsection (the connection
-  // management card) is showing — so an externally changed config (removed
-  // forwarder, edited settings) cannot leave a stale state indefinitely.
-  // Depending on the subsection too means switching back to Settings → General
-  // re-verifies the chain, while subsections without the card fire no
-  // invisible diagnostics request. The default recheck also clears any
-  // lingering action message from a prior visit.
-  useEffect(() => {
-    if (!isConnectionSurfaceVisible(activeSection, activeSettingsSubsection)) return undefined;
-    recheckOverviewHooks();
-    return undefined;
-  }, [activeSection, activeSettingsSubsection]);
-
-  // A completed hook action (install/repair/remove) yields fresh HOOK status and a
-  // structured outcome, but says nothing about the live connection/listener. So we
-  // store the structured outcome (rendered reactively), apply the fresh hook status
-  // via a functional update (preserving the latest parent state on a thrown, null
-  // status), and then kick off an authoritative FULL-CHAIN recheck. That recheck
-  // re-fetches BOTH hook and connection status and sets the error from the combined
-  // result — so a hook action can never clear the error or leave a stale connection
-  // "Ready" without a newer full-chain refresh confirming it.
-  function handleOverviewHookOperation(outcome: HookOperationOutcome) {
-    setOverviewActionOutcome(outcome);
-    setOverviewHookStatus(previous => outcome.status ?? previous);
-    void recheckOverviewHooks({ preserveActionOutcome: true });
-  }
 
   useEffect(() => {
     if (activeSection !== "general" && activeSection !== "settings") return undefined;
@@ -1181,12 +1130,12 @@ function SettingsApp() {
             settings={settings}
             updateSettings={updateSettings}
             connection={connection}
-            hookStatus={overviewHookStatus}
-            checkError={overviewHookError}
-            checking={overviewHookChecking}
-            actionOutcome={overviewActionOutcome}
-            onRecheck={() => void recheckOverviewHooks()}
-            onOperationComplete={handleOverviewHookOperation}
+            hookStatus={connectionSurface.hookStatus}
+            checkError={connectionSurface.checkError}
+            checking={connectionSurface.checking}
+            actionOutcome={connectionSurface.actionOutcome}
+            onRecheck={() => void connectionSurface.recheck()}
+            onOperationComplete={connectionSurface.handleOperation}
           />
         )}
 
@@ -1197,12 +1146,12 @@ function SettingsApp() {
               updateSettings={updateSettings}
               connection={connection}
               now={now}
-              hookStatus={overviewHookStatus}
-              hookCheckError={overviewHookError}
-              hookChecking={overviewHookChecking}
-              hookActionOutcome={overviewActionOutcome}
-              onHookRecheck={() => void recheckOverviewHooks()}
-              onHookOperationComplete={handleOverviewHookOperation}
+              hookStatus={connectionSurface.hookStatus}
+              hookCheckError={connectionSurface.checkError}
+              hookChecking={connectionSurface.checking}
+              hookActionOutcome={connectionSurface.actionOutcome}
+              onHookRecheck={() => void connectionSurface.recheck()}
+              onHookOperationComplete={connectionSurface.handleOperation}
               activeSettingsSubsection={activeSettingsSubsection}
               setActiveSettingsSubsection={setActiveSettingsSubsection}
               sectionContentRef={sectionContentRef}
