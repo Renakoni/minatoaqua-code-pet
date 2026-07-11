@@ -43,7 +43,7 @@ import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
 import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
 import type { HookStatus, HookOperationOutcome } from "./components/hooks/HooksManager";
 import { OverviewSection } from "./features/overview/OverviewSection";
-import { resolveRecheck } from "./features/overview/connectionState";
+import { isConnectionSurfaceVisible, resolveRecheck } from "./features/overview/connectionState";
 import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
 import { getPetTheme } from "./utils/petThemes";
 
@@ -1019,16 +1019,19 @@ function SettingsApp() {
     setOverviewHookChecking(false);
   }
 
-  // Refresh whenever a section carrying a connection surface becomes active
-  // (Overview, and Settings with its connection-management card), so an
-  // externally changed config (removed forwarder, edited settings) cannot leave
-  // a stale state indefinitely. The default recheck also clears any lingering
-  // action message from a prior visit.
+  // Refresh whenever a connection surface actually becomes visible — the
+  // Overview, or Settings while its General subsection (the connection
+  // management card) is showing — so an externally changed config (removed
+  // forwarder, edited settings) cannot leave a stale state indefinitely.
+  // Depending on the subsection too means switching back to Settings → General
+  // re-verifies the chain, while subsections without the card fire no
+  // invisible diagnostics request. The default recheck also clears any
+  // lingering action message from a prior visit.
   useEffect(() => {
-    if (activeSection !== "general" && activeSection !== "settings") return undefined;
+    if (!isConnectionSurfaceVisible(activeSection, activeSettingsSubsection)) return undefined;
     recheckOverviewHooks();
     return undefined;
-  }, [activeSection]);
+  }, [activeSection, activeSettingsSubsection]);
 
   // A completed hook action (install/repair/remove) yields fresh HOOK status and a
   // structured outcome, but says nothing about the live connection/listener. So we

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveConnectionState, resolveRecheck, type HookStatusInput } from "../src/renderer/clawd-migrated/features/overview/connectionState";
+import { deriveConnectionState, isConnectionSurfaceVisible, resolveRecheck, type HookStatusInput } from "../src/renderer/clawd-migrated/features/overview/connectionState";
 
 // A fully-installed, current, present-forwarder status: the "everything is wired"
 // baseline that individual tests degrade one link at a time.
@@ -132,6 +132,41 @@ describe("deriveConnectionState: listener availability vs recent-event history",
     expect(facts.canRepair).toBe(false);
     expect([facts.configState, facts.commandState, facts.forwarderState, facts.listenerState, facts.recentEventState])
       .toEqual(["healthy", "healthy", "healthy", "healthy", "healthy"]);
+  });
+});
+
+describe("isConnectionSurfaceVisible: recheck fires only when a connection surface shows", () => {
+  it("is visible on the Overview regardless of the settings subsection", () => {
+    expect(isConnectionSurfaceVisible("general", "general")).toBe(true);
+    expect(isConnectionSurfaceVisible("general", "about")).toBe(true);
+  });
+
+  it("is visible in Settings only while the General subsection is showing", () => {
+    expect(isConnectionSurfaceVisible("settings", "general")).toBe(true);
+    expect(isConnectionSurfaceVisible("settings", "pet")).toBe(false);
+    expect(isConnectionSurfaceVisible("settings", "notifications")).toBe(false);
+    expect(isConnectionSurfaceVisible("settings", "about")).toBe(false);
+  });
+
+  it("is hidden on sections without a connection surface", () => {
+    expect(isConnectionSurfaceVisible("sessions", "general")).toBe(false);
+    expect(isConnectionSurfaceVisible("plugins", "general")).toBe(false);
+    expect(isConnectionSurfaceVisible("animation", "general")).toBe(false);
+    expect(isConnectionSurfaceVisible("data", "general")).toBe(false);
+  });
+
+  it("covers the review transitions: recheck exactly when the destination shows the card", () => {
+    const transitions: Array<{ from: [string, string]; to: [string, string]; recheck: boolean }> = [
+      { from: ["general", "general"], to: ["settings", "general"], recheck: true },   // Overview → Settings/General
+      { from: ["settings", "pet"], to: ["settings", "general"], recheck: true },      // Settings/Pet → Settings/General
+      { from: ["settings", "general"], to: ["settings", "pet"], recheck: false },     // Settings/General → Settings/Pet
+      { from: ["settings", "pet"], to: ["settings", "about"], recheck: false }        // Settings/Pet → Settings/About
+    ];
+    for (const { to, recheck } of transitions) {
+      // The effect re-runs on every section/subsection change and rechecks
+      // exactly when the DESTINATION renders a connection surface.
+      expect(isConnectionSurfaceVisible(to[0], to[1])).toBe(recheck);
+    }
   });
 });
 
