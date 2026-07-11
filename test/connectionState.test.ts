@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { deriveConnectionState, isConnectionSurfaceVisible, resolveRecheck, type HookStatusInput } from "../src/renderer/clawd-migrated/features/overview/connectionState";
 
-// A fully-installed, current, present-forwarder status: the "everything is wired"
-// baseline that individual tests degrade one link at a time.
+// A fully-configured, current, present-forwarder status: the "everything is
+// wired" baseline that individual tests degrade one link at a time. Only the
+// fields HookStatusInput actually consumes are provided.
 const healthyHooks: HookStatusInput = {
-  installed: true,
-  configExists: true,
   hookCount: 6,
   requiredCount: 6,
   missingEvents: [],
   commandMatches: true,
+  configReadError: false,
   forwarder: { expectedPath: "C:/app/hook-forwarder.js", exists: true }
 };
 
@@ -49,7 +49,7 @@ describe("deriveConnectionState: mode selection", () => {
 
   it("is notConfigured when no Clawd hooks are configured", () => {
     const facts = deriveConnectionState(
-      { installed: false, configExists: true, hookCount: 0, requiredCount: 6, missingEvents: ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"], commandMatches: false, forwarder: { expectedPath: "C:/app/hook-forwarder.js", exists: true } },
+      { hookCount: 0, requiredCount: 6, missingEvents: ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"], commandMatches: false, configReadError: false, forwarder: { expectedPath: "C:/app/hook-forwarder.js", exists: true } },
       { serverListening: true }
     );
     expect(facts.mode).toBe("notConfigured");
@@ -57,7 +57,7 @@ describe("deriveConnectionState: mode selection", () => {
 
   it("keeps an installed-but-partial config in the workbench, not onboarding", () => {
     const facts = deriveConnectionState(
-      { installed: false, configExists: true, hookCount: 4, requiredCount: 6, missingEvents: ["Notification", "Stop"], commandMatches: true, forwarder: { expectedPath: "C:/app/hook-forwarder.js", exists: true } },
+      { hookCount: 4, requiredCount: 6, missingEvents: ["Notification", "Stop"], commandMatches: true, configReadError: false, forwarder: { expectedPath: "C:/app/hook-forwarder.js", exists: true } },
       { serverListening: true }
     );
     expect(facts.mode).toBe("workbench");
@@ -88,7 +88,7 @@ describe("deriveConnectionState: action gating by failed link", () => {
 
   it("does NOT offer a doomed Repair when the forwarder file is missing", () => {
     const facts = deriveConnectionState(
-      { ...healthyHooks, installed: false, missingEvents: ["Stop"], hookCount: 5, forwarder: { expectedPath: "C:/app/hook-forwarder.js", exists: false } },
+      { ...healthyHooks, missingEvents: ["Stop"], hookCount: 5, forwarder: { expectedPath: "C:/app/hook-forwarder.js", exists: false } },
       { serverListening: true }
     );
     // Config needs work, but Repair reinstalls via the forwarder — which is gone.
