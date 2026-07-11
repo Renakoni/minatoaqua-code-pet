@@ -145,6 +145,17 @@ export function deriveConnectionState(
   };
 }
 
+// Which panel surfaces actually render the connection area: the Overview
+// section, and Settings only while its General subsection is showing (that is
+// where the connection-management card lives). Gating the authoritative
+// recheck on THIS — not just the top-level section — means returning to
+// Settings → General after an external change re-verifies the chain, and
+// entering a Settings subsection without the card fires no invisible
+// diagnostics request.
+export function isConnectionSurfaceVisible(activeSection: string, settingsSubsection: string): boolean {
+  return activeSection === "general" || (activeSection === "settings" && settingsSubsection === "general");
+}
+
 export interface RecheckOutcome<Status, Connection> {
   /** Fresh hook status to apply, if that request succeeded. */
   status?: Status;

@@ -327,8 +327,10 @@
   --workbench-strong: var(--aqua-ink);
 }
 
-/* the overview front door runs on --overview-*; give it the full ramp */
-[data-theme="pet"][data-pet-theme="minato-aqua"] .overview-workbench {
+/* the overview front door runs on --overview-*; give it the full ramp.
+   .connection-management (Settings → Connection details) shares the ramp. */
+[data-theme="pet"][data-pet-theme="minato-aqua"] .overview-workbench,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .connection-management {
   --overview-ink: var(--aqua-ink);
   --overview-muted: var(--aqua-muted);
   --overview-faint: var(--aqua-faint);
