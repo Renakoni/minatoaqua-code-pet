@@ -447,7 +447,6 @@
 [data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page-head,
 [data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .group-card,
 [data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .panel-group-card,
-[data-theme="pet"][data-pet-theme="minato-aqua"] .overview-status-panel,
 [data-theme="pet"][data-pet-theme="minato-aqua"] .workbench-section,
 [data-theme="pet"][data-pet-theme="minato-aqua"] .stats-activity-board,
 [data-theme="pet"][data-pet-theme="minato-aqua"] .token-overview-block,
@@ -488,7 +487,6 @@
 /* grouped sub-surfaces inside cards */
 [data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page .settings-group,
 [data-theme="pet"][data-pet-theme="minato-aqua"] .theme-settings-group,
-[data-theme="pet"][data-pet-theme="minato-aqua"] .connection-detail,
 [data-theme="pet"][data-pet-theme="minato-aqua"] .stat-item,
 [data-theme="pet"][data-pet-theme="minato-aqua"] .token-heatmap-summary,
 [data-theme="pet"][data-pet-theme="minato-aqua"] .token-table,

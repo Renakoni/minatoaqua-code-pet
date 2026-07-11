@@ -10,6 +10,9 @@ import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
 import { getPetWindowHeight, getPetWindowWidth, migratePetDisplaySettings } from "../shared/petDisplaySettings";
 import { redactDisplayEvent } from "../shared/privacy";
+import { canonicalizeEventEntries, evaluateHookConfig, isClawdHookCommand } from "./hookConfig";
+import { isReadableRegularFile } from "./fsAccess";
+import type { HookStatus, HookOperationResult } from "../shared/hooks";
 import {
   addCcSwitchProvider,
   deleteCcSwitchProvider,
@@ -2540,10 +2543,12 @@ function broadcastCcSwitchChanged() {
 
 function getConnectionStatus() {
   const latest = eventHistory[0] ? toCompanionEvent(eventHistory[0]) : undefined;
+  // No single "connected" flag: a past event does not prove the live link is
+  // healthy. Callers derive readiness from serverListening + hook status, and
+  // report the most recent event (lastEventAt) as a separate fact.
   return {
     port: eventPort,
     serverListening: Boolean(eventServer?.listening),
-    connected: Boolean(latest),
     activeSessionId: sessionId,
     activeClientType: "desktop",
     activeClientLabel: "Minato Aqua Code Pet",
@@ -2916,7 +2921,9 @@ const PRETOOLUSE_HOOK_TIMEOUT_SECONDS = 75;
 
 function isExternalNodeReadablePath(candidate: string) {
   const normalized = candidate.replace(/\\/g, "/");
-  return Boolean(candidate) && !normalized.includes(".asar/") && existsSync(candidate);
+  // Must be a real, readable regular file — not just an existing path — and must
+  // live outside the asar archive so an external `node` process can load it.
+  return Boolean(candidate) && !normalized.includes(".asar/") && isReadableRegularFile(candidate);
 }
 
 function getHookForwarderPath() {
@@ -2928,11 +2935,6 @@ function getHookForwarderPath() {
     join(app.getAppPath(), "scripts", "hook-forwarder.js")
   ];
   return candidates.find(isExternalNodeReadablePath) ?? candidates[0];
-}
-
-function normalizeComparablePath(path: string) {
-  const resolved = resolve(path);
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
 function getForwarderStatus() {
@@ -2956,73 +2958,58 @@ function getHookCommand(eventName: string) {
   ].join(" ");
 }
 
-function extractHookForwarderPath(command: string) {
-  const match = command.match(/(?:"([^"]*hook-forwarder\.js)"|'([^']*hook-forwarder\.js)'|([^\s"']*hook-forwarder\.js))/i);
-  return match?.[1] ?? match?.[2] ?? match?.[3] ?? "";
-}
-
-function isClawdHookCommand(command: unknown, eventName?: string, options: { requireReadableForwarder?: boolean; requireCurrentForwarder?: boolean } = {}) {
-  if (typeof command !== "string") return false;
-  const normalized = command.replace(/\\/g, "/");
-  const scriptNameMatches = normalized.includes("hook-forwarder.js");
-  if (!scriptNameMatches) return false;
-  if (!eventName) return true;
-  if (!new RegExp(`(^|[\\s"'])${eventName}($|[\\s"'])`).test(normalized)) return false;
-
-  const forwarderPath = extractHookForwarderPath(command);
-  if (options.requireReadableForwarder && !isExternalNodeReadablePath(forwarderPath)) return false;
-  if (options.requireCurrentForwarder) {
-    const currentForwarderPath = getHookForwarderPath();
-    if (!isExternalNodeReadablePath(forwarderPath) || !isExternalNodeReadablePath(currentForwarderPath)) return false;
-    return normalizeComparablePath(forwarderPath) === normalizeComparablePath(currentForwarderPath);
-  }
-  return true;
-}
-
-function getHookEntries(settings: Record<string, any>, eventName: string): Array<Record<string, any>> {
-  const eventConfig = settings.hooks?.[eventName];
-  if (!Array.isArray(eventConfig)) return [];
-  return eventConfig.filter(entry => entry && typeof entry === "object") as Array<Record<string, any>>;
-}
-
-function getHooksStatus() {
+function getHooksStatus(): HookStatus {
   const path = getClaudeSettingsPath();
   const configExists = existsSync(path);
+
+  // Distinguish "no config yet" (file absent → genuinely not configured) from a
+  // config-read failure (file present but corrupt/unreadable). The latter must
+  // never be silently presented as an empty configuration, so it is surfaced as
+  // configReadError instead of being flattened to first-run onboarding.
   let settings: Record<string, any> = {};
-  try {
-    settings = readLiveJsonObject(path);
-  } catch {
-    settings = {};
+  let configReadError = false;
+  if (configExists) {
+    try {
+      settings = readLiveJsonObject(path);
+    } catch {
+      configReadError = true;
+    }
   }
 
-  const missingEvents = requiredClaudeHookEvents.filter(eventName => {
-    const entries = getHookEntries(settings, eventName);
-    return !entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName, { requireReadableForwarder: true })));
-  });
-  const hookCount = requiredClaudeHookEvents.length - missingEvents.length;
-  const commandMatches = requiredClaudeHookEvents.every(eventName => {
-    const entries = getHookEntries(settings, eventName);
-    return entries.some(entry => Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => hook?.type === "command" && isClawdHookCommand(hook?.command, eventName, { requireCurrentForwarder: true }) && (eventName !== "PreToolUse" || hook?.timeout === PRETOOLUSE_HOOK_TIMEOUT_SECONDS)));
+  const evaluation = evaluateHookConfig(settings, {
+    requiredEvents: requiredClaudeHookEvents,
+    expected: {
+      forwarderPath: getHookForwarderPath(),
+      settingsPath: settingsPath(),
+      appPath: process.execPath,
+      appRoot: app.getAppPath(),
+      port: eventPort
+    },
+    preToolUseEvent: "PreToolUse",
+    preToolUseTimeout: PRETOOLUSE_HOOK_TIMEOUT_SECONDS
   });
 
   return {
-    installed: missingEvents.length === 0 && commandMatches,
+    installed: evaluation.installed,
     configExists,
-    hookCount,
+    configReadError,
+    hookCount: evaluation.hookCount,
     requiredCount: requiredClaudeHookEvents.length,
-    missingEvents,
-    commandMatches,
+    missingEvents: evaluation.missingEvents,
+    commandMatches: evaluation.commandMatches,
     settingsPath: path,
     forwarder: getForwarderStatus()
   };
 }
 
-function installHooks() {
+function installHooks(): HookOperationResult {
   try {
     const path = getClaudeSettingsPath();
     const forwarderPath = getHookForwarderPath();
     if (!isExternalNodeReadablePath(forwarderPath)) {
-      return { success: false, error: `Hook forwarder not found: ${forwarderPath}`, status: getHooksStatus() };
+      // Structured error: the renderer shows a localized "forwarder missing"
+      // category and only reveals forwarderPath when hiding is disabled.
+      return { success: false, errorKind: "forwarder-missing", forwarderPath, error: `Hook forwarder not found: ${forwarderPath}`, status: getHooksStatus() };
     }
     mkdirSync(join(homedir(), ".claude"), { recursive: true });
     const settings = readLiveJsonObject(path);
@@ -3030,14 +3017,11 @@ function installHooks() {
     const hooks = settings.hooks && typeof settings.hooks === "object" && !Array.isArray(settings.hooks) ? { ...settings.hooks } : {};
 
     for (const eventName of requiredClaudeHookEvents) {
-      const entries = Array.isArray(hooks[eventName]) ? [...hooks[eventName]] : [];
-      const existingIndex = entries.findIndex(entry => entry && typeof entry === "object" && Array.isArray(entry.hooks) && entry.hooks.some((hook: any) => isClawdHookCommand(hook?.command)));
+      // De-duplicate every existing Clawd command down to one canonical current
+      // command, preserving unrelated third-party hooks and their matchers.
       const hookCommand: Record<string, unknown> = { type: "command", command: getHookCommand(eventName) };
       if (eventName === "PreToolUse") hookCommand.timeout = PRETOOLUSE_HOOK_TIMEOUT_SECONDS;
-      const clawdEntry = { matcher: "*", hooks: [hookCommand] };
-      if (existingIndex >= 0) entries[existingIndex] = clawdEntry;
-      else entries.push(clawdEntry);
-      hooks[eventName] = entries;
+      hooks[eventName] = canonicalizeEventEntries(hooks[eventName], { matcher: "*", hooks: [hookCommand] });
     }
 
     writeFileSync(path, `${JSON.stringify({ ...settings, hooks }, null, 2)}\n`, "utf-8");
@@ -3047,14 +3031,22 @@ function installHooks() {
   }
 }
 
-function repairHooks() {
-  const before = getHooksStatus();
+function repairHooks(): HookOperationResult {
+  // Repair fixes any drifted dimension — missing events, duplicates, outdated
+  // paths/port/settings, and PreToolUse timeout — via a full reinstall, so it does
+  // not report a per-item count. Success is factual; the refreshed status carries
+  // the real post-repair facts. Any structured failure is propagated verbatim.
   const result = installHooks();
-  const after = getHooksStatus();
-  return { success: result.success, fixed: before.missingEvents, status: after, install: result, error: result.success ? undefined : result.error };
+  return {
+    success: result.success,
+    status: getHooksStatus(),
+    error: result.error,
+    errorKind: result.errorKind,
+    forwarderPath: result.forwarderPath
+  };
 }
 
-function removeHooks() {
+function removeHooks(): HookOperationResult {
   try {
     const path = getClaudeSettingsPath();
     if (!existsSync(path)) return { success: true, removed: 0, status: getHooksStatus() };
@@ -3088,47 +3080,6 @@ function removeHooks() {
 
 function getUpdateStatus() {
   return updateStatus;
-}
-
-function getDoctorReport() {
-  const hooks = getHooksStatus();
-  const forwarder = getForwarderStatus();
-  return {
-    generatedAt: Date.now(),
-    appVersion: app.getVersion(),
-    connection: getConnectionStatus(),
-    providers: {
-      "claude-code": {
-        hooks,
-        forwarder
-      },
-      codex: {
-        hooks,
-        forwarder
-      }
-    },
-    hooks,
-    forwarder: {
-      expectedPath: forwarder.expectedPath,
-      exists: forwarder.exists,
-      autoStartMarkerPath: settingsPath(),
-      autoStartMarkerExists: companionSettings.autoStartWithCli === true
-    },
-    update: {
-      ...getUpdateStatus(),
-      autoUpdateEnabled: companionSettings.autoUpdateEnabled
-    },
-    plugins: {
-      total: companionSettings.customPlugins.length,
-      enabled: companionSettings.customPlugins.filter((plugin: { enabled?: boolean }) => plugin.enabled).length,
-      trusted: companionSettings.customPlugins.filter((plugin: { trusted?: boolean }) => plugin.trusted).length,
-      manifestErrors: companionSettings.customPlugins.filter((plugin: { manifestError?: string }) => plugin.manifestError).length
-    },
-    recent: {
-      lastEventAt: eventHistory[0]?.timestamp,
-      lastEventTitle: eventHistory[0]?.title
-    }
-  };
 }
 
 function broadcastCompanionEvent(event: CompanionEvent) {
@@ -3378,7 +3329,6 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:import-settings-file", () => null);
   ipcMain.handle("companion:export-stats-file", () => undefined);
   ipcMain.handle("companion:import-stats-file", () => null);
-  ipcMain.handle("companion:get-doctor-report", () => getDoctorReport());
   if (isPetEnabled()) createPetWindow();
   createTray();
   startEventServer();

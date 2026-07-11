@@ -41,7 +41,6 @@
 [data-ui-style=liquid] .onboarding-card,
 [data-ui-style=liquid] .settings-group,
 [data-ui-style=liquid] .status-card,
-[data-ui-style=liquid] .connection-detail,
 [data-ui-style=liquid] .stat-item,
 [data-ui-style=liquid] .event-row,
 [data-ui-style=liquid] .sound-row,
@@ -333,7 +332,6 @@
 [data-ui-style=liquid] .status-card small,
 [data-ui-style=liquid] .field span,
 [data-ui-style=liquid] .slider-row span,
-[data-ui-style=liquid] .connection-detail span,
 [data-ui-style=liquid] .subtle {
   color: rgba(40, 60, 80, 0.7);
 }
@@ -344,7 +342,6 @@
 [data-ui-style=liquid] .group-card-header h3,
 [data-ui-style=liquid] .event-row strong,
 [data-ui-style=liquid] .status-card strong,
-[data-ui-style=liquid] .connection-detail strong,
 [data-ui-style=liquid] .stat-value,
 [data-ui-style=liquid] .token-model-name,
 [data-ui-style=liquid] code {
@@ -397,7 +394,6 @@
 [data-ui-style=liquid][data-theme=dark] .group-card,
 [data-ui-style=liquid][data-theme=dark] .settings-group,
 [data-ui-style=liquid][data-theme=dark] .status-card,
-[data-ui-style=liquid][data-theme=dark] .connection-detail,
 [data-ui-style=liquid][data-theme=dark] .stat-item,
 [data-ui-style=liquid][data-theme=dark] .event-row,
 [data-ui-style=liquid][data-theme=dark] .sound-row,
@@ -512,7 +508,6 @@
 [data-ui-style=liquid][data-theme=dark] .subtle,
 [data-ui-style=liquid][data-theme=dark] .stat-label,
 [data-ui-style=liquid][data-theme=dark] .status-card small,
-[data-ui-style=liquid][data-theme=dark] .connection-detail span,
 [data-ui-style=liquid][data-theme=dark] .event-row span,
 [data-ui-style=liquid][data-theme=dark] .event-row p,
 [data-ui-style=liquid][data-theme=dark] .event-row small,
@@ -527,7 +522,6 @@
 [data-ui-style=liquid][data-theme=dark] .group-card-header h3,
 [data-ui-style=liquid][data-theme=dark] .event-row strong,
 [data-ui-style=liquid][data-theme=dark] .status-card strong,
-[data-ui-style=liquid][data-theme=dark] .connection-detail strong,
 [data-ui-style=liquid][data-theme=dark] .stat-value,
 [data-ui-style=liquid][data-theme=dark] .token-model-name,
 [data-ui-style=liquid][data-theme=dark] code {
@@ -564,7 +558,6 @@
 [data-ui-style=liquid][data-theme=dark] .group-card,
 [data-ui-style=liquid][data-theme=dark] .settings-group,
 [data-ui-style=liquid][data-theme=dark] .status-card,
-[data-ui-style=liquid][data-theme=dark] .connection-detail,
 [data-ui-style=liquid][data-theme=dark] .stat-item,
 [data-ui-style=liquid][data-theme=dark] .event-row,
 [data-ui-style=liquid][data-theme=dark] .sound-row,

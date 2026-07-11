@@ -39,8 +39,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
   const [settings, setSettings] = useState<CompanionSettings>(defaultSettings);
   const [connection, setConnection] = useState<CompanionConnectionStatus>({
     port: 0,
-    serverListening: false,
-    connected: false
+    serverListening: false
   });
   const [events, setEvents] = useState<CompanionEvent[]>([]);
   const [currentEvent, setCurrentEvent] = useState<CompanionEvent | null>(null);
@@ -354,6 +353,14 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
     lastEvent: session.lastEvent ? redactDisplayEvent(session.lastEvent, displayLanguage) : session.lastEvent
   })) : sessions, [displayLanguage, sessions, settings.hideSensitiveContent]);
 
-  return { settings, updateSettings, connection, events: displayEvents, currentEvent: displayCurrentEvent, petState, toolStreams: displayToolStreams, activePermissions, sessions: displaySessions, exitingSessions, mainSessionId, companionSlotRef, respondToPermission, clearActivityHistory };
+  // Apply a connection status fetched by the caller. The workbench Recheck pulls
+  // connection status itself (so it can detect and report a failure) and applies
+  // the result here only when its request sequence is still current; the
+  // onConnection subscription still keeps connection live between rechecks.
+  function applyConnection(next: CompanionConnectionStatus) {
+    setConnection(next);
+  }
+
+  return { settings, updateSettings, connection, applyConnection, events: displayEvents, currentEvent: displayCurrentEvent, petState, toolStreams: displayToolStreams, activePermissions, sessions: displaySessions, exitingSessions, mainSessionId, companionSlotRef, respondToPermission, clearActivityHistory };
 }
 

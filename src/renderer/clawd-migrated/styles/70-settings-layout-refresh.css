@@ -430,7 +430,6 @@ h1 {
   font-weight: 700;
 }
 
-.connection-detail-grid,
 .stats-grid {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
@@ -447,7 +446,6 @@ h1 {
 
 .command-row span,
 .command-row code,
-.connection-detail strong,
 .status-card strong,
 .status-card small {
   min-width: 0;
@@ -642,7 +640,7 @@ h1 {
   .status-strip, .section-grid-2col, .settings-columns, .settings-columns.compact { grid-template-columns: 1fr; }
   .slider-row, .range-slider-row { grid-template-columns: 1fr; gap: 6px; }
   .slider-row b, .range-slider-row > b { text-align: left; }
-  .connection-detail-grid, .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .event-row { grid-template-columns: 64px minmax(0, 1fr) 70px; }
 }
 

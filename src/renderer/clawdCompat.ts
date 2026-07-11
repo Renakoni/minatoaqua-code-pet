@@ -1,4 +1,5 @@
 import { isSessionStartEvent, type PetEvent } from "../shared/events";
+import type { HookStatus, HookOperationResult } from "../shared/hooks";
 import {
   defaultSettings,
   defaultStats,
@@ -12,7 +13,6 @@ import {
   type CompanionEvent,
   type CompanionEventType,
   type CompanionSettings,
-  type DoctorReport,
   type EventHistoryEntry,
   type PermissionRequest,
   type PluginMarketIndex,
@@ -33,10 +33,10 @@ type CompanionApi = {
   getSettings: () => Promise<CompanionSettings>;
   saveSettings: (next: Partial<CompanionSettings>) => Promise<CompanionSettings>;
   getConnectionStatus: () => Promise<CompanionConnectionStatus>;
-  checkHooks: (provider?: ProviderId) => Promise<ReturnType<typeof hooksStatus>>;
-  installHooks: (provider?: ProviderId) => Promise<{ success: boolean; error?: string; status: ReturnType<typeof hooksStatus> }>;
-  repairHooks: (provider?: ProviderId) => Promise<{ success: boolean; error?: string; fixed: string[]; status: ReturnType<typeof hooksStatus> }>;
-  removeHooks: (provider?: ProviderId) => Promise<{ success: boolean; removed: number; status: ReturnType<typeof hooksStatus> }>;
+  checkHooks: (provider?: ProviderId) => Promise<HookStatus>;
+  installHooks: (provider?: ProviderId) => Promise<HookOperationResult>;
+  repairHooks: (provider?: ProviderId) => Promise<HookOperationResult>;
+  removeHooks: (provider?: ProviderId) => Promise<HookOperationResult>;
   openSettings: () => Promise<void>;
   minimizeSettings: () => Promise<void>;
   toggleMaximizeSettings: () => Promise<void>;
@@ -90,7 +90,6 @@ type CompanionApi = {
   importSettingsFile: () => Promise<CompanionSettings | null>;
   exportStatsFile: () => Promise<void>;
   importStatsFile: () => Promise<AppStats | null>;
-  getDoctorReport: () => Promise<DoctorReport>;
   onUpdateStatus: (callback: Listener<UpdateStatus>) => Unsubscribe;
   onPlaySound: (callback: Listener<string>) => Unsubscribe;
   onOpenSection: (callback: Listener<string>) => Unsubscribe;
@@ -231,7 +230,6 @@ function currentConnection(): CompanionConnectionStatus {
   return {
     port: eventPort,
     serverListening: true,
-    connected: true,
     activeSessionId: sessionId,
     activeClientType: "desktop",
     activeClientLabel: "Minato Aqua Code Pet",
@@ -330,58 +328,20 @@ function updateStatus(): UpdateStatus {
   };
 }
 
-function hooksStatus() {
+function hooksStatus(): HookStatus {
   return {
     installed: false,
     configExists: false,
+    configReadError: false,
     hookCount: 0,
     requiredCount: 6,
     missingEvents: missingHookEvents,
     commandMatches: false,
+    settingsPath: "",
     forwarder: { expectedPath: "scripts/hook-forwarder.js", exists: false }
   };
 }
 
-function doctorReport(): DoctorReport {
-  const hooks = hooksStatus();
-  return {
-    generatedAt: Date.now(),
-    appVersion: "0.0.0-dev",
-    connection: currentConnection(),
-    providers: {
-      "claude-code": {
-        hooks,
-        forwarder: { expectedPath: "scripts/hook-forwarder.js", exists: false }
-      },
-      codex: {
-        hooks,
-        forwarder: { expectedPath: "scripts/hook-forwarder.js", exists: false }
-      }
-    },
-    hooks,
-    forwarder: {
-      expectedPath: "scripts/hook-forwarder.js",
-      exists: false,
-      autoStartMarkerPath: "",
-      autoStartMarkerExists: false
-    },
-    update: {
-      ...updateStatus(),
-      autoUpdateEnabled: false
-    },
-    plugins: {
-      total: 0,
-      enabled: 0,
-      trusted: 0,
-      manifestErrors: 0
-    },
-    recent: {
-      lastEventAt: lastEvent?.timestamp,
-      lastEventTitle: lastEvent?.title,
-      lastError: lastEvent?.event === "error" ? lastEvent.message : undefined
-    }
-  };
-}
 
 function bindPetApi(petApi: PetApi) {
   void petApi.getSnapshot().then(snapshot => {
@@ -427,7 +387,7 @@ export function installClawdCompat() {
     getConnectionStatus: async () => currentConnection(),
     checkHooks: async () => hooksStatus(),
     installHooks: async () => ({ success: false, error: "Hook installation is only available in the desktop app.", status: hooksStatus() }),
-    repairHooks: async () => ({ success: false, error: "Hook repair is only available in the desktop app.", fixed: missingHookEvents, status: hooksStatus() }),
+    repairHooks: async () => ({ success: false, error: "Hook repair is only available in the desktop app.", status: hooksStatus() }),
     removeHooks: async () => ({ success: true, removed: 0, status: hooksStatus() }),
     openSettings: async () => undefined,
     minimizeSettings: async () => petApi?.minimizePanel(),
@@ -487,7 +447,6 @@ export function installClawdCompat() {
     importSettingsFile: async () => null,
     exportStatsFile: async () => undefined,
     importStatsFile: async () => null,
-    getDoctorReport: async () => doctorReport(),
     onUpdateStatus: callback => subscribe(updateStatusListeners, callback),
     onPlaySound: callback => subscribe(playSoundListeners, callback),
     onOpenSection: callback => subscribe(openSectionListeners, callback),

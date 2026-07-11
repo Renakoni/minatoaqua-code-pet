@@ -111,7 +111,6 @@
 .status-card,
 .settings-group,
 .event-row,
-.connection-detail,
 .stat-item,
 .sound-row,
 .toggle {
@@ -126,7 +125,6 @@
 .group-card:hover,
 .status-card:hover,
 .event-row:hover,
-.connection-detail:hover,
 .stat-item:hover,
 .sound-row:hover,
 .toggle:hover {
@@ -148,7 +146,6 @@ input:focus-visible,
 [data-theme=dark] .group-card:hover,
 [data-theme=dark] .status-card:hover,
 [data-theme=dark] .event-row:hover,
-[data-theme=dark] .connection-detail:hover,
 [data-theme=dark] .stat-item:hover,
 [data-theme=dark] .sound-row:hover,
 [data-theme=dark] .toggle:hover {

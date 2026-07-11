@@ -11,7 +11,6 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
 
-.overview-status-panel,
 .workbench-section {
   min-width: 0;
   overflow: hidden;
@@ -94,71 +93,6 @@
   color: var(--workbench-muted);
   text-overflow: ellipsis;
 }
-
-.overview-status-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.overview-status-grid .status-card {
-  min-height: 78px;
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  grid-template-rows: auto auto auto;
-  gap: 3px 10px;
-  align-content: center;
-  padding: 13px 16px;
-  border: 0;
-  border-right: 1px solid var(--workbench-line);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.overview-status-grid .status-card:last-child {
-  border-right: 0;
-}
-
-.overview-status-grid .status-card svg {
-  grid-row: 1 / span 3;
-  margin: 1px 0 0;
-}
-
-.overview-status-grid .status-card span,
-.overview-status-grid .status-card strong,
-.overview-status-grid .status-card small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.overview-status-grid .status-card span {
-  color: var(--workbench-muted);
-  font-size: 11px;
-  font-weight: 720;
-  line-height: 1.1;
-}
-
-.overview-status-grid .status-card strong {
-  margin: 0;
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 780;
-  line-height: 1.15;
-}
-
-.overview-status-grid .status-card small {
-  margin: 0;
-  color: var(--workbench-muted);
-  font-size: 11px;
-  line-height: 1.1;
-}
-
-.overview-status-grid .status-card.good svg { color: var(--mint); }
-.overview-status-grid .status-card.bad svg { color: var(--coral); }
-.overview-status-grid .status-card.wait svg { color: var(--honey); }
-.overview-status-grid .status-card.neutral svg { color: var(--steel); }
 
 .data-workbench .workbench-section > .stats-workbench,
 .data-workbench .workbench-section > .token-panel,
@@ -1370,7 +1304,6 @@
   --workbench-strong: oklch(90% 0.011 78);
 }
 
-[data-theme=dark] .overview-status-panel,
 [data-theme=dark] .workbench-section {
   background: var(--workbench-surface);
   border-color: var(--workbench-line);
@@ -1486,14 +1419,12 @@
     padding: 12px 14px;
   }
 
-  .overview-status-grid,
   .stats-metric-strip,
   .token-kpi-grid,
   .token-breakdown-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .overview-status-grid .status-card:nth-child(2n),
   .token-kpi-card:nth-child(2n),
   .token-breakdown-strip span:nth-child(2n) {
     border-right: 0;
@@ -1505,7 +1436,6 @@
     border-left: 0;
   }
 
-  .overview-status-grid .status-card:nth-child(n + 3),
   .stats-metric:nth-child(n + 3),
   .token-kpi-card:nth-child(n + 3),
   .token-breakdown-strip span:nth-child(n + 3) {
@@ -1592,7 +1522,6 @@
     max-width: 100%;
   }
 
-  .overview-status-grid,
   .stats-metric-strip,
   .token-kpi-grid,
   .token-breakdown-strip {
@@ -1680,7 +1609,6 @@
     border-top: 0;
   }
 
-  .overview-status-grid .status-card,
   .stats-metric,
   .token-kpi-card,
   .token-breakdown-strip span {
@@ -1689,7 +1617,6 @@
     border-top: 1px solid var(--workbench-line);
   }
 
-  .overview-status-grid .status-card:first-child,
   .stats-metric:first-child,
   .token-kpi-card:first-child,
   .token-breakdown-strip span:first-child {

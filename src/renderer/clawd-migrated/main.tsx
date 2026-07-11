@@ -41,8 +41,9 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PermissionCard } from "./components/PermissionCard";
 import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
 import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
-import type { HookSetupStage, HookStatus } from "./components/hooks/HooksManager";
+import type { HookStatus, HookOperationOutcome } from "./components/hooks/HooksManager";
 import { OverviewSection } from "./features/overview/OverviewSection";
+import { resolveRecheck } from "./features/overview/connectionState";
 import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
 import { getPetTheme } from "./utils/petThemes";
 
@@ -901,7 +902,7 @@ function StateProp({ state }: { state: PetState }) {
 
 function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
-  const { settings, updateSettings, connection, events, petState, toolStreams, clearActivityHistory } = useCompanion();
+  const { settings, updateSettings, connection, applyConnection, events, petState, toolStreams, clearActivityHistory } = useCompanion();
   const activePetTheme = getPetTheme(settings.petTheme);
   // Character chrome (anchor icon, character name in the version bar) only
   // belongs to the pet interface theme; light/dark stay neutral.
@@ -944,11 +945,10 @@ function SettingsApp() {
   });
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [overviewHookStatus, setOverviewHookStatus] = useState<HookStatus | null>(null);
-  const [hookSetupStage, setHookSetupStage] = useState<HookSetupStage>("idle");
-  const hookSetupTimers = useRef<number[]>([]);
-  const hookSetupNeedsAttention = overviewHookStatus ? !overviewHookStatus.installed || overviewHookStatus.missingEvents.length > 0 || !overviewHookStatus.commandMatches : false;
-  const hookSetupShowingSuccess = !hookSetupNeedsAttention && (hookSetupStage === "success" || hookSetupStage === "hiding");
-  const shouldRenderHookSetup = hookSetupNeedsAttention || hookSetupStage !== "idle";
+  const [overviewHookError, setOverviewHookError] = useState(false);
+  const [overviewHookChecking, setOverviewHookChecking] = useState(false);
+  const [overviewActionOutcome, setOverviewActionOutcome] = useState<HookOperationOutcome | null>(null);
+  const hookCheckSeq = useRef(0);
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 
   useEffect(() => {
@@ -990,42 +990,54 @@ function SettingsApp() {
     };
   }, [activeSection]);
 
-  useEffect(() => {
-    let cancelled = false;
-    window.companion.checkHooks().then(status => {
-      if (!cancelled) setOverviewHookStatus(status);
-    });
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      hookSetupTimers.current.forEach(timer => window.clearTimeout(timer));
-      hookSetupTimers.current = [];
-    };
-  }, []);
-
-  function handleOverviewHookStatusChange(status: HookStatus) {
-    setOverviewHookStatus(status);
-    if (!status.installed || status.missingEvents.length > 0 || !status.commandMatches) {
-      hookSetupTimers.current.forEach(timer => window.clearTimeout(timer));
-      hookSetupTimers.current = [];
-      setHookSetupStage("idle");
-    }
+  // Refresh the WHOLE connection chain — hook facts AND connection status — as one
+  // guarded request. Both raw promises are settled together so a connection-status
+  // failure is not silently swallowed; results (including the connection status)
+  // are applied only when this request's sequence is still current, so an older
+  // response can never overwrite a newer one. The error is set from the combined
+  // outcome — cleared only when BOTH required checks succeed — and checking is
+  // cleared exactly once, here, by the owning request.
+  async function recheckOverviewHooks({ preserveActionOutcome = false }: { preserveActionOutcome?: boolean } = {}) {
+    // A manual/route Recheck clears any prior action message so it cannot linger
+    // and contradict the freshly-fetched facts; the automatic post-action recheck
+    // preserves the just-produced outcome.
+    if (!preserveActionOutcome) setOverviewActionOutcome(null);
+    const seq = hookCheckSeq.current + 1;
+    hookCheckSeq.current = seq;
+    setOverviewHookChecking(true);
+    const [hookResult, connResult] = await Promise.allSettled([
+      window.companion.checkHooks(),
+      window.companion.getConnectionStatus()
+    ]);
+    if (hookCheckSeq.current !== seq) return; // superseded by a newer check or an action
+    const outcome = resolveRecheck(hookResult, connResult);
+    if (outcome.status) setOverviewHookStatus(outcome.status);
+    if (outcome.connection) applyConnection?.(outcome.connection);
+    setOverviewHookError(outcome.error);
+    setOverviewHookChecking(false);
   }
 
-  function handleOverviewHookInstallSuccess(status: HookStatus) {
-    hookSetupTimers.current.forEach(timer => window.clearTimeout(timer));
-    hookSetupTimers.current = [];
-    setOverviewHookStatus(status);
-    setHookSetupStage("success");
-    hookSetupTimers.current = [
-      window.setTimeout(() => setHookSetupStage("hiding"), 4200),
-      window.setTimeout(() => {
-        setHookSetupStage("idle");
-        hookSetupTimers.current = [];
-      }, 5000)
-    ];
+  // Refresh whenever the Overview becomes active, so an externally changed config
+  // (removed forwarder, edited settings) cannot leave a stale state indefinitely.
+  // The default recheck also clears any lingering action message from a prior visit.
+  useEffect(() => {
+    if (activeSection !== "general") return undefined;
+    recheckOverviewHooks();
+    return undefined;
+  }, [activeSection]);
+
+  // A completed hook action (install/repair/remove) yields fresh HOOK status and a
+  // structured outcome, but says nothing about the live connection/listener. So we
+  // store the structured outcome (rendered reactively), apply the fresh hook status
+  // via a functional update (preserving the latest parent state on a thrown, null
+  // status), and then kick off an authoritative FULL-CHAIN recheck. That recheck
+  // re-fetches BOTH hook and connection status and sets the error from the combined
+  // result — so a hook action can never clear the error or leave a stale connection
+  // "Ready" without a newer full-chain refresh confirming it.
+  function handleOverviewHookOperation(outcome: HookOperationOutcome) {
+    setOverviewActionOutcome(outcome);
+    setOverviewHookStatus(previous => outcome.status ?? previous);
+    void recheckOverviewHooks({ preserveActionOutcome: true });
   }
 
   useEffect(() => {
@@ -1163,12 +1175,12 @@ function SettingsApp() {
             updateSettings={updateSettings}
             connection={connection}
             now={now}
-            shouldRenderHookSetup={shouldRenderHookSetup}
-            hookSetupShowingSuccess={hookSetupShowingSuccess}
-            hookSetupStage={hookSetupStage}
-            hookSetupNeedsAttention={hookSetupNeedsAttention}
-            onHookStatusChange={handleOverviewHookStatusChange}
-            onHookInstallSuccess={handleOverviewHookInstallSuccess}
+            hookStatus={overviewHookStatus}
+            checkError={overviewHookError}
+            checking={overviewHookChecking}
+            actionOutcome={overviewActionOutcome}
+            onRecheck={() => void recheckOverviewHooks()}
+            onOperationComplete={handleOverviewHookOperation}
           />
         )}
 
@@ -1183,7 +1195,6 @@ function SettingsApp() {
               sectionContentRef={sectionContentRef}
               locale={locale}
               setLocale={setLocale}
-              now={now}
               appVersion={appVersion}
               updateStatus={updateStatus}
               checkingUpdate={checkingUpdate}
@@ -1259,10 +1270,6 @@ function Panel({ id, title, icon, wide, children }: { id?: string; title: string
   return <section id={id} className={`panel ${wide ? "wide" : ""}`}><header>{icon}<h2>{title}</h2></header>{children}</section>;
 }
 
-function ConnectionPill({ connected, label }: { connected: boolean; label?: string }) {
-  const { t } = useI18n();
-  return <span className={`connection-pill ${connected ? "connected" : "waiting"}`}><i />{connected ? t("status.connected", "已连接") : t("status.waiting", "等待连接")}{label ? <small>{label}</small> : null}</span>;
-}
 
 function Step({ number, title, text }: { number: string; title: string; text: string }) {
   return <article className="step"><b>{number}</b><div><strong>{title}</strong><p>{text}</p></div></article>;
