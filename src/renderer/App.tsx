@@ -29,6 +29,7 @@ type PetDisplaySettings = {
   sound?: { volume?: number } | null;
   hideSensitiveContent?: boolean;
   language?: "auto" | "zh" | "en";
+  stateAnimations?: Record<string, string> | null;
 };
 
 type PetCompanionApi = {
@@ -57,6 +58,7 @@ export default function App() {
     permissionScale: 1
   });
   const [hideSensitiveContent, setHideSensitiveContent] = useState(false);
+  const [stateAnimations, setStateAnimations] = useState<Record<string, string>>({});
   const [displayLanguage, setDisplayLanguage] = useState<"zh" | "en">(() => navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en");
   const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
   const resetTimer = useRef<number | null>(null);
@@ -123,6 +125,8 @@ export default function App() {
       const volume = settings.sound?.volume;
       soundVolumeRef.current = typeof volume === "number" ? Math.max(0, Math.min(1, volume)) : 0.6;
       setHideSensitiveContent(settings.hideSensitiveContent === true);
+      const mappings = settings.stateAnimations;
+      setStateAnimations(mappings && typeof mappings === "object" && !Array.isArray(mappings) ? mappings : {});
       setDisplayLanguage(settings.language === "zh" || (settings.language === "auto" && navigator.language.toLowerCase().startsWith("zh")) ? "zh" : "en");
     };
     const initialSettings = companion?.getSettings?.();
@@ -220,7 +224,7 @@ export default function App() {
       ) : (
         <Panel state={state} event={displayEvent} scale={petDisplay.feedbackScale} opacity={petDisplay.feedbackOpacity} />
       )}
-      <Pet state={petState} previewAnimation={previewAnimation} scale={petDisplay.scale} opacity={petDisplay.opacity} />
+      <Pet state={petState} stateAnimations={stateAnimations} previewAnimation={previewAnimation} scale={petDisplay.scale} opacity={petDisplay.opacity} />
       {showDebugPanel && (
         <div className="debug-panel">
           <button onClick={() => applyDebugEvent(createPetEvent("idle", { title: "Idle" }))}>Idle</button>
