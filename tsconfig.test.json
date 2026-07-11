@@ -1,0 +1,7 @@
+{
+  // Typechecks the vitest suites (node and jsdom harnesses alike). Extends the
+  // root renderer config so tests are held to the same strict settings as the
+  // production program; imported src files enter the program transitively.
+  "extends": "./tsconfig.json",
+  "include": ["test/**/*.test.ts", "test/**/*.test.tsx"]
+}

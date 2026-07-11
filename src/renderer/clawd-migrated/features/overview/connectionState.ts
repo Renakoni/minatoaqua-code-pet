@@ -28,7 +28,12 @@ export type ConnectionErrorReason = "check-failed" | "settings-unreadable";
 
 // The derivation intentionally needs only a subset of the shared HookStatus; a
 // Pick keeps it tied to the single source of truth so it cannot silently drift.
-export type HookStatusInput = Pick<HookStatus, "hookCount" | "requiredCount" | "missingEvents" | "commandMatches" | "configReadError" | "forwarder">;
+// `forwarder` is optional HERE ONLY: the derivation defensively treats a
+// missing forwarder payload as unknown (never healthy — see forwarderKnown
+// below), while the shared IPC contract keeps the field required for producers.
+export type HookStatusInput =
+  Pick<HookStatus, "hookCount" | "requiredCount" | "missingEvents" | "commandMatches" | "configReadError">
+  & Partial<Pick<HookStatus, "forwarder">>;
 
 export interface ConnectionInput {
   serverListening?: boolean;
