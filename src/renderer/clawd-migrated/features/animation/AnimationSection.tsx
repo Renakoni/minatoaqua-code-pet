@@ -5,7 +5,7 @@ import type { CompanionSettings, IdleAnimConfig } from "../../../shared/events";
 import { defaultSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import { petAnimationAssets } from "../../utils/petAnimationAssets";
-import { normalizeAnimationKey, normalizeAnimationKeys, petAnimationOptions, type PetAnimationKey } from "../../utils/petAnimations";
+import { normalizeAnimationKey, normalizeAnimationKeys, petAnimationOptions, toggleIdlePoolSprite, type PetAnimationKey } from "../../utils/petAnimations";
 
 const stateAnimEntries: Array<{ key: string; labelKey: string; fallback: string; meta: string; defaultAnimation: PetAnimationKey }> = [
   { key: "running", labelKey: "animation.state.running", fallback: "正在运行", meta: "读取、编辑、执行、搜索、技能、子代理、错误", defaultAnimation: "running" },
@@ -52,13 +52,13 @@ function AnimationPanel({ icon, title, meta, children }: { icon?: React.ReactNod
 
 function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChange: (cfg: IdleAnimConfig) => void }) {
   const { t } = useI18n();
-  const selectedSprites = normalizeAnimationKeys(config.selectedSprites, petAnimationOptions.map(option => option.key));
+  // Honest count: a persisted empty pool displays as 0 selected instead of
+  // falling back to "everything selected".
+  const selectedSprites = normalizeAnimationKeys(config.selectedSprites);
 
   function toggleSprite(key: PetAnimationKey) {
-    const next = selectedSprites.includes(key)
-      ? selectedSprites.filter(sprite => sprite !== key)
-      : [...selectedSprites, key];
-    onChange({ ...config, selectedSprites: next });
+    const next = toggleIdlePoolSprite(selectedSprites, key);
+    if (next !== selectedSprites) onChange({ ...config, selectedSprites: next });
   }
 
   return (

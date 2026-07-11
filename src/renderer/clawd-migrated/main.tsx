@@ -275,13 +275,14 @@ function PetApp() {
   // 随机动画定时器（仅管理随机模式的定时播放）
   useEffect(() => {
     const cfg = settings.idleAnim;
-    if (!cfg?.enabled || petState !== "idle" || editMode || mainIdle !== "random") {
+    // 空动画池与关闭随机动画同义：清理气泡与定时器，不再调度（与桌宠行为一致）。
+    const pool = cfg ? normalizeAnimationKeys(cfg.selectedSprites) : [];
+    if (!cfg?.enabled || pool.length === 0 || petState !== "idle" || editMode || mainIdle !== "random") {
       setRandomBubble(null);
       idleTimers.current.forEach(clearTimeout);
       idleTimers.current = [];
       return;
     }
-    const pool = normalizeAnimationKeys(cfg.selectedSprites);
     function playBatch() {
       const sprite = pool[Math.floor(Math.random() * pool.length)];
       const range = cfg!.repeatMax - cfg!.repeatMin;
@@ -845,12 +846,13 @@ function CompanionClawd({ session, index, settings, exiting, mainClawdOffset }: 
   const randomTimerRef = useRef<number>(0);
 
   useEffect(() => {
-    if (configuredIdleAnim !== "random" || !isIdleInSession) {
+    // 空动画池与非随机模式走同一条清理路径（与桌宠行为一致）。
+    const pool = normalizeAnimationKeys(settings.idleAnim?.selectedSprites);
+    if (configuredIdleAnim !== "random" || !isIdleInSession || pool.length === 0) {
       setRandomSprite(null);
       clearTimeout(randomTimerRef.current);
       return;
     }
-    const pool = normalizeAnimationKeys(settings.idleAnim?.selectedSprites);
     let cancelled = false;
     function next() {
       if (cancelled) return;

@@ -27,13 +27,14 @@ const animationImages: Record<PetAnimationKey, string> = {
 interface PetProps {
   state: PetState;
   stateAnimations?: Record<string, string>;
+  idleAnimation?: PetAnimationKey | null;
   previewAnimation?: { key: string; nonce: number } | null;
   scale?: number;
   opacity?: number;
 }
 
-export function Pet({ state, stateAnimations, previewAnimation, scale = 1, opacity = 1 }: PetProps) {
-  const { animationKey, imageKey } = resolvePetAnimation(state, stateAnimations, previewAnimation);
+export function Pet({ state, stateAnimations, idleAnimation, previewAnimation, scale = 1, opacity = 1 }: PetProps) {
+  const { animationKey, imageKey } = resolvePetAnimation(state, stateAnimations, previewAnimation, idleAnimation);
 
   return (
     <div className={`pet pet-${state}`} style={{ transform: `scale(${scale})`, opacity }}>
