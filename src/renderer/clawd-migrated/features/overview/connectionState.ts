@@ -152,8 +152,19 @@ export function deriveConnectionState(
 // Settings → General after an external change re-verifies the chain, and
 // entering a Settings subsection without the card fires no invisible
 // diagnostics request.
+//
+// The key is a stable IDENTITY rather than a boolean: moving between the two
+// visible surfaces (Overview → Settings/General) changes the key and re-fires
+// an effect keyed on it, where a boolean would stay `true` and swallow that
+// recheck. Null means no connection surface is showing.
+export function connectionSurfaceKey(activeSection: string, settingsSubsection: string): string | null {
+  if (activeSection === "general") return "overview";
+  if (activeSection === "settings" && settingsSubsection === "general") return "settings-general";
+  return null;
+}
+
 export function isConnectionSurfaceVisible(activeSection: string, settingsSubsection: string): boolean {
-  return activeSection === "general" || (activeSection === "settings" && settingsSubsection === "general");
+  return connectionSurfaceKey(activeSection, settingsSubsection) !== null;
 }
 
 export interface RecheckOutcome<Status, Connection> {
