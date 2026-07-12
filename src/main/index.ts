@@ -8,7 +8,9 @@ import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
-import { getPetWindowHeight, getPetWindowWidth, normalizePetDisplaySettings } from "../shared/petDisplaySettings";
+import { PET_IMAGE_SIZE, getPetWindowHeight, getPetWindowWidth, normalizePetDisplaySettings } from "../shared/petDisplaySettings";
+import { packIdFromThemeId } from "../shared/petThemeCatalog";
+import { displayedSpriteHeight } from "../shared/spriteFrame";
 import { createDefaultCompanionSettings, pickCanonicalSettings } from "./companionSettingsSchema";
 import { redactDisplayEvent } from "../shared/privacy";
 import { canonicalizeEventEntries, evaluateHookConfig, isClawdHookCommand } from "./hookConfig";
@@ -113,9 +115,19 @@ if (!singleInstanceLock) {
   });
 }
 
+// Displayed image height of the active theme: pack cells keep the pet's
+// width but may be taller than the built-in 192px square.
+function activePetImageHeight(): number {
+  const packId = packIdFromThemeId(companionSettings.petTheme);
+  if (!packId) return PET_IMAGE_SIZE;
+  const pack = listPetPacks(petPacksDir()).find(candidate => candidate.id === packId);
+  if (!pack) return PET_IMAGE_SIZE;
+  return displayedSpriteHeight(pack.sheet.cellWidth, pack.sheet.cellHeight, PET_IMAGE_SIZE);
+}
+
 function getPetWindowBounds() {
   const width = getPetWindowWidth(companionSettings.feedbackScale, companionSettings.permissionScale);
-  const height = getPetWindowHeight(companionSettings.petScale, false, companionSettings.feedbackScale);
+  const height = getPetWindowHeight(companionSettings.petScale, false, companionSettings.feedbackScale, activePetImageHeight());
   const cursorPoint = screen.getCursorScreenPoint();
   const workArea = screen.getDisplayNearestPoint(cursorPoint).workArea;
 
@@ -142,7 +154,7 @@ function setPetWindowExpanded(expanded: boolean, force = false) {
   const centerX = bounds.x + bounds.width / 2;
   const width = getPetWindowWidth(companionSettings.feedbackScale, companionSettings.permissionScale);
   const activeBubbleScale = expanded ? companionSettings.permissionScale : companionSettings.feedbackScale;
-  const height = getPetWindowHeight(companionSettings.petScale, expanded, activeBubbleScale);
+  const height = getPetWindowHeight(companionSettings.petScale, expanded, activeBubbleScale, activePetImageHeight());
   const workArea = screen.getDisplayNearestPoint({ x: bounds.x, y: bottom }).workArea;
   const y = Math.max(workArea.y, bottom - height);
   // Keep the character put: pin the bottom edge and the horizontal centre while

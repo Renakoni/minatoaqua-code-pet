@@ -104,3 +104,19 @@ describe("bubble scale window sizing", () => {
     expect(getPetWindowHeight(1.35, false, 1.35)).toBe(413); // pet + bubble growth stack
   });
 });
+
+describe("theme-derived pet image height", () => {
+  it("keeps the bubble above a taller spritesheet pet", () => {
+    // Codex-pet cells display at 192x208; the built-in image is 192x192.
+    expect(getPetBubbleBottom(1, 208)).toBe(220);
+    expect(getPetBubbleBottom(0.7, 208)).toBe(158);
+    expect(getPetBubbleBottom(1)).toBe(204); // default stays the built-in height
+  });
+
+  it("grows the window for the extra sprite height on top of scale and bubble growth", () => {
+    expect(getPetWindowHeight(1, false, 1, 208)).toBe(316); // 300 + (208 - 192)
+    expect(getPetWindowHeight(1.35, false, 1, 208)).toBe(389); // 300 + 1.35*208 - 192
+    expect(getPetWindowHeight(1, true, 1.25, 208)).toBe(551); // 470 + 16 + 260*0.25
+    expect(getPetWindowHeight(1, false, 1, 192)).toBe(300); // explicit built-in height is the old math
+  });
+});

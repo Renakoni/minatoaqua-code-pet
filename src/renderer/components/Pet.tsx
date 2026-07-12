@@ -1,4 +1,9 @@
 import { PetState } from "../../shared/events";
+import { PET_IMAGE_SIZE } from "../../shared/petDisplaySettings";
+import { displayedSpriteHeight } from "../../shared/spriteFrame";
+import type { SpritesheetAssets } from "../../shared/petPackAssets";
+import { MINATO_AQUA_CATALOG, type PetThemeCatalog } from "../../shared/petThemeCatalog";
+import { SpritesheetSprite } from "./SpritesheetSprite";
 import completedImage from "../assets/pet/completed.webp";
 import extraAction5Image from "../assets/pet/extra-action-5.webp";
 import extraAction7Image from "../assets/pet/extra-action-7.webp";
@@ -35,10 +40,37 @@ interface PetProps {
   previewAnimation?: { key: string; nonce: number } | null;
   scale?: number;
   opacity?: number;
+  catalog?: PetThemeCatalog;
+  /** Active theme's spritesheet; null/undefined renders the built-in clips. */
+  spritesheet?: SpritesheetAssets | null;
 }
 
-export function Pet({ state, stateAnimations, idleAnimation, previewAnimation, scale = 1, opacity = 1 }: PetProps) {
-  const { animationKey, imageKey } = resolvePetAnimation(state, stateAnimations, previewAnimation, idleAnimation);
+export function Pet({ state, stateAnimations, idleAnimation, previewAnimation, scale = 1, opacity = 1, catalog = MINATO_AQUA_CATALOG, spritesheet = null }: PetProps) {
+  const { animationKey, imageKey } = resolvePetAnimation(state, stateAnimations, previewAnimation, idleAnimation, catalog);
+
+  const spriteAnimation = spritesheet?.animations[animationKey];
+  if (spritesheet && spriteAnimation) {
+    // Pack cells keep the pet's display width; height follows the cell's
+    // aspect ratio (codex-pet cells are taller than square).
+    const height = displayedSpriteHeight(spritesheet.cellWidth, spritesheet.cellHeight, PET_IMAGE_SIZE);
+    return (
+      <div className={`pet pet-${state}`} style={{ transform: `scale(${scale})`, opacity, height }}>
+        <SpritesheetSprite
+          key={imageKey}
+          sheetUrl={spritesheet.sheetUrl}
+          columns={spritesheet.columns}
+          rows={spritesheet.rows}
+          row={spriteAnimation.row}
+          frameCount={spriteAnimation.frameCount}
+          frameDurationMs={spriteAnimation.frameDurationMs}
+          width={PET_IMAGE_SIZE}
+          height={height}
+          alt={animationKey}
+          errorFallbackUrl={idleImage}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={`pet pet-${state}`} style={{ transform: `scale(${scale})`, opacity }}>
