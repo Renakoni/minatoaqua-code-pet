@@ -156,11 +156,7 @@
     "loadMore": "Load more"
   },
   "timeline": {
-    "title": "Session Timeline",
-    "empty": "No session data",
-    "session": "Session",
     "duration": "Duration",
-    "events": "Events",
     "tools": "Tool calls",
     "startTime": "Start time",
     "endTime": "End time",
@@ -175,18 +171,11 @@
     "hint": "Auto-launch when Claude Code starts"
   },
   "stats": {
-    "totalSessions": "Total sessions",
-    "totalToolCalls": "Total tool calls",
     "errors": "Errors",
     "totalRuntime": "Total runtime",
     "activeDays": "Active days",
     "dailyAvg": "Daily avg",
-    "todayOverview": "Today overview",
-    "todayEvents": "Events",
-    "todayToolCalls": "Tool calls",
-    "todaySessions": "Sessions",
     "toolRanking": "Tool usage ranking",
-    "sessionStats": "Session stats",
     "permissionRequests": "Permission requests",
     "approved": "Approved",
     "denied": "Denied",
