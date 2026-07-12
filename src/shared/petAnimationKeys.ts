@@ -2,6 +2,11 @@
 // truth for what may be persisted in settings (action mappings and the idle
 // pool). Legacy or alternative names are intentionally NOT supported: an
 // unknown value is invalid and callers fall back, never translated.
+//
+// This is the closed superset across all theme sources; no single theme
+// provides every key. Which keys are actually available comes from the active
+// theme's catalog (shared/petThemeCatalog.ts). The last six entries carry the
+// codex-pet spritesheet vocabulary, translated once at the import boundary.
 export const PET_ANIMATION_KEYS = [
   "idle",
   "running",
@@ -12,7 +17,13 @@ export const PET_ANIMATION_KEYS = [
   "extra_action_8",
   "extra_action_9",
   "extra_action_aqua_bocchi",
-  "extra_action_aqua_pixel"
+  "extra_action_aqua_pixel",
+  "running_right",
+  "running_left",
+  "waving",
+  "jumping",
+  "failed",
+  "review"
 ] as const;
 
 export type PetAnimationKey = (typeof PET_ANIMATION_KEYS)[number];

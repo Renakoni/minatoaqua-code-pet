@@ -1,10 +1,16 @@
 import type { PetState } from "../../shared/events";
-import { isPetAnimationKey, PET_ANIMATION_KEYS, type PetAnimationKey } from "../../../shared/petAnimationKeys";
+import { isPetAnimationKey, type PetAnimationKey } from "../../../shared/petAnimationKeys";
+import {
+  MINATO_AQUA_CATALOG,
+  normalizeCatalogAnimationKeys,
+  type PetThemeCatalog
+} from "../../../shared/petThemeCatalog";
 
 export type { PetAnimationKey } from "../../../shared/petAnimationKeys";
 
-// Labels are keyed by the shared canonical set, so adding a key there forces a
-// label here and the options list can never drift from the source of truth.
+// Labels are keyed by the shared canonical superset, so adding a key there
+// forces a label here and no theme's picker can ever miss one. Which subset a
+// picker actually shows comes from the active theme's catalog.
 const animationLabels: Record<PetAnimationKey, { labelKey: string; fallback: string }> = {
   idle: { labelKey: "animation.sprite.idle", fallback: "待机" },
   running: { labelKey: "animation.sprite.running", fallback: "运行中" },
@@ -15,23 +21,43 @@ const animationLabels: Record<PetAnimationKey, { labelKey: string; fallback: str
   extra_action_8: { labelKey: "animation.sprite.extra8", fallback: "附加动作 8" },
   extra_action_9: { labelKey: "animation.sprite.extra9", fallback: "附加动作 9" },
   extra_action_aqua_bocchi: { labelKey: "animation.sprite.aquaBocchi", fallback: "Aqua 趴姿" },
-  extra_action_aqua_pixel: { labelKey: "animation.sprite.aquaPixel", fallback: "Aqua 像素" }
+  extra_action_aqua_pixel: { labelKey: "animation.sprite.aquaPixel", fallback: "Aqua 像素" },
+  running_right: { labelKey: "animation.sprite.runningRight", fallback: "向右跑" },
+  running_left: { labelKey: "animation.sprite.runningLeft", fallback: "向左跑" },
+  waving: { labelKey: "animation.sprite.waving", fallback: "挥手" },
+  jumping: { labelKey: "animation.sprite.jumping", fallback: "跳跃" },
+  failed: { labelKey: "animation.sprite.failed", fallback: "沮丧" },
+  review: { labelKey: "animation.sprite.review", fallback: "审阅" }
 };
 
-export const petAnimationOptions: Array<{ key: PetAnimationKey; labelKey: string; fallback: string }> =
-  PET_ANIMATION_KEYS.map(key => ({ key, ...animationLabels[key] }));
+export interface PetAnimationOption {
+  key: PetAnimationKey;
+  labelKey: string;
+  fallback: string;
+}
 
-// Validation only: a canonical key passes through unchanged; anything else —
-// including historical alias names — is invalid and yields the fallback.
+/** Picker options for one theme, in the catalog's display order. */
+export function petAnimationOptionsForCatalog(catalog: PetThemeCatalog): PetAnimationOption[] {
+  return catalog.keys.map(key => ({ key, ...animationLabels[key] }));
+}
+
+// The panel currently always shows the built-in theme's options; the active
+// catalog gets threaded through with the theme picker UI.
+export const petAnimationOptions: PetAnimationOption[] = petAnimationOptionsForCatalog(MINATO_AQUA_CATALOG);
+
+// Validation only, against the canonical superset: a canonical key passes
+// through unchanged; anything else — including historical alias names — is
+// invalid and yields the fallback. (Pool and mapping values go through the
+// catalog-scoped helpers instead.)
 export function normalizeAnimationKey(value: string | null | undefined, fallback: PetAnimationKey = "running"): PetAnimationKey {
   return isPetAnimationKey(value) ? value : fallback;
 }
 
-export function normalizeAnimationKeys(values: string[] | undefined): PetAnimationKey[] {
+export function normalizeAnimationKeys(values: string[] | undefined, catalog: PetThemeCatalog = MINATO_AQUA_CATALOG): PetAnimationKey[] {
   // Validation only: invalid entries are dropped, never translated, and an
   // empty result stays empty. An empty pool means rotation cannot run — the
   // same rule for the settings UI, the panel preview, and the live pet.
-  return [...new Set((values ?? []).filter(isPetAnimationKey))];
+  return normalizeCatalogAnimationKeys(catalog, values);
 }
 
 // Toggle a sprite in the idle pool. The pool never drops below one sprite:
