@@ -44,3 +44,29 @@ export interface PetPackRemoveResult {
   ok: boolean;
   error?: string;
 }
+
+/** Public gallery the one-click installer resolves against. */
+export const CODEX_PET_GALLERY_URL = "https://codex-pet.org";
+
+export type PetPackDownloadCode =
+  | "invalid-slug"
+  | "not-found"
+  | "network"
+  | "too-large"
+  | "invalid-package"
+  /** Browser/compat mode: downloads need the desktop app. */
+  | "unavailable";
+
+/**
+ * Result of resolving a gallery slug into a local .codex-pet.zip. Success
+ * only means the zip exists on disk — installation still runs through the
+ * same inspect/scan/digest pipeline as a hand-picked file.
+ */
+export type PetPackDownloadResult =
+  | { ok: true; zipPath: string; slug: string; displayName: string; creator: string; galleryUrl: string }
+  | { ok: false; code: PetPackDownloadCode; detail?: string };
+
+export interface PetPackDownloadProgress {
+  receivedBytes: number;
+  totalBytes: number | null;
+}

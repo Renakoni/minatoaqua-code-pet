@@ -35,6 +35,7 @@ import {
 } from "./ccSwitchStore";
 import { PermissionBroker, type PendingPermission, type PermissionPollResult } from "./permissionBroker";
 import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
+import { downloadPetPack } from "./petPackDownload";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2389,6 +2390,10 @@ function petPacksDir() {
   return join(app.getPath("userData"), "pets");
 }
 
+function petDownloadsDir() {
+  return join(app.getPath("userData"), "pet-downloads");
+}
+
 function loadCompanionSettings() {
   try {
     if (existsSync(settingsPath())) {
@@ -3133,6 +3138,14 @@ app.whenReady().then(() => {
     if (result.ok) broadcastPetPacksChanged();
     return result;
   });
+  ipcMain.handle("companion:pet-pack-download", (event, petSlug: string) =>
+    downloadPetPack(String(petSlug ?? ""), petDownloadsDir(), {
+      onProgress: (receivedBytes, totalBytes) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send("companion:pet-pack-download-progress", { receivedBytes, totalBytes });
+        }
+      }
+    }));
   ipcMain.handle("companion:get-monitors", () => screen.getAllDisplays().map(display => ({ id: String(display.id), label: display.label || `Display ${display.id}`, bounds: display.bounds, workArea: display.workArea, scaleFactor: display.scaleFactor })));
   ipcMain.handle("companion:get-plugins", () => companionSettings.customPlugins);
   ipcMain.handle("companion:get-claude-resources", (_, force?: boolean) => getClaudeResourcesSnapshot(Boolean(force)));

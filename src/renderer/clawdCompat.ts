@@ -1,7 +1,7 @@
 import { isSessionStartEvent, type PetEvent } from "../shared/events";
 import type { HookStatus, HookOperationResult } from "../shared/hooks";
 import type { PetPackManifest } from "../shared/petPack";
-import type { PetPackInspectResult, PetPackInstallResult, PetPackRemoveResult } from "../shared/petPackTransport";
+import type { PetPackDownloadProgress, PetPackDownloadResult, PetPackInspectResult, PetPackInstallResult, PetPackRemoveResult } from "../shared/petPackTransport";
 import {
   defaultSettings,
   defaultStats,
@@ -112,6 +112,8 @@ type CompanionApi = {
   onPetPacksChanged: (callback: Listener<unknown>) => Unsubscribe;
   /** Absolute path of a dropped File (Electron webUtils); "" in the browser. */
   getPetPackFilePath: (file: File) => string;
+  downloadPetPack: (petSlug: string) => Promise<PetPackDownloadResult>;
+  onPetPackDownloadProgress: (callback: Listener<PetPackDownloadProgress>) => Unsubscribe;
 };
 
 declare global {
@@ -512,6 +514,8 @@ export function installClawdCompat() {
     listPetPacks: async () => [],
     removePetPack: async () => ({ ok: false, error: "Pet import is only available in the desktop app." }),
     onPetPacksChanged: () => () => undefined,
-    getPetPackFilePath: () => ""
+    getPetPackFilePath: () => "",
+    downloadPetPack: async () => ({ ok: false, code: "unavailable" }),
+    onPetPackDownloadProgress: () => () => undefined
   };
 }

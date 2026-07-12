@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Download, ExternalLink, Plus, Trash2 } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { SpritesheetSprite } from "../../../components/SpritesheetSprite";
 import minatoAquaCover from "../../../assets/themes/minato-aqua-cover.png";
 import type { PetPackManifest } from "../../../../shared/petPack";
 import { spritesheetAssetsFromPack } from "../../../../shared/petPackAssets";
+import { CODEX_PET_GALLERY_URL, type PetPackDownloadCode } from "../../../../shared/petPackTransport";
 import { BUILTIN_PET_THEME_ID, packIdFromThemeId } from "../../../../shared/petThemeCatalog";
 import { displayedSpriteHeight } from "../../../../shared/spriteFrame";
 import { listPetThemes, type PetThemeDefinition } from "../../utils/petThemes";
@@ -38,6 +39,55 @@ export function PetThemeGrid({ activeThemeId, petPacks, onSelectTheme, refreshPe
   // (filesystem errors, cleanup warnings) are technical detail only.
   const [notice, setNotice] = useState<{ headline: string; detail?: string } | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
+  // One-click gallery install: slug input, single in-flight download, and
+  // the attribution the dialog shows for a downloaded package.
+  const [downloadSlug, setDownloadSlug] = useState("");
+  const [downloading, setDownloading] = useState(false);
+  const [downloadPercent, setDownloadPercent] = useState<number | null>(null);
+  const [downloadedAttribution, setDownloadedAttribution] = useState<{ galleryUrl: string; creator: string } | null>(null);
+
+  useEffect(() => {
+    return window.companion.onPetPackDownloadProgress?.(payload => {
+      const { receivedBytes, totalBytes } = payload;
+      setDownloadPercent(totalBytes ? Math.min(100, Math.round((receivedBytes / totalBytes) * 100)) : null);
+    });
+  }, []);
+
+  function downloadFailureHeadline(code: PetPackDownloadCode): string {
+    if (code === "invalid-slug") return t("petImport.errInvalidSlug", "请输入宠物 ID，例如 happy-dog");
+    if (code === "not-found") return t("petImport.errNotFound", "图库中没有这个宠物");
+    if (code === "too-large") return t("petImport.errTooLarge", "宠物包过大");
+    if (code === "invalid-package") return t("petImport.errInvalidPackage", "图库条目不是有效的宠物包");
+    if (code === "unavailable") return t("petImport.errUnavailable", "仅桌面应用支持下载");
+    return t("petImport.errNetwork", "下载失败，请检查网络");
+  }
+
+  async function beginInstallBySlug() {
+    const slug = downloadSlug.trim();
+    if (!slug || downloading) return;
+    setDownloading(true);
+    setDownloadPercent(null);
+    setNotice(null);
+    setStatusMessage(t("petImport.downloading", "下载中…"));
+    try {
+      const result = await window.companion.downloadPetPack(slug);
+      if (result.ok) {
+        setDownloadedAttribution({ galleryUrl: result.galleryUrl, creator: result.creator });
+        setImportZipPath(result.zipPath);
+        setDownloadSlug("");
+        setStatusMessage("");
+      } else {
+        setNotice({ headline: downloadFailureHeadline(result.code), detail: result.detail });
+        setStatusMessage(downloadFailureHeadline(result.code));
+      }
+    } catch {
+      setNotice({ headline: t("petImport.ipcFailed", "导入服务不可用，请重试") });
+      setStatusMessage(t("petImport.ipcFailed", "导入服务不可用，请重试"));
+    } finally {
+      setDownloading(false);
+      setDownloadPercent(null);
+    }
+  }
 
   // A stale first click must never turn a later stray click into a deletion.
   useEffect(() => {
@@ -86,7 +136,10 @@ export function PetThemeGrid({ activeThemeId, petPacks, onSelectTheme, refreshPe
   async function beginImportFromPicker() {
     try {
       const zipPath = await window.companion.pickPetPackFile();
-      if (zipPath) setImportZipPath(zipPath);
+      if (zipPath) {
+        setDownloadedAttribution(null);
+        setImportZipPath(zipPath);
+      }
     } catch {
       setNotice({ headline: t("petImport.ipcFailed", "导入服务不可用，请重试") });
       setStatusMessage(t("petImport.ipcFailed", "导入服务不可用，请重试"));
@@ -98,11 +151,15 @@ export function PetThemeGrid({ activeThemeId, petPacks, onSelectTheme, refreshPe
     const file = event.dataTransfer?.files?.[0];
     if (!file) return;
     const zipPath = window.companion.getPetPackFilePath(file);
-    if (zipPath) setImportZipPath(zipPath);
+    if (zipPath) {
+      setDownloadedAttribution(null);
+      setImportZipPath(zipPath);
+    }
   }
 
   function handleImported(themeId: string, warning?: string) {
     setImportZipPath(null);
+    setDownloadedAttribution(null);
     setNotice(warning ? { headline: t("petImport.installedWithWarning", "已安装，但有警告"), detail: warning } : null);
     setStatusMessage(warning ? t("petImport.installedWithWarning", "已安装，但有警告") : t("petImport.installedStatus", "已安装"));
     refreshPetPacks();
@@ -156,6 +213,38 @@ export function PetThemeGrid({ activeThemeId, petPacks, onSelectTheme, refreshPe
           </span>
         </button>
       </div>
+      <div className="pet-install-by-id">
+        <input
+          type="text"
+          value={downloadSlug}
+          onChange={event => setDownloadSlug(event.target.value)}
+          onKeyDown={event => { if (event.key === "Enter") void beginInstallBySlug(); }}
+          placeholder={t("petImport.idPlaceholder", "例如 happy-dog")}
+          aria-label={t("petImport.installById", "按 ID 安装")}
+          disabled={downloading}
+        />
+        <button
+          type="button"
+          className="pet-install-by-id-get"
+          onClick={() => void beginInstallBySlug()}
+          disabled={downloading || !downloadSlug.trim()}
+        >
+          <Download size={13} />
+          {downloading
+            ? downloadPercent !== null
+              ? `${t("petImport.downloading", "下载中…")} ${downloadPercent}%`
+              : t("petImport.downloading", "下载中…")
+            : t("petImport.download", "获取")}
+        </button>
+        <button
+          type="button"
+          className="pet-install-by-id-gallery"
+          onClick={() => void window.companion.openExternal(CODEX_PET_GALLERY_URL)}
+        >
+          <ExternalLink size={13} />
+          {t("petImport.openGallery", "打开宠物图库")}
+        </button>
+      </div>
       <p className="pet-theme-status" role="status" aria-live="polite">{statusMessage}</p>
       {notice ? (
         <p className="pet-theme-notice">
@@ -164,7 +253,13 @@ export function PetThemeGrid({ activeThemeId, petPacks, onSelectTheme, refreshPe
         </p>
       ) : null}
       {importZipPath ? (
-        <PetImportDialog zipPath={importZipPath} onClose={() => setImportZipPath(null)} onInstalled={handleImported} />
+        <PetImportDialog
+          zipPath={importZipPath}
+          galleryUrl={downloadedAttribution?.galleryUrl}
+          creator={downloadedAttribution?.creator}
+          onClose={() => { setImportZipPath(null); setDownloadedAttribution(null); }}
+          onInstalled={handleImported}
+        />
       ) : null}
     </>
   );
