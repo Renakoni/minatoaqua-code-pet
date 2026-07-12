@@ -218,3 +218,14 @@
 .ccs-form-grid .wide { grid-column: 1 / -1; }
 @media (max-width: 920px) { .ccs-provider-content { align-items: flex-start; flex-direction: column; } .ccs-provider-actions { opacity: 1; pointer-events: auto; } }
 
+
+/* The routing toaster portals to <body> and its toasts can overlap the
+   frameless window's titlebar drag strip (and any future drag region):
+   Electron's drag hit-testing eats clicks before the DOM sees them, so the
+   toast surface — including sonner's close button, which overhangs the
+   toast's top-left corner — is carved out of the drag region explicitly. */
+[data-sonner-toaster],
+[data-sonner-toaster] [data-sonner-toast],
+[data-sonner-toaster] [data-close-button] {
+  -webkit-app-region: no-drag;
+}
