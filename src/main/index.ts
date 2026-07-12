@@ -36,6 +36,7 @@ import {
 import { PermissionBroker, type PendingPermission, type PermissionPollResult } from "./permissionBroker";
 import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
+import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 
 type DailyRuntimeStats = {
   events: number;
@@ -78,6 +79,7 @@ const eventPort = 17321;
 const appStartedAt = Date.now();
 const singleInstanceLock = app.requestSingleInstanceLock();
 let petWindow: BrowserWindow | null = null;
+let petDragWatcher: PetDragWatcher | null = null;
 let panelWindow: BrowserWindow | null = null;
 // The transparent pet window grows upward for larger pets and permission
 // cards while keeping the character anchored to the same desktop position.
@@ -162,6 +164,7 @@ function setPetWindowExpanded(expanded: boolean, force = false) {
   // Keep the character put: pin the bottom edge and the horizontal centre while
   // the window grows for a scaled bubble, clamped so it stays on-screen.
   const x = Math.max(workArea.x, Math.min(Math.round(centerX - width / 2), workArea.x + workArea.width - width));
+  petDragWatcher?.noteProgrammaticMove();
   petWindow.setBounds({ x, y, width, height });
   petExpanded = expanded;
 }
@@ -243,11 +246,33 @@ function createPetWindow() {
   applyPetAlwaysOnTopSetting();
   loadRenderer(petWindow);
 
+  // Native OS drag moves the window (-webkit-app-region: drag on the pet
+  // element); main only watches the move stream to derive the walk
+  // direction for the codex-pet locomotion rows.
+  petDragWatcher?.dispose();
+  const [initialX, initialY] = petWindow.getPosition();
+  petDragWatcher = createPetDragWatcher({
+    initial: { x: initialX, y: initialY },
+    onDirection: direction => {
+      if (petWindow && !petWindow.isDestroyed()) {
+        petWindow.webContents.send("companion:pet-drag-direction", direction);
+      }
+    }
+  });
+  petWindow.on("move", () => {
+    if (!petWindow || petWindow.isDestroyed()) return;
+    const [x, y] = petWindow.getPosition();
+    petDragWatcher?.onMove(x, y);
+  });
+  petWindow.on("moved", () => petDragWatcher?.onMoveEnd());
+
   petWindow.on("show", updateTrayMenu);
   petWindow.on("hide", updateTrayMenu);
   petWindow.on("minimize", updateTrayMenu);
   petWindow.on("restore", updateTrayMenu);
   petWindow.on("closed", () => {
+    petDragWatcher?.dispose();
+    petDragWatcher = null;
     petWindow = null;
     updateTrayMenu();
   });
@@ -343,6 +368,7 @@ function showPetWindow() {
   if (!petWindow) createPetWindow();
   if (!petWindow) return;
 
+  petDragWatcher?.noteProgrammaticMove();
   petWindow.setBounds(getPetWindowBounds());
   petExpanded = false;
   if (permissionBroker.size > 0) setPetWindowExpanded(true);
@@ -3037,33 +3063,16 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:close-settings", () => hidePanelWindow());
   ipcMain.handle("companion:set-pet-interactive", (_, interactive: boolean) => petWindow?.setIgnoreMouseEvents(!interactive, { forward: true }));
   ipcMain.handle("companion:update-permission-card-rect", () => undefined);
-  ipcMain.handle("companion:drag-pet-to", (_, position: { x: number; y: number }) => petWindow?.setPosition(position.x, position.y));
+  ipcMain.handle("companion:drag-pet-to", (_, position: { x: number; y: number }) => {
+    petDragWatcher?.noteProgrammaticMove();
+    petWindow?.setPosition(position.x, position.y);
+  });
   ipcMain.handle("companion:move-pet-by", (_, delta: { x: number; y: number }) => {
     if (!petWindow) return;
     const [x, y] = petWindow.getPosition();
+    petDragWatcher?.noteProgrammaticMove();
     petWindow.setPosition(x + delta.x, y + delta.y);
   });
-  // Pointer-captured pet drag. The renderer only pokes; the target position is
-  // anchored to the drag-start cursor and window bounds, both read here from
-  // the OS, so lost or delayed pokes can never make the pet drift. The bottom
-  // edge is the anchor because the character is bottom-pinned and the window
-  // height can change mid-drag (bubble expansion).
-  let petDragAnchor: { cursor: { x: number; y: number }; x: number; bottom: number } | null = null;
-  ipcMain.handle("companion:pet-drag-start", () => {
-    if (!petWindow) return;
-    const bounds = petWindow.getBounds();
-    petDragAnchor = { cursor: screen.getCursorScreenPoint(), x: bounds.x, bottom: bounds.y + bounds.height };
-  });
-  ipcMain.handle("companion:pet-drag-move", () => {
-    if (!petWindow || !petDragAnchor) return;
-    const cursor = screen.getCursorScreenPoint();
-    const height = petWindow.getBounds().height;
-    petWindow.setPosition(
-      Math.round(petDragAnchor.x + cursor.x - petDragAnchor.cursor.x),
-      Math.round(petDragAnchor.bottom + cursor.y - petDragAnchor.cursor.y - height)
-    );
-  });
-  ipcMain.handle("companion:pet-drag-end", () => { petDragAnchor = null; });
   ipcMain.handle("companion:respond-permission", (_, response: { id: string; decision?: string; reason?: string }) => {
     if (response.decision !== "allow" && response.decision !== "deny") return { ok: false };
     // The broker's onSettled records the stat, dismisses the card in both

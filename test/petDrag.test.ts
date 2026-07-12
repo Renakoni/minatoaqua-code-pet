@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DRAG_SAMPLE_THRESHOLD_PX, dragAnimationForDirection, nextDragDirection } from "../src/renderer/state/petDrag";
+import { DRAG_SAMPLE_THRESHOLD_PX, dragAnimationForDirection, nextDragDirection } from "../src/shared/petDrag";
 import { MINATO_AQUA_CATALOG, catalogFromPetPack } from "../src/shared/petThemeCatalog";
 import { makePackManifest } from "./helpers/packFixtures";
 

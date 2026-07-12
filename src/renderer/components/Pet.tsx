@@ -1,4 +1,3 @@
-import type { HTMLAttributes } from "react";
 import { PetState } from "../../shared/events";
 import { PET_IMAGE_SIZE } from "../../shared/petDisplaySettings";
 import { displayedSpriteHeight } from "../../shared/spriteFrame";
@@ -41,8 +40,6 @@ interface PetProps {
   previewAnimation?: { key: string; nonce: number } | null;
   /** Transient drag-direction locomotion; overrides every other resolution while set. */
   dragAnimation?: PetAnimationKey | null;
-  /** Pointer handlers for the drag interaction, spread onto the pet element. */
-  dragHandlers?: HTMLAttributes<HTMLDivElement>;
   scale?: number;
   opacity?: number;
   catalog?: PetThemeCatalog;
@@ -50,7 +47,7 @@ interface PetProps {
   spritesheet?: SpritesheetAssets | null;
 }
 
-export function Pet({ state, stateAnimations, idleAnimation, previewAnimation, dragAnimation = null, dragHandlers, scale = 1, opacity = 1, catalog = MINATO_AQUA_CATALOG, spritesheet = null }: PetProps) {
+export function Pet({ state, stateAnimations, idleAnimation, previewAnimation, dragAnimation = null, scale = 1, opacity = 1, catalog = MINATO_AQUA_CATALOG, spritesheet = null }: PetProps) {
   const resolved = resolvePetAnimation(state, stateAnimations, previewAnimation, idleAnimation, catalog);
   // The drag transient only applies when the active sheet actually has the
   // locomotion row — the built-in clip theme has none, so dragging it never
@@ -65,7 +62,7 @@ export function Pet({ state, stateAnimations, idleAnimation, previewAnimation, d
     // aspect ratio (codex-pet cells are taller than square).
     const height = displayedSpriteHeight(spritesheet.cellWidth, spritesheet.cellHeight, PET_IMAGE_SIZE);
     return (
-      <div className={`pet pet-${state}`} style={{ transform: `scale(${scale})`, opacity, height }} {...dragHandlers}>
+      <div className={`pet pet-${state}`} style={{ transform: `scale(${scale})`, opacity, height }}>
         <SpritesheetSprite
           key={imageKey}
           sheetUrl={spritesheet.sheetUrl}
@@ -84,7 +81,7 @@ export function Pet({ state, stateAnimations, idleAnimation, previewAnimation, d
   }
 
   return (
-    <div className={`pet pet-${state}`} style={{ transform: `scale(${scale})`, opacity }} {...dragHandlers}>
+    <div className={`pet pet-${state}`} style={{ transform: `scale(${scale})`, opacity }}>
       <img key={imageKey} src={animationImages[animationKey] ?? idleImage} alt={animationKey} draggable={false} />
     </div>
   );
