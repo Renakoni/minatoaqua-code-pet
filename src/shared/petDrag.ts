@@ -1,15 +1,18 @@
-import type { PetAnimationKey } from "../../shared/petAnimationKeys";
-import { isCatalogAnimationKey, type PetThemeCatalog } from "../../shared/petThemeCatalog";
+import type { PetAnimationKey } from "./petAnimationKeys";
+import { isCatalogAnimationKey, type PetThemeCatalog } from "./petThemeCatalog";
 
-// Drag-direction locomotion, mirroring the reference codex-pet player: while
-// the pet is dragged, each pointer sample whose screen delta reaches the
-// threshold on either axis is accepted; the horizontal delta then picks
-// running_right / running_left, and smaller horizontal motion holds the
-// previous direction. The transient clears when the drag ends. Themes
-// without locomotion rows (the built-in clips, sparse packs) keep their
-// state animation while dragged.
+// Drag-direction locomotion, mirroring the reference codex-pet player: each
+// movement sample whose delta reaches the threshold on either axis is
+// accepted; the horizontal delta then picks running_right / running_left,
+// and smaller horizontal motion holds the previous direction. The transient
+// clears when the drag ends. Themes without locomotion rows (the built-in
+// clips, sparse packs) keep their state animation while dragged.
+//
+// Shared because the two halves live in different processes: main derives
+// the direction from the pet window's move stream (the OS owns the actual
+// dragging), the renderer maps it onto the active theme's catalog.
 
-/** Per-sample screen-pixel threshold used by the reference player. */
+/** Per-sample pixel threshold used by the reference player. */
 export const DRAG_SAMPLE_THRESHOLD_PX = 4;
 
 export type DragDirection = "left" | "right";

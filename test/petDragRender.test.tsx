@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { Pet } from "../src/renderer/components/Pet";
 import { spritesheetAssetsFromPack } from "../src/shared/petPackAssets";
 import { catalogFromPetPack } from "../src/shared/petThemeCatalog";
@@ -29,14 +29,5 @@ describe("Pet drag playback", () => {
     // transient were ever passed in.
     render(<Pet state="running" dragAnimation="running_left" />);
     expect((screen.getByAltText("running") as HTMLImageElement).tagName).toBe("IMG");
-  });
-
-  it("forwards the drag pointer handlers to the pet element", () => {
-    const onPointerDown = vi.fn();
-    const view = render(
-      <Pet state="idle" catalog={catalog} spritesheet={spritesheet} dragHandlers={{ onPointerDown }} />
-    );
-    fireEvent.pointerDown(view.container.querySelector(".pet")!);
-    expect(onPointerDown).toHaveBeenCalledTimes(1);
   });
 });
