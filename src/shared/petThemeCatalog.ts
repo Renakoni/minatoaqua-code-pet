@@ -107,9 +107,42 @@ export function resolveThemeCatalog(themeId: unknown, packs: readonly PetPackMan
   return MINATO_AQUA_CATALOG;
 }
 
+/**
+ * Interaction-reserved keys: the codex-pet template's drag-direction
+ * locomotion rows. The official player only ever plays them while the pet is
+ * being dragged horizontally, so they are not standalone actions: mapping
+ * slots and the idle pool exclude them. They stay playback-valid — the
+ * Animation Test can preview them, and drag feedback will consume them.
+ */
+export const INTERACTION_ANIMATION_KEYS: readonly PetAnimationKey[] = ["running_right", "running_left"];
+
+/** Keys offered as standalone actions: the catalog minus interaction keys. */
+export function mappableCatalogKeys(catalog: PetThemeCatalog): PetAnimationKey[] {
+  return catalog.keys.filter(key => !INTERACTION_ANIMATION_KEYS.includes(key));
+}
+
 /** Canonical AND provided by this theme. */
 export function isCatalogAnimationKey(catalog: PetThemeCatalog, value: unknown): value is PetAnimationKey {
   return isPetAnimationKey(value) && catalog.keys.includes(value);
+}
+
+/** Provided by this theme AND usable as a standalone action. */
+export function isMappableCatalogAnimationKey(catalog: PetThemeCatalog, value: unknown): value is PetAnimationKey {
+  return isCatalogAnimationKey(catalog, value) && !INTERACTION_ANIMATION_KEYS.includes(value);
+}
+
+/** Mapping-slot validation: interaction keys fall back like foreign keys. */
+export function normalizeMappableAnimationKey(
+  catalog: PetThemeCatalog,
+  value: string | null | undefined,
+  fallback: PetAnimationKey
+): PetAnimationKey {
+  return isMappableCatalogAnimationKey(catalog, value) ? value : fallback;
+}
+
+/** Pool validation: interaction keys are dropped like foreign keys. */
+export function normalizeMappableAnimationKeys(catalog: PetThemeCatalog, values: string[] | undefined): PetAnimationKey[] {
+  return [...new Set((values ?? []).filter(value => isMappableCatalogAnimationKey(catalog, value)))];
 }
 
 /** Validation only: a provided key passes through; anything else falls back. */

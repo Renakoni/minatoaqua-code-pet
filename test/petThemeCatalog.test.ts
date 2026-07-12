@@ -5,8 +5,12 @@ import {
   MINATO_AQUA_CATALOG,
   catalogFromPetPack,
   isCatalogAnimationKey,
+  isMappableCatalogAnimationKey,
+  mappableCatalogKeys,
   normalizeCatalogAnimationKey,
   normalizeCatalogAnimationKeys,
+  normalizeMappableAnimationKey,
+  normalizeMappableAnimationKeys,
   packIdFromThemeId,
   petPackThemeId,
   resolveThemeCatalog,
@@ -131,6 +135,33 @@ describe("catalog-scoped validation", () => {
       .toEqual(["idle", "jumping"]);
     expect(normalizeCatalogAnimationKeys(MINATO_AQUA_CATALOG, ["idle", "jumping", "extra_action_5"]))
       .toEqual(["idle", "extra_action_5"]);
+  });
+});
+
+describe("interaction-reserved keys", () => {
+  const packCatalog = catalogFromPetPack(makePackManifest());
+
+  it("keeps drag-only locomotion keys in the catalog but out of the mappable set", () => {
+    // Playback-valid (animation test, drag feedback)...
+    expect(isCatalogAnimationKey(packCatalog, "running_right")).toBe(true);
+    expect(isCatalogAnimationKey(packCatalog, "running_left")).toBe(true);
+    // ...but never offered or accepted as a standalone action.
+    expect(isMappableCatalogAnimationKey(packCatalog, "running_right")).toBe(false);
+    expect(isMappableCatalogAnimationKey(packCatalog, "running_left")).toBe(false);
+    expect(mappableCatalogKeys(packCatalog)).toEqual([
+      "idle", "waving", "jumping", "failed", "waiting_permission", "running", "review"
+    ]);
+  });
+
+  it("normalizes interaction keys away exactly like foreign keys", () => {
+    expect(normalizeMappableAnimationKey(packCatalog, "running_left", "idle")).toBe("idle");
+    expect(normalizeMappableAnimationKey(packCatalog, "waving", "idle")).toBe("waving");
+    expect(normalizeMappableAnimationKeys(packCatalog, ["idle", "running_right", "jumping", "running_left"]))
+      .toEqual(["idle", "jumping"]);
+  });
+
+  it("leaves the built-in theme's mappable set identical to its catalog", () => {
+    expect(mappableCatalogKeys(MINATO_AQUA_CATALOG)).toEqual([...MINATO_AQUA_CATALOG.keys]);
   });
 });
 

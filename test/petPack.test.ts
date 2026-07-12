@@ -239,7 +239,7 @@ describe("buildPetPackManifest", () => {
     expect(built.value.animations.map(animation => animation.key)).toEqual(["idle", "running_right", "waving"]);
     expect(built.value.roleDefaults).toEqual({
       idle: "idle",
-      running: "running_right", // no plain running row
+      running: "idle", // no plain running row; running_right is drag-only, never a role default
       waiting_permission: "idle", // no waiting row
       done: "waving", // no jumping row
       error: "idle" // neither failed nor running rows

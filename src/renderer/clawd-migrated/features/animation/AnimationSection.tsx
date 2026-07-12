@@ -5,9 +5,9 @@ import type { CompanionSettings, IdleAnimConfig } from "../../../shared/events";
 import { defaultSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import { petAnimationAssets } from "../../utils/petAnimationAssets";
-import { normalizeAnimationKey, normalizeAnimationKeys, petAnimationOptionsForCatalog, toggleIdlePoolSprite, type PetAnimationKey } from "../../utils/petAnimations";
+import { normalizeAnimationKey, normalizeAnimationKeys, petAnimationMappableOptionsForCatalog, petAnimationOptionsForCatalog, toggleIdlePoolSprite, type PetAnimationKey } from "../../utils/petAnimations";
 import { displayedMappingKey, mappingRowMeta, stateMappingRowsFor } from "../../utils/stateMappingRows";
-import { MINATO_AQUA_CATALOG, normalizeCatalogAnimationKey } from "../../../../shared/petThemeCatalog";
+import { MINATO_AQUA_CATALOG, normalizeMappableAnimationKey } from "../../../../shared/petThemeCatalog";
 import { SpritesheetSprite } from "../../../components/SpritesheetSprite";
 import { displayedSpriteHeight } from "../../../../shared/spriteFrame";
 
@@ -18,17 +18,21 @@ export function AnimationSection({ settings, updateSettings, catalog = MINATO_AQ
   spritesheet?: any;
 }) {
   const { t } = useI18n();
+  // Drag-only locomotion keys are not standalone actions: the idle pool and
+  // mapping pickers offer the mappable subset, while the Animation Test still
+  // previews every row the theme provides.
   const options = petAnimationOptionsForCatalog(catalog);
+  const actionOptions = petAnimationMappableOptionsForCatalog(catalog);
 
   return (
     <div className="animation-page animation-workbench">
       <AnimationPanel icon={<Sparkles size={17} />} title={t("sections.idleAnimation", "待机动画")} meta={catalog.source === "codex-pet-pack" ? t("petImport.importedTheme", "导入宠物") : "Aqua 动作库"}>
-        <IdleAnimSettings config={settings.idleAnim ?? defaultSettings.idleAnim!} onChange={cfg => updateSettings({ idleAnim: cfg })} catalog={catalog} options={options} spritesheet={spritesheet} />
+        <IdleAnimSettings config={settings.idleAnim ?? defaultSettings.idleAnim!} onChange={cfg => updateSettings({ idleAnim: cfg })} catalog={catalog} options={actionOptions} spritesheet={spritesheet} />
       </AnimationPanel>
 
       <div className="animation-page-secondary">
         <AnimationPanel icon={<Wand2 size={17} />} title={t("sections.actionMapping", "动作映射")}>
-          <StateAnimSettings stateAnimations={settings.stateAnimations ?? {}} onChange={sa => updateSettings({ stateAnimations: sa })} catalog={catalog} options={options} spritesheet={spritesheet} />
+          <StateAnimSettings stateAnimations={settings.stateAnimations ?? {}} onChange={sa => updateSettings({ stateAnimations: sa })} catalog={catalog} options={actionOptions} spritesheet={spritesheet} />
         </AnimationPanel>
 
         <AnimationPanel icon={<FlaskConical size={17} />} title={t("sections.animationTest", "动画测试")}>
@@ -133,7 +137,7 @@ function StateAnimSettings({ stateAnimations, onChange, catalog, options, sprite
   const mappingRows = stateMappingRowsFor(catalog);
 
   function selectSprite(state: string, sprite: string, fallback: string) {
-    onChange({ ...stateAnimations, [state]: normalizeCatalogAnimationKey(catalog, sprite, fallback) });
+    onChange({ ...stateAnimations, [state]: normalizeMappableAnimationKey(catalog, sprite, fallback) });
     setOpenKey(null);
   }
 

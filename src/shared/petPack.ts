@@ -78,7 +78,9 @@ export interface PetPackRoleDefaults {
 // resolution always terminates.
 const ROLE_FALLBACK_CHAINS: Record<keyof PetPackRoleDefaults, PetPackAnimationKey[]> = {
   idle: ["idle"],
-  running: ["running", "running_right", "idle"],
+  // running_right/left are drag feedback in the reference player, never a
+  // work state — they are not fallbacks for any role.
+  running: ["running", "idle"],
   waiting_permission: ["waiting_permission", "idle"],
   // The format has no dedicated "done" row; the celebration jump is the
   // closest match, then the greeting wave.

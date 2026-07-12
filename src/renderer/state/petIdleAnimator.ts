@@ -1,5 +1,5 @@
 import { PetAnimationKey } from "../../shared/petAnimationKeys";
-import { MINATO_AQUA_CATALOG, normalizeCatalogAnimationKeys, type PetThemeCatalog } from "../../shared/petThemeCatalog";
+import { MINATO_AQUA_CATALOG, normalizeMappableAnimationKeys, type PetThemeCatalog } from "../../shared/petThemeCatalog";
 
 // Random idle-animation rotation for the floating pet window, mirroring the
 // settings panel's preview scheduler: wait a uniform random interval, pick one
@@ -39,14 +39,14 @@ function toRepeat(value: unknown, fallback: number): number {
 
 // Turn the persisted config into a runnable plan, or null when rotation should
 // not run at all. Pool entries are validated against the active theme's
-// catalog: invalid or theme-foreign values are dropped, and an empty pool
-// disables rotation rather than inventing sprites.
+// catalog: invalid, theme-foreign, and drag-only locomotion values are
+// dropped, and an empty pool disables rotation rather than inventing sprites.
 export function planIdleAnimation(
   config: IdleAnimationConfig | null | undefined,
   catalog: PetThemeCatalog = MINATO_AQUA_CATALOG
 ): IdleAnimationPlan | null {
   if (!config?.enabled) return null;
-  const pool = normalizeCatalogAnimationKeys(catalog, config.selectedSprites);
+  const pool = normalizeMappableAnimationKeys(catalog, config.selectedSprites);
   if (pool.length === 0) return null;
   const intervalMin = toSeconds(config.intervalMin, 20);
   const intervalMax = Math.max(intervalMin, toSeconds(config.intervalMax, intervalMin));

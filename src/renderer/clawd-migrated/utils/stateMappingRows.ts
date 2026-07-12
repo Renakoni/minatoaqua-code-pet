@@ -1,5 +1,5 @@
 import type { PetAnimationKey } from "../../../shared/petAnimationKeys";
-import { normalizeCatalogAnimationKey, type PetThemeCatalog, type PetThemeRoleDefaults } from "../../../shared/petThemeCatalog";
+import { normalizeMappableAnimationKey, type PetThemeCatalog, type PetThemeRoleDefaults } from "../../../shared/petThemeCatalog";
 
 /**
  * Action Mapping rows for the active theme.
@@ -41,6 +41,12 @@ export function stateMappingRowsFor(catalog: PetThemeCatalog): StateMappingRow[]
   const rows: StateMappingRow[] = [];
   for (const role of ROW_ROLE_ORDER) {
     const key = catalog.roleDefaults[role];
+    // A role that collapsed onto idle has no dedicated animation in this
+    // theme. Its slot key would be the very "idle" the genuinely idle pet
+    // consumes, so an editable row here would silently restyle the idle
+    // state too — no row is rendered, and the runtime ignores the idle slot
+    // for the same reason (resolvePetAnimation).
+    if (key === "idle") continue;
     const existing = rows.find(row => row.key === key);
     if (existing) {
       // The role shares a slot with an earlier row (built-in error→running,
@@ -79,5 +85,5 @@ export function displayedMappingKey(
   stateAnimations: Record<string, string> | null | undefined,
   row: StateMappingRow
 ): PetAnimationKey {
-  return normalizeCatalogAnimationKey(catalog, stateAnimations?.[row.key], row.key);
+  return normalizeMappableAnimationKey(catalog, stateAnimations?.[row.key], row.key);
 }
