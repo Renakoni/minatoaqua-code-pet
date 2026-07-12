@@ -12,8 +12,8 @@
  */
 
 import { zipSync } from "fflate";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { isValidSpritesheetFileName } from "../shared/petPack";
 import { CODEX_PET_GALLERY_URL, type PetPackDownloadCode, type PetPackDownloadResult } from "../shared/petPackTransport";
 
@@ -70,6 +70,35 @@ async function readBodyWithCap(
     offset += chunk.byteLength;
   }
   return bytes;
+}
+
+/**
+ * Downloaded archives are lifecycle-owned temp files: the UI discards them
+ * after a successful install or when the import dialog is dismissed. The
+ * deletion is hard-confined to the downloads directory, so it can never
+ * touch a user-selected zip anywhere else on disk.
+ */
+export function discardDownloadedPetPack(zipPath: string, downloadsDir: string): { ok: boolean } {
+  try {
+    const resolved = resolve(String(zipPath ?? ""));
+    const root = resolve(downloadsDir) + sep;
+    if (!resolved.startsWith(root)) return { ok: false };
+    rmSync(resolved, { force: true });
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
+ * Startup cleanup: anything in the downloads directory is by definition a
+ * temporary archive, so crash leftovers are wiped wholesale. The directory
+ * is recreated on the next download.
+ */
+export function cleanupPetDownloads(downloadsDir: string): void {
+  try {
+    rmSync(downloadsDir, { recursive: true, force: true });
+  } catch { /* best effort — a locked leftover is retried next startup */ }
 }
 
 export async function downloadPetPack(

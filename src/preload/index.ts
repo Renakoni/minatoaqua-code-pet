@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld("companion", {
   onPetPacksChanged: (callback: (payload: unknown) => void) => onChannel("companion:pet-packs-changed", callback),
   getPetPackFilePath: (file: File) => webUtils.getPathForFile(file),
   downloadPetPack: (petSlug: string) => ipcRenderer.invoke("companion:pet-pack-download", petSlug),
+  discardPetPackDownload: (zipPath: string) => ipcRenderer.invoke("companion:pet-pack-discard-download", zipPath),
   onPetPackDownloadProgress: (callback: (payload: unknown) => void) => onChannel("companion:pet-pack-download-progress", callback),
   listClaudeProviders: () => ipcRenderer.invoke("companion:providers-list"),
   saveClaudeProvider: (provider: unknown, originalId?: string) => ipcRenderer.invoke("companion:providers-save", provider, originalId),

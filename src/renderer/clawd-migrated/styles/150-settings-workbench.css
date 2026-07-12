@@ -568,16 +568,38 @@
   flex-wrap: wrap;
 }
 
-.settings-page .pet-install-by-id input {
-  flex: 1 1 160px;
+/* Terminal-styled command input: the command is parsed, never executed. */
+.settings-page .pet-install-command {
+  flex: 1 1 220px;
   min-width: 0;
-  padding: 7px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
   border: 1px solid var(--settings-line);
   border-radius: 7px;
   background: var(--settings-subtle);
+  color: var(--settings-muted);
+}
+
+.settings-page .pet-install-command input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 0;
+  border: none;
+  background: transparent;
   color: var(--settings-ink);
   font-size: 12px;
   font-weight: 600;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.settings-page .pet-install-command input:focus {
+  outline: none;
+}
+
+.settings-page .pet-install-command:focus-within {
+  border-color: oklch(72% 0.09 82 / 0.5);
 }
 
 .settings-page .pet-install-by-id button {
