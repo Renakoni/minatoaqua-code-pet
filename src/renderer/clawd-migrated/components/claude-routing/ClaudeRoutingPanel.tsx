@@ -13,10 +13,6 @@ import type { ClaudeProvider } from "./types";
 // The editor pulls in CodeMirror and the preset catalog; load it on demand.
 const ProviderEditPanel = lazy(() => import("./ProviderEditPanel").then(module => ({ default: module.ProviderEditPanel })));
 
-type LegacyTerminalApi = typeof window.companion & {
-  openClaudeRouteTerminal?: (routeId: string) => Promise<unknown>;
-};
-
 function formatI18n(template: string, values: Record<string, string | number>) {
   return Object.entries(values).reduce((text, [key, value]) => text.split(`{${key}}`).join(String(value)), template);
 }
@@ -173,10 +169,9 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
   }
 
   async function handleTerminal(provider: ClaudeProvider) {
-    const legacy = companion as LegacyTerminalApi;
-    const result = await legacy.openClaudeRouteTerminal?.(provider.id);
-    if ((result as { ok?: boolean })?.ok) toast.success(t("routing.terminalOpened", "终端已打开"));
-    else toast.error((result as { error?: string })?.error ?? t("routing.terminalFailed", "打开终端失败"));
+    const result = await companion.openClaudeProviderTerminal(provider.id);
+    if (result.ok) toast.success(t("routing.terminalOpened", "终端已打开"));
+    else toast.error(result.error ?? t("routing.terminalFailed", "打开终端失败"));
   }
 
   return (

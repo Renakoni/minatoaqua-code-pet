@@ -188,7 +188,7 @@ export function SettingsSection({
               action={<button type="button" className="group-reset-button" title={t("common.reset", "重置")} aria-label={t("common.reset", "重置")} disabled={settings.petScale === defaultSettings.petScale && settings.clawdScale === defaultSettings.clawdScale && settings.clawdOpacity === defaultSettings.clawdOpacity} onClick={() => updateSettings({ petScale: defaultSettings.petScale, clawdScale: defaultSettings.clawdScale, clawdOpacity: defaultSettings.clawdOpacity })}><RotateCcw size={14} /></button>}
             >
               <Slider label={t("appearance.petSize", "桌宠大小")} min={0.7} max={1.35} step={0.05} value={settings.petScale} format={v => `${Math.round(v * 100)}%`} onChange={petScale => updateSettings({ petScale })} />
-              <Slider label={t("appearance.petOpacity", "桌宠透明度")} min={0.5} max={1} step={0.05} value={settings.clawdOpacity} format={v => `${Math.round(v * 100)}%`} onChange={clawdOpacity => updateSettings({ clawdOpacity })} />
+              <Slider label={t("appearance.clawdOpacity", "桌宠透明度")} min={0.5} max={1} step={0.05} value={settings.clawdOpacity} format={v => `${Math.round(v * 100)}%`} onChange={clawdOpacity => updateSettings({ clawdOpacity })} />
             </GroupCard>
 
             <GroupCard

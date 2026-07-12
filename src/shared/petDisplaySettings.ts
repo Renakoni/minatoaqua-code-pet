@@ -5,7 +5,6 @@ export const MAX_FEEDBACK_SCALE = 1.35;
 export const MIN_FEEDBACK_OPACITY = 0.5;
 export const MAX_FEEDBACK_OPACITY = 1;
 
-const LEGACY_FEEDBACK_BASE_SCALE = 0.75;
 const SETTING_STEP = 0.05;
 const DEFAULT_PET_SCALE = 1;
 const DEFAULT_PET_OPACITY = 1;
@@ -75,52 +74,39 @@ export function getPetWindowWidth(feedbackScale: unknown, permissionScale: unkno
   return Math.max(PET_WINDOW_BASE_WIDTH, Math.round(scaledBubble));
 }
 
-// `bubbleScale` is the active bubble's scale (feedbackScale when collapsed,
-// permissionScale when expanded). Defaults to 1 so existing 2-arg callers keep
+// `activeBubbleScale` is the currently shown bubble's scale (feedbackScale when
+// collapsed, permissionScale when expanded). Defaults to 1 so 2-arg callers keep
 // the pet-only sizing.
-export function getPetWindowHeight(scale: unknown, expanded: boolean, bubbleScale: unknown = DEFAULT_FEEDBACK_SCALE): number {
+export function getPetWindowHeight(scale: unknown, expanded: boolean, activeBubbleScale: unknown = DEFAULT_FEEDBACK_SCALE): number {
   const baseHeight = expanded ? PET_EXPANDED_WINDOW_HEIGHT : PET_BASE_WINDOW_HEIGHT;
   const petGrowth = (clampPetScale(scale) - DEFAULT_PET_SCALE) * PET_IMAGE_SIZE;
   // Grow for an UPscaled bubble only — the base height already fits scale 1, and
   // a downscaled bubble needs no extra room. Use the estimate for the active mode.
   const bubbleMax = expanded ? PERMISSION_CARD_MAX_HEIGHT : STATUS_BUBBLE_MAX_HEIGHT;
-  const clampedBubbleScale = expanded ? clampPermissionScale(bubbleScale) : clampFeedbackScale(bubbleScale);
+  const clampedBubbleScale = expanded ? clampPermissionScale(activeBubbleScale) : clampFeedbackScale(activeBubbleScale);
   const bubbleGrowth = bubbleMax * Math.max(0, clampedBubbleScale - DEFAULT_FEEDBACK_SCALE);
   return Math.round(baseHeight + petGrowth + bubbleGrowth);
 }
 
-function average(values: Array<number | undefined>, fallback: number): number {
-  const valid = values.filter((value): value is number => value !== undefined);
-  return valid.length > 0 ? valid.reduce((sum, value) => sum + value, 0) / valid.length : fallback;
-}
-
-export function migratePetDisplaySettings(settings: Record<string, unknown>) {
-  const unifiedScale = finiteNumber(settings.feedbackScale);
-  const legacyScale = average([
-    finiteNumber(settings.thoughtScale),
-    finiteNumber(settings.cardScale)
-  ].map(value => value === undefined ? undefined : value / LEGACY_FEEDBACK_BASE_SCALE), DEFAULT_FEEDBACK_SCALE);
-
-  const unifiedOpacity = finiteNumber(settings.feedbackOpacity);
-  const legacyOpacity = average([
-    finiteNumber(settings.thoughtOpacity),
-    finiteNumber(settings.cardOpacity)
-  ], DEFAULT_FEEDBACK_OPACITY);
-
-  const migrated: Record<string, number> = {
-    feedbackScale: normalize(unifiedScale ?? legacyScale, MIN_FEEDBACK_SCALE, MAX_FEEDBACK_SCALE),
-    feedbackOpacity: normalize(unifiedOpacity ?? legacyOpacity, MIN_FEEDBACK_OPACITY, MAX_FEEDBACK_OPACITY)
-  };
-
+// Load/save-time normalization for the canonical pet display fields. Every
+// field that is present is clamped to its supported UI range and snapped to
+// the shared control step; absent fields are left to the caller's defaults.
+export function normalizePetDisplaySettings(settings: Record<string, unknown>): Record<string, number> {
+  const normalized: Record<string, number> = {};
+  if ("feedbackScale" in settings) {
+    normalized.feedbackScale = normalize(finiteNumber(settings.feedbackScale) ?? DEFAULT_FEEDBACK_SCALE, MIN_FEEDBACK_SCALE, MAX_FEEDBACK_SCALE);
+  }
+  if ("feedbackOpacity" in settings) {
+    normalized.feedbackOpacity = normalize(finiteNumber(settings.feedbackOpacity) ?? DEFAULT_FEEDBACK_OPACITY, MIN_FEEDBACK_OPACITY, MAX_FEEDBACK_OPACITY);
+  }
   if ("petScale" in settings) {
-    migrated.petScale = normalize(finiteNumber(settings.petScale) ?? DEFAULT_PET_SCALE, MIN_PET_SCALE, MAX_PET_SCALE);
+    normalized.petScale = normalize(finiteNumber(settings.petScale) ?? DEFAULT_PET_SCALE, MIN_PET_SCALE, MAX_PET_SCALE);
   }
   if ("clawdOpacity" in settings) {
-    migrated.clawdOpacity = normalize(finiteNumber(settings.clawdOpacity) ?? DEFAULT_PET_OPACITY, MIN_PET_OPACITY, MAX_PET_OPACITY);
+    normalized.clawdOpacity = normalize(finiteNumber(settings.clawdOpacity) ?? DEFAULT_PET_OPACITY, MIN_PET_OPACITY, MAX_PET_OPACITY);
   }
   if ("permissionScale" in settings) {
-    migrated.permissionScale = normalize(finiteNumber(settings.permissionScale) ?? DEFAULT_PERMISSION_SCALE, MIN_PERMISSION_SCALE, MAX_PERMISSION_SCALE);
+    normalized.permissionScale = normalize(finiteNumber(settings.permissionScale) ?? DEFAULT_PERMISSION_SCALE, MIN_PERMISSION_SCALE, MAX_PERMISSION_SCALE);
   }
-
-  return migrated;
+  return normalized;
 }

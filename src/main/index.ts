@@ -8,7 +8,8 @@ import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
-import { getPetWindowHeight, getPetWindowWidth, migratePetDisplaySettings } from "../shared/petDisplaySettings";
+import { getPetWindowHeight, getPetWindowWidth, normalizePetDisplaySettings } from "../shared/petDisplaySettings";
+import { createDefaultCompanionSettings, pickCanonicalSettings } from "./companionSettingsSchema";
 import { redactDisplayEvent } from "../shared/privacy";
 import { canonicalizeEventEntries, evaluateHookConfig, isClawdHookCommand } from "./hookConfig";
 import { isReadableRegularFile } from "./fsAccess";
@@ -93,91 +94,7 @@ let updateStatus: UpdateStatus = {
   downloaded: false,
   downloading: false
 };
-let companionSettings: Record<string, any> = {
-  hideSensitiveContent: false,
-  showBubbles: true,
-  editPosition: false,
-  alwaysOnTop: true,
-  clickThrough: false,
-  petEnabled: true,
-  petScale: 1,
-  viewScale: 1,
-  petOpacity: 1,
-  clawdScale: 0.8,
-  clawdOpacity: 1,
-  thoughtScale: 0.75,
-  thoughtOpacity: 1,
-  cardScale: 0.75,
-  cardOpacity: 1,
-  bubbleScale: 1,
-  bubbleOpacity: 1,
-  feedbackScale: 1,
-  feedbackOpacity: 1,
-  bubbleDuration: 8,
-  permissionScale: 0.9,
-  permissionOpacity: 1,
-  toolStreamMinDuration: 0.8,
-  showStatusProp: true,
-  multiSessionEnabled: false,
-  permissionDialogEnabled: true,
-  permissionWaitSeconds: 30,
-  showSessionTitle: true,
-  companionScale: 0.5,
-  companionIdleAnimations: ["running", "idle", "waiting_permission"],
-  mainClawdIdleAnimation: "random",
-  launchAtLogin: false,
-  openSettingsOnStart: true,
-  autoStartWithCli: false,
-  autoUpdateEnabled: false,
-  petTheme: "minato-aqua",
-  enabledSources: ["claude-code", "codex"],
-  notificationsEnabled: true,
-  theme: "system",
-  uiStyle: "classic",
-  language: "zh",
-  autoStartDelay: 0,
-  autoStartMinimized: false,
-  displayMonitorId: "primary",
-  monitorPositions: [],
-  notificationRules: [
-    { eventType: "done", enabled: true, playSound: true },
-    { eventType: "error", enabled: true, playSound: true },
-    { eventType: "permission_wait", enabled: true, playSound: true },
-    { eventType: "notification", enabled: true, playSound: false }
-  ],
-  customPlugins: [],
-  pomodoroEnabled: false,
-  pomodoroWorkMinutes: 25,
-  pomodoroBreakMinutes: 5,
-  sound: {
-    enabled: true,
-    volume: 0.6,
-    fileDone: null,
-    fileError: null,
-    filePermission: null,
-    eventFiles: {}
-  },
-  eventHistoryLimit: 100,
-  claudeRoutingMode: "auto",
-  claudeProviderPinned: true,
-  claudeRoutes: [
-    { id: "claude-official", name: "Claude Official", baseUrl: "https://www.anthropic.com/claude-code", enabled: true },
-    { id: "anyrouter", name: "anyrouter", baseUrl: "https://anyrouter.top", enabled: true },
-    { id: "hkc", name: "神秘大佬", baseUrl: "https://hkcn2.dpdns.org/api", enabled: true },
-    { id: "micuai-free2", name: "米醋_free2", baseUrl: "https://api-slb.micuapi.ai", enabled: true },
-    { id: "micuai-max", name: "米醋_max", baseUrl: "https://www.openclaudecode.cn", enabled: true }
-  ],
-  activeClaudeRouteId: "claude-official",
-  idleAnim: {
-    enabled: true,
-    selectedSprites: ["idle", "running", "waiting_permission", "done", "extra_action_5", "extra_action_7", "extra_action_8", "extra_action_9", "extra_action_aqua_bocchi", "extra_action_aqua_pixel"],
-    intervalMin: 12,
-    intervalMax: 28,
-    repeatMin: 1,
-    repeatMax: 2
-  },
-  stateAnimations: {}
-};
+let companionSettings: Record<string, any> = createDefaultCompanionSettings();
 
 if (!singleInstanceLock) {
   app.quit();
@@ -216,8 +133,8 @@ function setPetWindowExpanded(expanded: boolean, force = false) {
   const bottom = bounds.y + bounds.height;
   const centerX = bounds.x + bounds.width / 2;
   const width = getPetWindowWidth(companionSettings.feedbackScale, companionSettings.permissionScale);
-  const bubbleScale = expanded ? companionSettings.permissionScale : companionSettings.feedbackScale;
-  const height = getPetWindowHeight(companionSettings.petScale, expanded, bubbleScale);
+  const activeBubbleScale = expanded ? companionSettings.permissionScale : companionSettings.feedbackScale;
+  const height = getPetWindowHeight(companionSettings.petScale, expanded, activeBubbleScale);
   const workArea = screen.getDisplayNearestPoint({ x: bounds.x, y: bottom }).workArea;
   const y = Math.max(workArea.y, bottom - height);
   // Keep the character put: pin the bottom edge and the horizontal centre while
@@ -2160,101 +2077,6 @@ function sanitizeClaudeSettingsConfig(config: Record<string, any>) {
   return next;
 }
 
-function applyClaudeProviderToLiveSettings(routeId: string) {
-  const providers = companionSettings.claudeProviders && typeof companionSettings.claudeProviders === "object" ? companionSettings.claudeProviders as Record<string, Record<string, any>> : null;
-  const provider = providers?.[routeId];
-  if (!provider) return { ok: false, error: `Provider ${routeId} not found` };
-  const settingsConfig = provider.settingsConfig && typeof provider.settingsConfig === "object" ? sanitizeClaudeSettingsConfig(provider.settingsConfig as Record<string, any>) : {};
-  const path = getClaudeSettingsPath();
-  mkdirSync(join(homedir(), ".claude"), { recursive: true });
-  const existing = readLiveJsonObject(path);
-  const backupPath = backupFile(path);
-  const next = { ...existing, ...settingsConfig };
-  if (existing.env || settingsConfig.env) {
-    next.env = { ...(existing.env && typeof existing.env === "object" ? existing.env : {}), ...(settingsConfig.env && typeof settingsConfig.env === "object" ? settingsConfig.env : {}) };
-  }
-  writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`, "utf-8");
-  return { ok: true, path, backupPath };
-}
-
-function getActiveClaudeRoute() {
-  const providers = companionSettings.claudeProviders && typeof companionSettings.claudeProviders === "object" ? companionSettings.claudeProviders as Record<string, Record<string, unknown>> : null;
-  if (providers && Object.keys(providers).length > 0) {
-    const activeId = typeof companionSettings.currentClaudeProviderId === "string" ? companionSettings.currentClaudeProviderId : undefined;
-    const provider = (activeId ? providers[activeId] : undefined) ?? Object.values(providers).sort((a, b) => Number(a.sortIndex ?? 0) - Number(b.sortIndex ?? 0))[0];
-    const settingsConfig = provider?.settingsConfig && typeof provider.settingsConfig === "object" ? provider.settingsConfig as Record<string, unknown> : {};
-    const env = settingsConfig.env && typeof settingsConfig.env === "object" ? settingsConfig.env as Record<string, unknown> : {};
-    return provider ? {
-      id: provider.id,
-      name: provider.name,
-      baseUrl: env.ANTHROPIC_BASE_URL,
-      apiKeyMasked: env.ANTHROPIC_AUTH_TOKEN,
-      headersText: settingsConfig.headers,
-      modelAliasesText: settingsConfig.modelAliases,
-      proxyUrl: settingsConfig.proxyUrl,
-      prefix: settingsConfig.prefix,
-      excludedModelsText: settingsConfig.excludedModels,
-      enabled: true
-    } : null;
-  }
-
-  const routes = Array.isArray(companionSettings.claudeRoutes) ? companionSettings.claudeRoutes as Array<Record<string, unknown>> : [];
-  const activeId = typeof companionSettings.activeClaudeRouteId === "string" ? companionSettings.activeClaudeRouteId : undefined;
-  return routes.find(route => route.id === activeId) ?? routes[0] ?? null;
-}
-
-function getClaudeRouteRuntimePreview() {
-  const route = getActiveClaudeRoute();
-  if (!route) return { activeRoute: null, env: {}, commandPrefix: "", note: "No Claude route configured" };
-  const env: Record<string, string> = {};
-  const baseUrl = typeof route.baseUrl === "string" ? route.baseUrl.trim() : "";
-  const apiKeyMasked = typeof route.apiKeyMasked === "string" ? route.apiKeyMasked : "";
-  if (baseUrl) env.ANTHROPIC_BASE_URL = baseUrl;
-  if (apiKeyMasked) env.ANTHROPIC_AUTH_TOKEN = apiKeyMasked;
-  const headersText = typeof route.headersText === "string" ? route.headersText.trim() : "";
-  const modelAliasesText = typeof route.modelAliasesText === "string" ? route.modelAliasesText.trim() : "";
-  const proxyUrl = typeof route.proxyUrl === "string" ? route.proxyUrl.trim() : "";
-  const prefix = typeof route.prefix === "string" ? route.prefix.trim() : "";
-  if (proxyUrl) env.CLAWD_ROUTE_PROXY_URL = proxyUrl;
-  if (prefix) env.CLAWD_ROUTE_PREFIX = prefix;
-  if (headersText) env.CLAWD_ROUTE_HEADERS = headersText;
-  if (modelAliasesText) env.CLAWD_ROUTE_MODEL_ALIASES = modelAliasesText;
-  return {
-    activeRoute: {
-      id: route.id,
-      name: route.name,
-      baseUrl,
-      enabled: route.enabled !== false,
-      apiKeyMasked,
-      hasHeaders: Boolean(headersText),
-      hasModelAliases: Boolean(modelAliasesText),
-      hasProxy: Boolean(proxyUrl),
-      hasPrefix: Boolean(prefix)
-    },
-    env,
-    commandPrefix: Object.entries(env).map(([key, value]) => `$env:${key}=${JSON.stringify(value)}`).join("; "),
-    note: "Preview only. The app does not mutate your current Claude Code process automatically."
-  };
-}
-
-function applyClaudeRoute(routeId: string) {
-  const liveApply = applyClaudeProviderToLiveSettings(routeId);
-  if (!liveApply.ok) return { ...getClaudeRouteRuntimePreview(), liveApply };
-  companionSettings = { ...companionSettings, activeClaudeRouteId: routeId, currentClaudeProviderId: routeId };
-  saveCompanionSettings(true);
-  broadcastCompanionSettings();
-  return { ...getClaudeRouteRuntimePreview(), liveApply };
-}
-
-function testClaudeRoute(routeId: string) {
-  const previousRoute = companionSettings.activeClaudeRouteId;
-  const previousProvider = companionSettings.currentClaudeProviderId;
-  companionSettings = { ...companionSettings, activeClaudeRouteId: routeId, currentClaudeProviderId: routeId };
-  const preview = getClaudeRouteRuntimePreview();
-  companionSettings = { ...companionSettings, activeClaudeRouteId: previousRoute, currentClaudeProviderId: previousProvider };
-  return { ok: Boolean(preview.activeRoute), preview, message: "Dry-run only: generated Claude Code route environment without sending a model request." };
-}
-
 const TERMINAL_ENV_KEYS = [
   "ANTHROPIC_BASE_URL",
   "ANTHROPIC_AUTH_TOKEN",
@@ -2266,10 +2088,10 @@ const TERMINAL_ENV_KEYS = [
   "ANTHROPIC_DEFAULT_FABLE_MODEL"
 ] as const;
 
-function openClaudeRouteTerminal(routeId: string) {
+function openClaudeProviderTerminal(providerId: string) {
   const listed = listUnifiedProviders();
-  const provider = listed.providers.find(item => item.id === routeId);
-  if (!provider) return { ok: false, command: "", error: `Provider ${routeId} not found` };
+  const provider = listed.providers.find(item => item.id === providerId);
+  if (!provider) return { ok: false, command: "", error: `Provider ${providerId} not found` };
   const config = (provider.settingsConfig ?? {}) as Record<string, any>;
   const env = config.env && typeof config.env === "object" ? config.env as Record<string, any> : {};
   const pairs: string[] = [];
@@ -2292,53 +2114,26 @@ function ccSwitchModeActive() {
   return getCcSwitchStatus().available;
 }
 
-function localProviderFromLegacyRoute(route: Record<string, any>, index: number): CcSwitchProvider {
-  const official = route.id === "claude-official" || /official/i.test(String(route.name ?? ""));
-  return {
-    id: String(route.id ?? `route-${index}`),
-    name: String(route.name ?? `Route ${index + 1}`),
-    category: official ? "official" : "third_party",
-    websiteUrl: typeof route.baseUrl === "string" ? route.baseUrl : undefined,
-    createdAt: Date.now() + index,
-    sortIndex: index,
-    icon: official ? "anthropic" : undefined,
-    iconColor: official ? "#d97757" : "#f97316",
-    settingsConfig: {
-      env: {
-        ...(typeof route.baseUrl === "string" && route.baseUrl ? { ANTHROPIC_BASE_URL: route.baseUrl } : {}),
-        ...(typeof route.apiKeyMasked === "string" && route.apiKeyMasked ? { ANTHROPIC_AUTH_TOKEN: route.apiKeyMasked } : {})
-      }
-    }
-  };
-}
-
 function localProviders(): Record<string, CcSwitchProvider> {
   const stored = companionSettings.claudeProviders;
   if (stored && typeof stored === "object" && Object.keys(stored).length > 0) {
     return stored as Record<string, CcSwitchProvider>;
   }
-  const routes = Array.isArray(companionSettings.claudeRoutes) ? companionSettings.claudeRoutes as Array<Record<string, any>> : [];
-  return Object.fromEntries(routes.map((route, index) => {
-    const provider = localProviderFromLegacyRoute(route, index);
-    return [provider.id, provider];
-  }));
+  return {};
 }
 
 function saveLocalProviders(next: Record<string, CcSwitchProvider>, currentId?: string) {
   companionSettings = {
     ...companionSettings,
     claudeProviders: next,
-    ...(currentId !== undefined ? { currentClaudeProviderId: currentId, activeClaudeRouteId: currentId } : {}),
-    claudeRoutes: undefined
+    ...(currentId !== undefined ? { currentClaudeProviderId: currentId } : {})
   };
   saveCompanionSettings(true);
   broadcastCompanionSettings();
 }
 
 function localCurrentProviderId(providers: Record<string, CcSwitchProvider>) {
-  const pointer = typeof companionSettings.currentClaudeProviderId === "string"
-    ? companionSettings.currentClaudeProviderId
-    : typeof companionSettings.activeClaudeRouteId === "string" ? companionSettings.activeClaudeRouteId : "";
+  const pointer = typeof companionSettings.currentClaudeProviderId === "string" ? companionSettings.currentClaudeProviderId : "";
   if (pointer && providers[pointer]) return pointer;
   return Object.values(providers).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0))[0]?.id ?? "";
 }
@@ -2459,15 +2254,15 @@ function switchUnifiedProvider(id: string) {
   if (ccSwitchModeActive()) {
     const outcome = switchCcSwitchProvider(id);
     if (outcome.ok) {
-      // Mirror the pointer locally so terminal launch and legacy previews follow.
+      // Mirror the cc-switch records locally so terminal launch and the local
+      // provider list stay in sync with the active selection.
       const providers = listCcSwitchProviders();
       const target = providers.find(provider => provider.id === id);
       if (target) {
         companionSettings = {
           ...companionSettings,
           claudeProviders: Object.fromEntries(providers.map(provider => [provider.id, provider])),
-          currentClaudeProviderId: id,
-          activeClaudeRouteId: id
+          currentClaudeProviderId: id
         };
         saveCompanionSettings(true);
         broadcastCompanionSettings();
@@ -2563,37 +2358,15 @@ function settingsPath() {
   return join(app.getPath("userData"), "companion-settings.json");
 }
 
-// Strip fields retired from the settings model so a legacy companion-settings.json
-// doesn't keep them alive — once dropped here they are never merged back in and
-// the next save rewrites the file clean.
-function dropRetiredSettings(parsed: Record<string, unknown>) {
-  delete parsed.port;
-  delete parsed.token;
-  delete parsed.privacyMode;
-  delete parsed.doneSound;
-  const sound = parsed.sound;
-  if (sound && typeof sound === "object" && !Array.isArray(sound)) {
-    for (const key of ["onDone", "onError", "onPermission", "onSessionStart", "fileSessionStart"]) {
-      delete (sound as Record<string, unknown>)[key];
-    }
-  }
-  if (Array.isArray(parsed.notificationRules)) {
-    for (const rule of parsed.notificationRules) {
-      if (rule && typeof rule === "object") {
-        delete (rule as Record<string, unknown>).systemNotification;
-        delete (rule as Record<string, unknown>).showBubble;
-      }
-    }
-  }
-}
-
 function loadCompanionSettings() {
   try {
     if (existsSync(settingsPath())) {
       const parsed = JSON.parse(readFileSync(settingsPath(), "utf8")) as Record<string, unknown>;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        dropRetiredSettings(parsed);
-        companionSettings = { ...companionSettings, ...parsed, ...migratePetDisplaySettings(parsed) };
+        // Only the canonical schema enters memory; unknown keys are ignored
+        // here and therefore never written back on the next save.
+        const canonical = pickCanonicalSettings(parsed);
+        companionSettings = { ...companionSettings, ...canonical, ...normalizePetDisplaySettings(canonical) };
       }
     }
   } catch { /* ignore corrupt settings */ }
@@ -3174,8 +2947,9 @@ app.whenReady().then(() => {
     const previousPetScale = companionSettings.petScale;
     const previousFeedbackScale = companionSettings.feedbackScale;
     const previousPermissionScale = companionSettings.permissionScale;
-    const mergedSettings = { ...companionSettings, ...next };
-    companionSettings = { ...mergedSettings, ...migratePetDisplaySettings(mergedSettings) };
+    const canonicalNext = pickCanonicalSettings(next && typeof next === "object" ? next : {});
+    const mergedSettings = { ...companionSettings, ...canonicalNext };
+    companionSettings = { ...mergedSettings, ...normalizePetDisplaySettings(mergedSettings) };
     saveCompanionSettings();
     if (previousLaunchAtLogin !== companionSettings.launchAtLogin) {
       applyLaunchAtLoginSetting();
@@ -3223,10 +2997,7 @@ app.whenReady().then(() => {
     // windows, and unblocks the waiting hook so Claude Code gets the decision.
     return respondPermission(response.id, response.decision, response.reason);
   });
-  ipcMain.handle("companion:get-claude-route-runtime", () => getClaudeRouteRuntimePreview());
-  ipcMain.handle("companion:apply-claude-route", (_, routeId: string) => applyClaudeRoute(routeId));
-  ipcMain.handle("companion:test-claude-route", (_, routeId: string) => testClaudeRoute(routeId));
-  ipcMain.handle("companion:open-claude-route-terminal", (_, routeId: string) => openClaudeRouteTerminal(routeId));
+  ipcMain.handle("companion:open-claude-provider-terminal", (_, providerId: string) => openClaudeProviderTerminal(providerId));
   ipcMain.handle("companion:providers-list", () => {
     try { return listUnifiedProviders(); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
   });

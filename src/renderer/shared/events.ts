@@ -248,8 +248,6 @@ export interface ClaudeProviderSaveResult {
 export interface CompanionSettings {
   claudeProviders?: Record<string, ClaudeProviderConfig>;
   currentClaudeProviderId?: string;
-  claudeRoutes?: unknown[];
-  activeClaudeRouteId?: string;
   hideSensitiveContent: boolean;
   showBubbles: boolean;
   editPosition: boolean;
@@ -258,26 +256,17 @@ export interface CompanionSettings {
   petEnabled: boolean;
   petScale: number;
   viewScale: number;
-  petOpacity: number;
   clawdScale: number;
   clawdOpacity: number;
-  thoughtScale: number;
-  thoughtOpacity: number;
-  cardScale: number;
-  cardOpacity: number;
-  bubbleScale: number;
-  bubbleOpacity: number;
   feedbackScale: number;
   feedbackOpacity: number;
   bubbleDuration: number;
   permissionScale: number;
-  permissionOpacity: number;
   toolStreamMinDuration: number;
   showStatusProp: boolean;
   multiSessionEnabled: boolean;
   permissionDialogEnabled: boolean;
   permissionWaitSeconds: number;
-  showSessionTitle: boolean;
   companionScale: number;
   companionIdleAnimations: string[];
   mainClawdIdleAnimation: string;
@@ -291,10 +280,6 @@ export interface CompanionSettings {
   theme: "light" | "dark" | "system";
   uiStyle: "classic" | "liquid";
   language: "auto" | "zh" | "en";
-  autoStartDelay: number;
-  autoStartMinimized: boolean;
-  displayMonitorId: string;
-  monitorPositions: MonitorPosition[];
   notificationRules: NotificationRule[];
   customPlugins: CustomPlugin[];
   pomodoroEnabled: boolean;
@@ -302,7 +287,6 @@ export interface CompanionSettings {
   pomodoroBreakMinutes: number;
   sound: SoundSettings;
   eventHistoryLimit: number;
-  position?: { x: number; y: number };
   positionOffsets?: {
     clawd?: { x: number; y: number };
     bubble?: { x: number; y: number };
@@ -316,14 +300,6 @@ export interface CompanionSettings {
     view?: { x: number; y: number };
     gitToast?: { x: number; y: number };
   };
-  zoneSizes?: {
-    clawd?: { w: number; h: number };
-    bubble?: { w: number; h: number };
-    ribbon?: { w: number; h: number };
-    permission?: { w: number; h: number };
-  };
-  zoneViewW?: number;
-  zoneViewH?: number;
   idleAnim?: IdleAnimConfig;
   stateAnimations?: Record<string, string>;
 }
@@ -593,11 +569,6 @@ export interface SessionHistory {
   events: EventHistoryEntry[];
 }
 
-export interface MonitorPosition {
-  displayId: string;
-  position: { x: number; y: number };
-}
-
 export interface CompanionConnectionStatus {
   port: number;
   serverListening: boolean;
@@ -620,26 +591,17 @@ export const defaultSettings: CompanionSettings = {
   petEnabled: true,
   petScale: 1,
   viewScale: 1,
-  petOpacity: 1,
   clawdScale: 0.8,
   clawdOpacity: 1,
-  thoughtScale: 0.75,
-  thoughtOpacity: 1,
-  cardScale: 0.75,
-  cardOpacity: 1,
-  bubbleScale: 1,
-  bubbleOpacity: 1,
   feedbackScale: 1,
   feedbackOpacity: 1,
   bubbleDuration: 8,
   permissionScale: 0.9,
-  permissionOpacity: 1,
   toolStreamMinDuration: 0.8,
   showStatusProp: true,
   multiSessionEnabled: false,
   permissionDialogEnabled: true,
   permissionWaitSeconds: 30,
-  showSessionTitle: true,
   companionScale: 0.5,
   companionIdleAnimations: ["running", "idle", "waiting_permission"],
   mainClawdIdleAnimation: "random",
@@ -653,10 +615,6 @@ export const defaultSettings: CompanionSettings = {
   theme: "system",
   uiStyle: "classic",
   language: "auto",
-  autoStartDelay: 0,
-  autoStartMinimized: false,
-  displayMonitorId: "",
-  monitorPositions: [],
   notificationRules: [
     { eventType: "done", enabled: true, playSound: true },
     { eventType: "error", enabled: true, playSound: true },
@@ -689,7 +647,6 @@ export const defaultSettings: CompanionSettings = {
     view: { x: 41, y: -13 },
     gitToast: { x: 676, y: 39 }
   },
-  zoneSizes: {},
   idleAnim: {
     enabled: true,
     selectedSprites: ["idle", "running", "waiting_permission", "done", "extra_action_5", "extra_action_7", "extra_action_8", "extra_action_9", "extra_action_aqua_bocchi", "extra_action_aqua_pixel"],
