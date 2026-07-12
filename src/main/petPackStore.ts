@@ -32,8 +32,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
 import {
+  CODEX_ROW_TO_ANIMATION_KEY,
   buildPetPackManifest,
   deriveSheetGeometry,
+  isValidSpritesheetFileName,
   parseCodexPetManifest,
   sanitizePetPackId,
   type CodexPetManifest,
@@ -262,17 +264,70 @@ export function installPetPack(
   return { ok: true, pack };
 }
 
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+// Persisted geometry must satisfy the SAME codex-pet v1 contract the import
+// enforces — one source of truth, not a second looser one. Everything is
+// re-derived from width and height, so a manifest with a forged grid (wrong
+// column/row count, oversized cells, inconsistent cell dimensions) is
+// rejected even when it is internally coherent.
+function isValidPersistedSheet(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const sheet = value as Record<string, unknown>;
+  if (!isPositiveInteger(sheet.width) || !isPositiveInteger(sheet.height)) return false;
+  const derived = deriveSheetGeometry(sheet.width, sheet.height);
+  if (!derived.ok) return false;
+  return sheet.columns === derived.value.columns
+    && sheet.rows === derived.value.rows
+    && sheet.cellWidth === derived.value.cellWidth
+    && sheet.cellHeight === derived.value.cellHeight;
+}
+
+const PET_PACK_ANIMATION_KEYS: ReadonlySet<string> = new Set(Object.values(CODEX_ROW_TO_ANIMATION_KEY));
+
+const ROLE_NAMES = ["idle", "running", "waiting_permission", "done", "error"] as const;
+
+/**
+ * Full runtime-shape validation of a persisted pack.manifest.json. The
+ * renderer plays these animations and the main process sizes BrowserWindows
+ * from the sheet geometry, so a corrupt manifest must be skipped entirely —
+ * never partially accepted.
+ */
 function isPetPackManifest(value: unknown): value is PetPackManifest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  return record.formatVersion === 1
-    && record.sourceFormat === "codex-pet-v1"
-    && typeof record.id === "string"
-    && typeof record.displayName === "string"
-    && typeof record.spritesheetFile === "string"
-    && Array.isArray(record.animations)
-    && !!record.sheet && typeof record.sheet === "object"
-    && !!record.roleDefaults && typeof record.roleDefaults === "object";
+  if (record.formatVersion !== 1 || record.sourceFormat !== "codex-pet-v1") return false;
+  if (typeof record.id !== "string" || sanitizePetPackId(record.id) !== record.id) return false;
+  if (typeof record.displayName !== "string" || record.displayName.trim() === "") return false;
+  if (typeof record.description !== "string") return false;
+  if (typeof record.spritesheetFile !== "string" || !isValidSpritesheetFileName(record.spritesheetFile)) return false;
+  if (!isValidPersistedSheet(record.sheet)) return false;
+  const sheet = record.sheet as { columns: number; rows: number };
+
+  if (!Array.isArray(record.animations) || record.animations.length === 0) return false;
+  const seenKeys = new Set<string>();
+  for (const entry of record.animations) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const animation = entry as Record<string, unknown>;
+    if (typeof animation.key !== "string" || !PET_PACK_ANIMATION_KEYS.has(animation.key)) return false;
+    if (seenKeys.has(animation.key)) return false;
+    seenKeys.add(animation.key);
+    if (typeof animation.row !== "number" || !Number.isInteger(animation.row) || animation.row < 0 || animation.row >= sheet.rows) return false;
+    if (!isPositiveInteger(animation.frameCount) || animation.frameCount > sheet.columns) return false;
+    if (typeof animation.frameDurationMs !== "number" || !Number.isFinite(animation.frameDurationMs) || animation.frameDurationMs <= 0) return false;
+  }
+  // The idle fallback invariant every pack build guarantees.
+  if (!seenKeys.has("idle")) return false;
+
+  if (!record.roleDefaults || typeof record.roleDefaults !== "object" || Array.isArray(record.roleDefaults)) return false;
+  const roleDefaults = record.roleDefaults as Record<string, unknown>;
+  for (const role of ROLE_NAMES) {
+    const target = roleDefaults[role];
+    if (typeof target !== "string" || !seenKeys.has(target)) return false;
+  }
+  return true;
 }
 
 /** Installed packs, sorted by id. Corrupt entries are skipped, never fatal. */

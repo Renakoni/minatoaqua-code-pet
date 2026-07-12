@@ -12,6 +12,7 @@ import {
   resolvePetAssetPath
 } from "../src/main/petPackStore";
 import { makeDecodablePng, makePngHeader, makeVp8lHeader } from "./helpers/imageFixtures";
+import { makePackManifest } from "./helpers/packFixtures";
 
 const SAMPLE_MANIFEST = {
   id: "yuexinmiao",
@@ -250,6 +251,85 @@ describe("installPetPack", () => {
     const result = installPetPack(zipPath, [0, 8, 8, 8, 8, 8, 8, 8, 8], inspectedDigest(zipPath), petsDir);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.problems[0].field).toBe("idle");
+  });
+});
+
+describe("listPetPacks manifest hardening", () => {
+  // A known-good persisted manifest, produced by the real domain builder.
+  function validManifestJson(): Record<string, unknown> {
+    return JSON.parse(JSON.stringify(makePackManifest([6, 8, 8, 4, 5, 8, 6, 6, 6], "boba"))) as Record<string, unknown>;
+  }
+
+  function writeManifest(mutate: (manifest: Record<string, unknown>) => void): void {
+    const manifest = validManifestJson();
+    mutate(manifest);
+    mkdirSync(join(petsDir, "boba"), { recursive: true });
+    writeFileSync(join(petsDir, "boba", PACK_MANIFEST_FILE), JSON.stringify(manifest));
+  }
+
+  it("accepts the untouched builder output", () => {
+    writeManifest(() => undefined);
+    expect(listPetPacks(petsDir)).toHaveLength(1);
+  });
+
+  it.each([
+    ["cellWidth 0", (m: Record<string, unknown>) => { (m.sheet as Record<string, unknown>).cellWidth = 0; }],
+    ["missing height", (m: Record<string, unknown>) => { delete (m.sheet as Record<string, unknown>).height; }],
+    ["string width", (m: Record<string, unknown>) => { (m.sheet as Record<string, unknown>).width = "1536"; }],
+    ["fractional cellHeight", (m: Record<string, unknown>) => { (m.sheet as Record<string, unknown>).cellHeight = 207.5; }],
+    ["incoherent grid", (m: Record<string, unknown>) => { (m.sheet as Record<string, unknown>).width = 1544; }],
+    ["sheet not an object", (m: Record<string, unknown>) => { m.sheet = "1536x1872"; }],
+    // Internally coherent grids that violate the codex-pet v1 domain
+    // contract (fixed 8x9, 16..1024px cells, derived-from-dimensions cells).
+    ["coherent but non-8x9 grid", (m: Record<string, unknown>) => {
+      m.sheet = { width: 1000, height: 1800, columns: 4, rows: 9, cellWidth: 250, cellHeight: 200 };
+    }],
+    ["coherent cells below the 16px domain minimum", (m: Record<string, unknown>) => {
+      m.sheet = { width: 64, height: 72, columns: 8, rows: 9, cellWidth: 8, cellHeight: 8 };
+    }],
+    ["coherent cells above the 1024px domain maximum", (m: Record<string, unknown>) => {
+      m.sheet = { width: 16384, height: 18432, columns: 8, rows: 9, cellWidth: 2048, cellHeight: 2048 };
+    }],
+    ["forged giant single-column grid", (m: Record<string, unknown>) => {
+      m.sheet = { width: 1000000000, height: 9000000000, columns: 1, rows: 9, cellWidth: 1000000000, cellHeight: 1000000000 };
+    }],
+    ["persisted cells that do not match the derived geometry", (m: Record<string, unknown>) => {
+      m.sheet = { width: 1536, height: 1872, columns: 8, rows: 9, cellWidth: 96, cellHeight: 104 };
+    }]
+  ])("skips a pack with malformed geometry: %s", (_label, mutate) => {
+    writeManifest(mutate);
+    expect(listPetPacks(petsDir)).toEqual([]);
+  });
+
+  it.each([
+    ["row out of range", (m: Record<string, unknown>) => { (m.animations as Record<string, unknown>[])[0].row = 9; }],
+    ["negative row", (m: Record<string, unknown>) => { (m.animations as Record<string, unknown>[])[0].row = -1; }],
+    ["fractional row", (m: Record<string, unknown>) => { (m.animations as Record<string, unknown>[])[0].row = 1.5; }],
+    ["frameCount 0", (m: Record<string, unknown>) => { (m.animations as Record<string, unknown>[])[0].frameCount = 0; }],
+    ["frameCount above columns", (m: Record<string, unknown>) => { (m.animations as Record<string, unknown>[])[0].frameCount = 9; }],
+    ["non-positive frame duration", (m: Record<string, unknown>) => { (m.animations as Record<string, unknown>[])[0].frameDurationMs = 0; }],
+    ["unknown animation key", (m: Record<string, unknown>) => { (m.animations as Record<string, unknown>[])[0].key = "backflip"; }],
+    ["duplicate animation keys", (m: Record<string, unknown>) => {
+      const animations = m.animations as Record<string, unknown>[];
+      animations[1] = { ...animations[0] };
+    }],
+    ["no idle animation", (m: Record<string, unknown>) => {
+      m.animations = (m.animations as Record<string, unknown>[]).filter(animation => animation.key !== "idle");
+      // Point the roles somewhere valid so ONLY the idle invariant fails.
+      const roles = m.roleDefaults as Record<string, unknown>;
+      roles.idle = "running";
+      roles.error = "failed";
+      roles.done = "jumping";
+    }],
+    ["role default references a missing animation", (m: Record<string, unknown>) => {
+      m.animations = (m.animations as Record<string, unknown>[]).filter(animation => animation.key !== "jumping");
+    }],
+    ["missing role default", (m: Record<string, unknown>) => { delete (m.roleDefaults as Record<string, unknown>).error; }],
+    ["path-y spritesheet file", (m: Record<string, unknown>) => { m.spritesheetFile = "../escape.webp"; }],
+    ["unsupported sheet extension", (m: Record<string, unknown>) => { m.spritesheetFile = "sheet.gif"; }]
+  ])("skips a pack with malformed animation or role data: %s", (_label, mutate) => {
+    writeManifest(mutate);
+    expect(listPetPacks(petsDir)).toEqual([]);
   });
 });
 

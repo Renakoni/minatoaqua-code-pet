@@ -17,7 +17,13 @@ const MIN_PERMISSION_SCALE = 0.85;
 const MAX_PERMISSION_SCALE = 1.25;
 const PET_BASE_WINDOW_HEIGHT = 300;
 const PET_EXPANDED_WINDOW_HEIGHT = 470;
-const PET_IMAGE_SIZE = 192;
+/**
+ * Display width of the pet image, and the image height the base window
+ * heights were tuned for. Spritesheet themes keep this width but may be
+ * taller (192x208 cells) — callers pass the theme's displayed image height
+ * so the window and bubble math track the real sprite.
+ */
+export const PET_IMAGE_SIZE = 192;
 const PET_BUBBLE_GAP = 12;
 const PET_WINDOW_BASE_WIDTH = 260;
 // Bubble content width at scale 1 (base window width minus the 12px side insets).
@@ -61,8 +67,8 @@ export function clampPermissionScale(value: unknown): number {
   return Math.max(MIN_PERMISSION_SCALE, Math.min(MAX_PERMISSION_SCALE, finiteNumber(value) ?? DEFAULT_PERMISSION_SCALE));
 }
 
-export function getPetBubbleBottom(scale: unknown): number {
-  return Math.round(PET_IMAGE_SIZE * clampPetScale(scale) + PET_BUBBLE_GAP);
+export function getPetBubbleBottom(scale: unknown, petImageHeight: number = PET_IMAGE_SIZE): number {
+  return Math.round(petImageHeight * clampPetScale(scale) + PET_BUBBLE_GAP);
 }
 
 // Window width grows so a scaled bubble stays fully visible. It tracks the wider
@@ -76,10 +82,17 @@ export function getPetWindowWidth(feedbackScale: unknown, permissionScale: unkno
 
 // `activeBubbleScale` is the currently shown bubble's scale (feedbackScale when
 // collapsed, permissionScale when expanded). Defaults to 1 so 2-arg callers keep
-// the pet-only sizing.
-export function getPetWindowHeight(scale: unknown, expanded: boolean, activeBubbleScale: unknown = DEFAULT_FEEDBACK_SCALE): number {
+// the pet-only sizing. `petImageHeight` is the active theme's displayed image
+// height; the growth term measures how far the scaled image exceeds the
+// PET_IMAGE_SIZE baseline the base window heights were tuned for.
+export function getPetWindowHeight(
+  scale: unknown,
+  expanded: boolean,
+  activeBubbleScale: unknown = DEFAULT_FEEDBACK_SCALE,
+  petImageHeight: number = PET_IMAGE_SIZE
+): number {
   const baseHeight = expanded ? PET_EXPANDED_WINDOW_HEIGHT : PET_BASE_WINDOW_HEIGHT;
-  const petGrowth = (clampPetScale(scale) - DEFAULT_PET_SCALE) * PET_IMAGE_SIZE;
+  const petGrowth = clampPetScale(scale) * petImageHeight - PET_IMAGE_SIZE;
   // Grow for an UPscaled bubble only — the base height already fits scale 1, and
   // a downscaled bubble needs no extra room. Use the estimate for the active mode.
   const bubbleMax = expanded ? PERMISSION_CARD_MAX_HEIGHT : STATUS_BUBBLE_MAX_HEIGHT;

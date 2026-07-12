@@ -1,6 +1,7 @@
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { createPetEvent, PetEvent, PetState } from "../shared/events";
 import {
+  PET_IMAGE_SIZE,
   clampFeedbackOpacity,
   clampFeedbackScale,
   clampPermissionScale,
@@ -13,6 +14,10 @@ import { Panel } from "./components/Panel";
 import { PermissionCard, type PermissionRequestView } from "./components/PermissionCard";
 import { Pet } from "./components/Pet";
 import { type PetAnimationKey } from "../shared/petAnimationKeys";
+import type { PetPackManifest } from "../shared/petPack";
+import { spritesheetAssetsFromPack } from "../shared/petPackAssets";
+import { packIdFromThemeId, resolveThemeCatalog } from "../shared/petThemeCatalog";
+import { displayedSpriteHeight } from "../shared/spriteFrame";
 import { type IdleAnimationConfig, planIdleAnimation, startIdleAnimator } from "./state/petIdleAnimator";
 import { nextPetState } from "./state/petStateMachine";
 
@@ -33,6 +38,7 @@ type PetDisplaySettings = {
   language?: "auto" | "zh" | "en";
   stateAnimations?: Record<string, string> | null;
   idleAnim?: IdleAnimationConfig | null;
+  petTheme?: string;
 };
 
 type PetCompanionApi = {
@@ -43,6 +49,7 @@ type PetCompanionApi = {
   onPermissionResolved?: (callback: (payload: { id: string }) => void) => () => void;
   respondPermission?: (response: { id: string; decision: "allow" | "deny"; reason?: string }) => Promise<void>;
   onPlaySound?: (callback: (dataUrl: string) => void) => () => void;
+  listPetPacks?: () => Promise<PetPackManifest[]>;
 };
 
 function petCompanion(): PetCompanionApi | undefined {
@@ -64,6 +71,8 @@ export default function App() {
   const [stateAnimations, setStateAnimations] = useState<Record<string, string>>({});
   const [idleAnimConfig, setIdleAnimConfig] = useState<IdleAnimationConfig | null>(null);
   const [idleAnimation, setIdleAnimation] = useState<PetAnimationKey | null>(null);
+  const [petTheme, setPetTheme] = useState<string>("");
+  const [petPacks, setPetPacks] = useState<PetPackManifest[]>([]);
   const [displayLanguage, setDisplayLanguage] = useState<"zh" | "en">(() => navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en");
   const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
   const resetTimer = useRef<number | null>(null);
@@ -138,6 +147,7 @@ export default function App() {
       const idleAnim = settings.idleAnim && typeof settings.idleAnim === "object" ? settings.idleAnim : null;
       setIdleAnimConfig(previous => JSON.stringify(previous) === JSON.stringify(idleAnim) ? previous : idleAnim);
       setDisplayLanguage(settings.language === "zh" || (settings.language === "auto" && navigator.language.toLowerCase().startsWith("zh")) ? "zh" : "en");
+      setPetTheme(typeof settings.petTheme === "string" ? settings.petTheme : "");
     };
     const initialSettings = companion?.getSettings?.();
     if (initialSettings) void initialSettings.then(applySettings);
@@ -216,6 +226,31 @@ export default function App() {
     if (notificationTimer.current) window.clearTimeout(notificationTimer.current);
   }, []);
 
+  // The active theme decides which animations exist and how states resolve.
+  // Installed packs are fetched when a pack theme becomes active; the theme
+  // falls back to the built-in until the pack list arrives.
+  useEffect(() => {
+    if (!packIdFromThemeId(petTheme)) {
+      setPetPacks([]);
+      return;
+    }
+    let cancelled = false;
+    void petCompanion()?.listPetPacks?.()
+      .then(packs => { if (!cancelled) setPetPacks(Array.isArray(packs) ? packs : []); })
+      .catch(() => { if (!cancelled) setPetPacks([]); });
+    return () => { cancelled = true; };
+  }, [petTheme]);
+
+  const themeCatalog = useMemo(() => resolveThemeCatalog(petTheme, petPacks), [petTheme, petPacks]);
+  const activePack = useMemo(() => {
+    const packId = packIdFromThemeId(petTheme);
+    return packId ? petPacks.find(pack => pack.id === packId) ?? null : null;
+  }, [petTheme, petPacks]);
+  const spritesheet = useMemo(() => activePack ? spritesheetAssetsFromPack(activePack) : null, [activePack]);
+  const petImageHeight = spritesheet
+    ? displayedSpriteHeight(spritesheet.cellWidth, spritesheet.cellHeight, PET_IMAGE_SIZE)
+    : PET_IMAGE_SIZE;
+
   const activePermission = permissions[0];
   const petState: PetState = activePermission ? "permission-prompt" : state;
 
@@ -227,15 +262,15 @@ export default function App() {
       setIdleAnimation(null);
       return;
     }
-    const plan = planIdleAnimation(idleAnimConfig);
+    const plan = planIdleAnimation(idleAnimConfig, themeCatalog);
     if (!plan) {
       setIdleAnimation(null);
       return;
     }
     return startIdleAnimator(plan, setIdleAnimation);
-  }, [petState, idleAnimConfig]);
+  }, [petState, idleAnimConfig, themeCatalog]);
 
-  const appStyle = { "--pet-bubble-bottom": `${getPetBubbleBottom(petDisplay.scale)}px` } as CSSProperties;
+  const appStyle = { "--pet-bubble-bottom": `${getPetBubbleBottom(petDisplay.scale, petImageHeight)}px` } as CSSProperties;
   const displayEvent = hideSensitiveContent && lastEvent ? redactDisplayEvent(lastEvent, displayLanguage) : lastEvent;
 
   return (
@@ -251,7 +286,7 @@ export default function App() {
       ) : (
         <Panel state={state} event={displayEvent} scale={petDisplay.feedbackScale} opacity={petDisplay.feedbackOpacity} />
       )}
-      <Pet state={petState} stateAnimations={stateAnimations} idleAnimation={idleAnimation} previewAnimation={previewAnimation} scale={petDisplay.scale} opacity={petDisplay.opacity} />
+      <Pet state={petState} stateAnimations={stateAnimations} idleAnimation={idleAnimation} previewAnimation={previewAnimation} scale={petDisplay.scale} opacity={petDisplay.opacity} catalog={themeCatalog} spritesheet={spritesheet} />
       {showDebugPanel && (
         <div className="debug-panel">
           <button onClick={() => applyDebugEvent(createPetEvent("idle", { title: "Idle" }))}>Idle</button>

@@ -185,7 +185,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 // The spritesheet reference must be a bare file name inside the package,
 // never a path, one of the two image formats the ecosystem uses, and not a
 // Windows-reserved basename (CON.webp cannot be used as a regular file).
-function isValidSpritesheetPath(value: string): boolean {
+// Exported because the store re-checks persisted manifests at read time.
+export function isValidSpritesheetFileName(value: string): boolean {
   if (value.includes("..")) return false;
   if (!/^[a-z0-9._-]+\.(webp|png)$/i.test(value)) return false;
   return !hasWindowsReservedBasename(value);
@@ -233,7 +234,7 @@ export function parseCodexPetManifest(value: unknown): PetPackResult<CodexPetMan
 
   let spritesheetPath = "spritesheet.webp";
   if (value.spritesheetPath !== undefined) {
-    if (typeof value.spritesheetPath !== "string" || !isValidSpritesheetPath(value.spritesheetPath)) {
+    if (typeof value.spritesheetPath !== "string" || !isValidSpritesheetFileName(value.spritesheetPath)) {
       problems.push({
         field: "spritesheetPath",
         message: "spritesheetPath must be a bare .webp or .png file name without path separators"

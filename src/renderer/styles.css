@@ -52,6 +52,14 @@ button {
   pointer-events: none;
 }
 
+/* Spritesheet themes render one sheet cell as a background window; size comes
+   from inline styles (cell aspect ratio at the pet's display width). */
+.pet-sprite {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  pointer-events: none;
+}
+
 /* === Pet bubbles ===
    Shared surface for every bubble floating above the character (the status
    Panel and the permission card). One matte-graphite material, hairline
