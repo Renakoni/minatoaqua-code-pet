@@ -241,7 +241,8 @@ describe("PetThemeGrid install by id", () => {
 
     await screen.findByRole("dialog");
     expect(companion.downloadPetPack).toHaveBeenCalledWith("boba");
-    expect(companion.inspectPetPack).toHaveBeenCalledWith("C:/downloads/boba.codex-pet.zip");
+    // The dialog's mount effect may flush a tick after the dialog appears.
+    await waitFor(() => expect(companion.inspectPetPack).toHaveBeenCalledWith("C:/downloads/boba.codex-pet.zip"));
   });
 
   it("maps download failure codes to localized notices", async () => {
