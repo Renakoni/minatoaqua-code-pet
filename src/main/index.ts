@@ -3043,6 +3043,27 @@ app.whenReady().then(() => {
     const [x, y] = petWindow.getPosition();
     petWindow.setPosition(x + delta.x, y + delta.y);
   });
+  // Pointer-captured pet drag. The renderer only pokes; the target position is
+  // anchored to the drag-start cursor and window bounds, both read here from
+  // the OS, so lost or delayed pokes can never make the pet drift. The bottom
+  // edge is the anchor because the character is bottom-pinned and the window
+  // height can change mid-drag (bubble expansion).
+  let petDragAnchor: { cursor: { x: number; y: number }; x: number; bottom: number } | null = null;
+  ipcMain.handle("companion:pet-drag-start", () => {
+    if (!petWindow) return;
+    const bounds = petWindow.getBounds();
+    petDragAnchor = { cursor: screen.getCursorScreenPoint(), x: bounds.x, bottom: bounds.y + bounds.height };
+  });
+  ipcMain.handle("companion:pet-drag-move", () => {
+    if (!petWindow || !petDragAnchor) return;
+    const cursor = screen.getCursorScreenPoint();
+    const height = petWindow.getBounds().height;
+    petWindow.setPosition(
+      Math.round(petDragAnchor.x + cursor.x - petDragAnchor.cursor.x),
+      Math.round(petDragAnchor.bottom + cursor.y - petDragAnchor.cursor.y - height)
+    );
+  });
+  ipcMain.handle("companion:pet-drag-end", () => { petDragAnchor = null; });
   ipcMain.handle("companion:respond-permission", (_, response: { id: string; decision?: string; reason?: string }) => {
     if (response.decision !== "allow" && response.decision !== "deny") return { ok: false };
     // The broker's onSettled records the stat, dismisses the card in both

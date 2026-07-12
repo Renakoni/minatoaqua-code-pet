@@ -2,8 +2,9 @@ import { PetState } from "../../shared/events";
 import { PetAnimationKey } from "../../shared/petAnimationKeys";
 import {
   MINATO_AQUA_CATALOG,
-  isCatalogAnimationKey,
+  isMappableCatalogAnimationKey,
   normalizeCatalogAnimationKey,
+  normalizeMappableAnimationKey,
   type PetThemeCatalog,
   type PetThemeRoleDefaults
 } from "../../shared/petThemeCatalog";
@@ -17,7 +18,11 @@ import {
 // that theme's default key, the user's mapping is applied on top, and a
 // temporary preview (the panel's animation test) always wins over all of it.
 // Every value is validated against the active catalog: a canonical key the
-// theme does not provide falls back exactly like an unknown string.
+// theme does not provide falls back exactly like an unknown string, and so
+// do the drag-only locomotion keys — they are not standalone actions, so
+// neither a mapping slot nor the idle rotation may land on them. Previews
+// (the panel's animation test) validate against the full catalog instead,
+// so every provided row stays testable.
 
 export type { PetAnimationKey } from "../../shared/petAnimationKeys";
 
@@ -46,12 +51,18 @@ export function resolvePetAnimation(
   // animation; the user's mapping is then applied on top of that base key,
   // mirroring the settings panel's preview semantics.
   const roleKey = catalog.roleDefaults[petStateRoles[state]];
-  const stateKey = state === "idle" && idleAnimation && isCatalogAnimationKey(catalog, idleAnimation)
+  const stateKey = state === "idle" && idleAnimation && isMappableCatalogAnimationKey(catalog, idleAnimation)
     ? idleAnimation
     : roleKey;
   // An invalid mapping value falls back to the state's default animation
-  // rather than breaking the pet.
-  const mappedKey = normalizeCatalogAnimationKey(catalog, stateAnimations?.[stateKey], stateKey);
+  // rather than breaking the pet. The idle slot is never remappable: idle is
+  // the universal fallback every sparse role collapses onto, so a mapping
+  // stored under it (stale settings, hand edits) would restyle the genuinely
+  // idle pet as well — the settings UI renders no idle row (stateMappingRows)
+  // and the value is ignored here, keeping both sides in agreement.
+  const mappedKey = stateKey === "idle"
+    ? stateKey
+    : normalizeMappableAnimationKey(catalog, stateAnimations?.[stateKey], stateKey);
   if (previewAnimation) {
     const animationKey = normalizeCatalogAnimationKey(catalog, previewAnimation.key, mappedKey);
     return { animationKey, imageKey: `${animationKey}:${previewAnimation.nonce}` };

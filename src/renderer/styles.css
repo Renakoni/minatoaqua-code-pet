@@ -14,7 +14,6 @@ body {
 }
 
 button {
-  -webkit-app-region: no-drag;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 999px;
   padding: 3px 7px;
@@ -30,9 +29,10 @@ button {
   display: grid;
   place-items: end center;
   background: transparent;
-  -webkit-app-region: drag;
 }
 
+/* Dragging is pointer-captured on the pet itself (App.tsx), not an OS drag
+   region — the drag direction has to drive the codex-pet locomotion rows. */
 .pet {
   width: 192px;
   height: 192px;
@@ -41,6 +41,7 @@ button {
   filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.25));
   transform-origin: bottom center;
   transition: opacity 160ms ease-out;
+  touch-action: none;
 }
 
 .pet img {
@@ -91,9 +92,10 @@ button {
   border-radius: 15px;
   color: rgba(245, 245, 247, 0.96);
   background: linear-gradient(180deg, rgba(30, 31, 36, 0.97), var(--surface-bottom));
-  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  /* No drop shadow: it reads as a dark halo around the bubble on light
+     wallpapers. The inset hairline is surface detail, not glow. */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(20px) saturate(1.05);
-  -webkit-app-region: no-drag;
 }
 
 /* --- shared bubble content (status panel + permission card) --- */
@@ -291,7 +293,6 @@ button {
   font-size: 12px;
   font-weight: 550;
   transition: background-color 130ms ease, border-color 130ms ease;
-  -webkit-app-region: no-drag;
 }
 
 .permission-actions button:active { transform: translateY(0.5px); }
@@ -328,7 +329,6 @@ button {
   gap: 4px;
   opacity: 0;
   transition: opacity 160ms ease;
-  -webkit-app-region: no-drag;
 }
 
 .app:hover .debug-panel {

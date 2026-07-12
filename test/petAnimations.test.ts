@@ -72,6 +72,12 @@ describe("resolvePetAnimation: action mapping reaches the real pet", () => {
     expect(resolvePetAnimation("idle", {}, null, "extra_action_5").animationKey).toBe("extra_action_5");
   });
 
+  it("ignores mappings stored under the idle slot", () => {
+    // idle is the universal fallback slot; there is no mapping row for it,
+    // so a persisted entry must not restyle the idle pet.
+    expect(resolvePetAnimation("idle", { idle: "extra_action_5" }, null).animationKey).toBe("idle");
+  });
+
   it("ignores an idle-rotation sprite outside the idle state", () => {
     expect(resolvePetAnimation("running", {}, null, "extra_action_5").animationKey).toBe("running");
     expect(resolvePetAnimation("permission-prompt", {}, null, "extra_action_5").animationKey).toBe("waiting_permission");
@@ -137,5 +143,19 @@ describe("resolvePetAnimation with an imported pack catalog", () => {
     const preview = resolvePetAnimation("idle", {}, { key: "extra_action_9", nonce: 5 }, null, packCatalog);
     expect(preview.animationKey).toBe("idle");
     expect(preview.imageKey).toBe("idle:5");
+  });
+
+  it("rejects drag-only locomotion keys in mapping slots and the idle rotation", () => {
+    // running_right/left are drag feedback in the codex-pet template, not
+    // standalone actions: a stationary state may never resolve to them.
+    expect(resolvePetAnimation("running", { running: "running_left" }, null, null, packCatalog).animationKey).toBe("running");
+    expect(resolvePetAnimation("completed", { jumping: "running_right" }, null, null, packCatalog).animationKey).toBe("jumping");
+    expect(resolvePetAnimation("idle", {}, null, "running_right", packCatalog).animationKey).toBe("idle");
+  });
+
+  it("still lets the animation test preview locomotion rows", () => {
+    const preview = resolvePetAnimation("idle", {}, { key: "running_left", nonce: 2 }, null, packCatalog);
+    expect(preview.animationKey).toBe("running_left");
+    expect(preview.imageKey).toBe("running_left:2");
   });
 });

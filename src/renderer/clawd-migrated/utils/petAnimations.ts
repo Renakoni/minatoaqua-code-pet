@@ -2,7 +2,8 @@ import type { PetState } from "../../shared/events";
 import { isPetAnimationKey, type PetAnimationKey } from "../../../shared/petAnimationKeys";
 import {
   MINATO_AQUA_CATALOG,
-  normalizeCatalogAnimationKeys,
+  mappableCatalogKeys,
+  normalizeMappableAnimationKeys,
   type PetThemeCatalog
 } from "../../../shared/petThemeCatalog";
 
@@ -41,6 +42,15 @@ export function petAnimationOptionsForCatalog(catalog: PetThemeCatalog): PetAnim
   return catalog.keys.map(key => ({ key, ...animationLabels[key] }));
 }
 
+/**
+ * Options usable as standalone actions (mapping slots, idle pool). The
+ * drag-only locomotion keys stay out — they are drag feedback in the
+ * codex-pet template, not actions; the Animation Test keeps the full list.
+ */
+export function petAnimationMappableOptionsForCatalog(catalog: PetThemeCatalog): PetAnimationOption[] {
+  return mappableCatalogKeys(catalog).map(key => ({ key, ...animationLabels[key] }));
+}
+
 // The panel currently always shows the built-in theme's options; the active
 // catalog gets threaded through with the theme picker UI.
 export const petAnimationOptions: PetAnimationOption[] = petAnimationOptionsForCatalog(MINATO_AQUA_CATALOG);
@@ -54,10 +64,11 @@ export function normalizeAnimationKey(value: string | null | undefined, fallback
 }
 
 export function normalizeAnimationKeys(values: string[] | undefined, catalog: PetThemeCatalog = MINATO_AQUA_CATALOG): PetAnimationKey[] {
-  // Validation only: invalid entries are dropped, never translated, and an
-  // empty result stays empty. An empty pool means rotation cannot run — the
-  // same rule for the settings UI, the panel preview, and the live pet.
-  return normalizeCatalogAnimationKeys(catalog, values);
+  // Validation only: invalid and drag-only entries are dropped, never
+  // translated, and an empty result stays empty. An empty pool means rotation
+  // cannot run — the same rule for the settings UI, the panel preview, and
+  // the live pet.
+  return normalizeMappableAnimationKeys(catalog, values);
 }
 
 // Toggle a sprite in the idle pool. The pool never drops below one sprite:

@@ -35,7 +35,7 @@ afterEach(() => {
 
 describe("imported-theme Animation page localization", () => {
   it("renders English copy end to end under the English locale", () => {
-    renderSection("en");
+    const view = renderSection("en");
     expect(screen.getByText("Pool")).toBeTruthy();
     expect(screen.getByText("Stop preview")).toBeTruthy();
     // The imported catalog's dedicated error mapping row.
@@ -44,6 +44,14 @@ describe("imported-theme Animation page localization", () => {
     // Pack vocabulary labels resolve to real English entries.
     expect(screen.getAllByText("Run right").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Dejected").length).toBeGreaterThan(0);
+    // Drag-only locomotion rows appear in the Animation Test grid only —
+    // the idle pool never offers them as standalone actions.
+    const poolGrid = view.container.querySelector(".idle-sprite-grid:not(.animation-test-grid)");
+    expect(poolGrid?.textContent).not.toContain("Run right");
+    expect(poolGrid?.textContent).toContain("Waving");
+    const testGrid = view.container.querySelector(".animation-test-grid");
+    expect(testGrid?.textContent).toContain("Run right");
+    expect(testGrid?.textContent).toContain("Run left");
   });
 
   it("renders Chinese copy under the Chinese locale", () => {

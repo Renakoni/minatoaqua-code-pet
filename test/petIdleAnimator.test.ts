@@ -68,6 +68,11 @@ describe("planIdleAnimation: config → runnable plan", () => {
     expect(planIdleAnimation(mixed)?.pool).toEqual(["idle", "extra_action_5"]);
     // A pool of purely foreign keys halts rotation, same as an empty pool.
     expect(planIdleAnimation({ ...baseConfig, selectedSprites: ["extra_action_5"] }, packCatalog)).toBeNull();
+    // Drag-only locomotion keys drop out of the pool exactly like foreign
+    // keys — a stationary idle pet must never walk in place.
+    expect(planIdleAnimation({ ...baseConfig, selectedSprites: ["running_left", "running_right", "waving"] }, packCatalog)?.pool)
+      .toEqual(["waving"]);
+    expect(planIdleAnimation({ ...baseConfig, selectedSprites: ["running_left"] }, packCatalog)).toBeNull();
   });
 });
 

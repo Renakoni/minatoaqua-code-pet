@@ -27,16 +27,27 @@ describe("stateMappingRowsFor", () => {
     expect(mappingRowMeta(rows[0], passthroughT)).not.toContain("错误");
   });
 
-  it("deduplicates sparse-pack role defaults so no two rows share a key", () => {
-    // Only idle, running-right, and waving rows exist: waiting_permission and
-    // error both collapse onto idle.
+  it("renders no editable row for roles that collapsed onto idle", () => {
+    // Only idle, running-right, and waving rows exist. running_right is drag
+    // feedback and never a role default, so running, waiting_permission, and
+    // error all collapse onto idle — and an idle-keyed row would let "remap
+    // Running" silently restyle the genuinely idle pet, so none is rendered.
     const sparseCatalog = catalogFromPetPack(makePackManifest([4, 6, 0, 5, 0, 0, 0, 0, 0]));
     const rows = stateMappingRowsFor(sparseCatalog);
-    const keys = rows.map(row => row.key);
-    expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).toEqual(["running_right", "idle", "waving"]);
-    const idleRow = rows.find(row => row.key === "idle");
-    expect(idleRow?.roles).toEqual(["waiting_permission", "error"]);
+    expect(rows.map(row => row.key)).toEqual(["waving"]);
+    expect(rows[0].roles).toEqual(["done"]);
+  });
+
+  it("never exposes a slot keyed by idle for any theme", () => {
+    const catalogs = [
+      MINATO_AQUA_CATALOG,
+      packCatalog,
+      catalogFromPetPack(makePackManifest([4, 6, 0, 5, 0, 0, 0, 0, 0])),
+      catalogFromPetPack(makePackManifest([4, 0, 0, 0, 0, 0, 0, 0, 0])) // idle-only pack: nothing to map
+    ];
+    for (const catalog of catalogs) {
+      expect(stateMappingRowsFor(catalog).some(row => row.key === "idle")).toBe(false);
+    }
   });
 });
 
@@ -56,7 +67,8 @@ describe("displayedMappingKey agrees with runtime resolution", () => {
       { catalog: MINATO_AQUA_CATALOG, mappings: { running: "extra_action_7", done: "extra_action_9" } },
       { catalog: MINATO_AQUA_CATALOG, mappings: { running: "jumping" } }, // foreign canonical key
       { catalog: packCatalog, mappings: { running: "waving", jumping: "review", failed: "waving" } },
-      { catalog: packCatalog, mappings: { running: "extra_action_5", failed: "bogus" } } // stale + junk
+      { catalog: packCatalog, mappings: { running: "extra_action_5", failed: "bogus" } }, // stale + junk
+      { catalog: packCatalog, mappings: { running: "running_left", jumping: "running_right" } } // drag-only keys
     ] as const;
 
     const stateForRole = { running: "running", waiting_permission: "permission-prompt", done: "completed", error: "error" } as const;
@@ -71,5 +83,17 @@ describe("displayedMappingKey agrees with runtime resolution", () => {
         }
       }
     }
+  });
+
+  it("ignores a stale idle-slot mapping everywhere it could leak", () => {
+    // Settings written by the old UI (or by hand) may still carry an idle
+    // entry. It must restyle neither the genuinely idle pet nor the sparse
+    // roles that collapsed onto idle — there is no UI slot for it anymore.
+    const sparseCatalog = catalogFromPetPack(makePackManifest([4, 6, 0, 5, 0, 0, 0, 0, 0]));
+    const stale = { idle: "waving" };
+    expect(resolvePetAnimation("idle", stale, null, null, sparseCatalog).animationKey).toBe("idle");
+    expect(resolvePetAnimation("running", stale, null, null, sparseCatalog).animationKey).toBe("idle");
+    expect(resolvePetAnimation("permission-prompt", stale, null, null, sparseCatalog).animationKey).toBe("idle");
+    expect(resolvePetAnimation("error", stale, null, null, sparseCatalog).animationKey).toBe("idle");
   });
 });

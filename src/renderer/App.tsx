@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPetEvent, PetEvent, PetState } from "../shared/events";
 import {
   PET_IMAGE_SIZE,
@@ -18,6 +18,7 @@ import type { PetPackManifest } from "../shared/petPack";
 import { spritesheetAssetsFromPack } from "../shared/petPackAssets";
 import { packIdFromThemeId, resolveThemeCatalog } from "../shared/petThemeCatalog";
 import { displayedSpriteHeight } from "../shared/spriteFrame";
+import { DRAG_SAMPLE_THRESHOLD_PX, dragAnimationForDirection, nextDragDirection, type DragDirection } from "./state/petDrag";
 import { type IdleAnimationConfig, planIdleAnimation, startIdleAnimator } from "./state/petIdleAnimator";
 import { nextPetState } from "./state/petStateMachine";
 
@@ -51,6 +52,9 @@ type PetCompanionApi = {
   onPlaySound?: (callback: (dataUrl: string) => void) => () => void;
   listPetPacks?: () => Promise<PetPackManifest[]>;
   onPetPacksChanged?: (callback: (payload: unknown) => void) => () => void;
+  startPetDrag?: () => Promise<void>;
+  movePetDrag?: () => Promise<void>;
+  endPetDrag?: () => Promise<void>;
 };
 
 function petCompanion(): PetCompanionApi | undefined {
@@ -276,6 +280,41 @@ export default function App() {
     return startIdleAnimator(plan, setIdleAnimation);
   }, [petState, idleAnimConfig, themeCatalog]);
 
+  // Pointer-captured drag replaces the old OS drag region: the window follows
+  // the cursor through a main-process anchor (main re-reads the true screen
+  // cursor per poke, so renderer event latency can never make the pet drift),
+  // while the per-sample horizontal direction drives the codex-pet locomotion
+  // rows. Samples below the reference player's 4px threshold update nothing,
+  // so micro-jitter cannot flip the animation.
+  const [dragDirection, setDragDirection] = useState<DragDirection | null>(null);
+  const dragPointer = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
+
+  function handlePetPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragPointer.current = { pointerId: event.pointerId, lastX: event.screenX, lastY: event.screenY };
+    void petCompanion()?.startPetDrag?.();
+  }
+
+  function handlePetPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragPointer.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    void petCompanion()?.movePetDrag?.();
+    const deltaX = event.screenX - drag.lastX;
+    const deltaY = event.screenY - drag.lastY;
+    if (Math.abs(deltaX) < DRAG_SAMPLE_THRESHOLD_PX && Math.abs(deltaY) < DRAG_SAMPLE_THRESHOLD_PX) return;
+    drag.lastX = event.screenX;
+    drag.lastY = event.screenY;
+    setDragDirection(current => nextDragDirection(current, deltaX, deltaY));
+  }
+
+  function handlePetPointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!dragPointer.current || event.pointerId !== dragPointer.current.pointerId) return;
+    dragPointer.current = null;
+    setDragDirection(null);
+    void petCompanion()?.endPetDrag?.();
+  }
+
   const appStyle = { "--pet-bubble-bottom": `${getPetBubbleBottom(petDisplay.scale, petImageHeight)}px` } as CSSProperties;
   const displayEvent = hideSensitiveContent && lastEvent ? redactDisplayEvent(lastEvent, displayLanguage) : lastEvent;
 
@@ -292,7 +331,23 @@ export default function App() {
       ) : (
         <Panel state={state} event={displayEvent} scale={petDisplay.feedbackScale} opacity={petDisplay.feedbackOpacity} />
       )}
-      <Pet state={petState} stateAnimations={stateAnimations} idleAnimation={idleAnimation} previewAnimation={previewAnimation} scale={petDisplay.scale} opacity={petDisplay.opacity} catalog={themeCatalog} spritesheet={spritesheet} />
+      <Pet
+        state={petState}
+        stateAnimations={stateAnimations}
+        idleAnimation={idleAnimation}
+        previewAnimation={previewAnimation}
+        dragAnimation={dragAnimationForDirection(themeCatalog, dragDirection)}
+        dragHandlers={{
+          onPointerDown: handlePetPointerDown,
+          onPointerMove: handlePetPointerMove,
+          onPointerUp: handlePetPointerEnd,
+          onPointerCancel: handlePetPointerEnd
+        }}
+        scale={petDisplay.scale}
+        opacity={petDisplay.opacity}
+        catalog={themeCatalog}
+        spritesheet={spritesheet}
+      />
       {showDebugPanel && (
         <div className="debug-panel">
           <button onClick={() => applyDebugEvent(createPetEvent("idle", { title: "Idle" }))}>Idle</button>
