@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, protocol, screen, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
 import { spawn } from "node:child_process";
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -31,6 +31,7 @@ import {
   type CcSwitchProvider
 } from "./ccSwitchStore";
 import { PermissionBroker, type PendingPermission, type PermissionPollResult } from "./permissionBroker";
+import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
 
 type DailyRuntimeStats = {
   events: number;
@@ -95,6 +96,13 @@ let updateStatus: UpdateStatus = {
   downloading: false
 };
 let companionSettings: Record<string, any> = createDefaultCompanionSettings();
+
+// pet-asset:// serves installed pet-pack spritesheets to the renderer. The
+// scheme must be registered before app ready; the handler is installed in
+// whenReady and only ever resolves files inside the pets directory.
+protocol.registerSchemesAsPrivileged([
+  { scheme: "pet-asset", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }
+]);
 
 if (!singleInstanceLock) {
   app.quit();
@@ -2358,6 +2366,10 @@ function settingsPath() {
   return join(app.getPath("userData"), "companion-settings.json");
 }
 
+function petPacksDir() {
+  return join(app.getPath("userData"), "pets");
+}
+
 function loadCompanionSettings() {
   try {
     if (existsSync(settingsPath())) {
@@ -2930,6 +2942,12 @@ app.whenReady().then(() => {
   loadCompanionSettings();
   loadRuntimeStats();
   watchCcSwitch(broadcastCcSwitchChanged);
+  protocol.handle("pet-asset", request => {
+    const filePath = resolvePetAssetPath(request.url, petPacksDir());
+    if (!filePath || !existsSync(filePath)) return new Response(null, { status: 404 });
+    const type = filePath.toLowerCase().endsWith(".png") ? "image/png" : "image/webp";
+    return new Response(readFileSync(filePath), { headers: { "content-type": type } });
+  });
   ipcMain.handle("pet:get-event-port", () => eventPort);
   ipcMain.handle("pet:get-snapshot", () => getSnapshot());
   ipcMain.handle("pet:minimize-panel", () => panelWindow?.minimize());
@@ -3065,6 +3083,22 @@ app.whenReady().then(() => {
     const error = await shell.openPath(app.getPath("userData"));
     return error ? { ok: false, error } : { ok: true };
   });
+  ipcMain.handle("companion:pet-pack-pick-file", async () => {
+    const options: Electron.OpenDialogOptions = {
+      properties: ["openFile"],
+      filters: [{ name: "Codex Pet Package", extensions: ["zip"] }]
+    };
+    const result = panelWindow && !panelWindow.isDestroyed()
+      ? await dialog.showOpenDialog(panelWindow, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+  ipcMain.handle("companion:pet-pack-inspect", (_, zipPath: string) => inspectPetPackZip(String(zipPath)));
+  ipcMain.handle("companion:pet-pack-install", (_, zipPath: string, rowFrameCounts: number[], packageSha256: string, overwrite?: boolean) =>
+    installPetPack(String(zipPath), Array.isArray(rowFrameCounts) ? rowFrameCounts.map(Number) : [], String(packageSha256 ?? ""), petPacksDir(), { overwrite: Boolean(overwrite) }));
+  ipcMain.handle("companion:pet-pack-list", () => listPetPacks(petPacksDir()));
+  ipcMain.handle("companion:pet-pack-remove", (_, id: string) => removePetPack(String(id), petPacksDir()));
   ipcMain.handle("companion:get-monitors", () => screen.getAllDisplays().map(display => ({ id: String(display.id), label: display.label || `Display ${display.id}`, bounds: display.bounds, workArea: display.workArea, scaleFactor: display.scaleFactor })));
   ipcMain.handle("companion:get-plugins", () => companionSettings.customPlugins);
   ipcMain.handle("companion:get-claude-resources", (_, force?: boolean) => getClaudeResourcesSnapshot(Boolean(force)));
