@@ -156,11 +156,7 @@
     "loadMore": "加载更多"
   },
   "timeline": {
-    "title": "会话时间轴",
-    "empty": "暂无会话数据",
-    "session": "会话",
     "duration": "时长",
-    "events": "事件数",
     "tools": "工具调用",
     "startTime": "开始时间",
     "endTime": "结束时间",
@@ -175,18 +171,11 @@
     "hint": "当 Claude Code 启动时自动唤醒本应用"
   },
   "stats": {
-    "totalSessions": "总会话数",
-    "totalToolCalls": "总工具调用",
     "errors": "错误次数",
     "totalRuntime": "累计运行",
     "activeDays": "活跃天数",
     "dailyAvg": "日均调用",
-    "todayOverview": "今日概览",
-    "todayEvents": "事件",
-    "todayToolCalls": "工具调用",
-    "todaySessions": "会话",
     "toolRanking": "工具使用排行",
-    "sessionStats": "会话统计",
     "permissionRequests": "权限请求",
     "approved": "已批准",
     "denied": "已拒绝",
