@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Download, ExternalLink, Plus, Trash2 } from "lucide-react";
+import { Download, ExternalLink, Plus, Terminal, Trash2 } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { SpritesheetSprite } from "../../../components/SpritesheetSprite";
 import minatoAquaCover from "../../../assets/themes/minato-aqua-cover.png";
 import type { PetPackManifest } from "../../../../shared/petPack";
 import { spritesheetAssetsFromPack } from "../../../../shared/petPackAssets";
+import { parsePetInstallCommand } from "../../../../shared/petInstallCommand";
 import { CODEX_PET_GALLERY_URL, type PetPackDownloadCode } from "../../../../shared/petPackTransport";
 import { BUILTIN_PET_THEME_ID, packIdFromThemeId } from "../../../../shared/petThemeCatalog";
 import { displayedSpriteHeight } from "../../../../shared/spriteFrame";
@@ -39,9 +40,10 @@ export function PetThemeGrid({ activeThemeId, petPacks, onSelectTheme, refreshPe
   // (filesystem errors, cleanup warnings) are technical detail only.
   const [notice, setNotice] = useState<{ headline: string; detail?: string } | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
-  // One-click gallery install: slug input, single in-flight download, and
-  // the attribution the dialog shows for a downloaded package.
-  const [downloadSlug, setDownloadSlug] = useState("");
+  // One-click gallery install: the pasted install command (or a bare slug),
+  // a single in-flight download, and the attribution the dialog shows for a
+  // downloaded package. The command is parsed, never executed.
+  const [installCommand, setInstallCommand] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState<number | null>(null);
   const [downloadedAttribution, setDownloadedAttribution] = useState<{ galleryUrl: string; creator: string } | null>(null);
@@ -62,19 +64,27 @@ export function PetThemeGrid({ activeThemeId, petPacks, onSelectTheme, refreshPe
     return t("petImport.errNetwork", "下载失败，请检查网络");
   }
 
-  async function beginInstallBySlug() {
-    const slug = downloadSlug.trim();
-    if (!slug || downloading) return;
+  async function beginInstallFromCommand() {
+    if (!installCommand.trim() || downloading) return;
+    const parsed = parsePetInstallCommand(installCommand);
+    if (!parsed.ok) {
+      const headline = parsed.code === "unsupported-installer"
+        ? t("petImport.errUnsupportedInstaller", "暂不支持 {installer} 安装器，目前仅支持 codex-pet.org 的命令").split("{installer}").join(parsed.installer ?? "")
+        : t("petImport.errUnrecognizedCommand", "无法识别该命令，请粘贴宠物页面上的安装命令，例如 npx codex-pet-installer add happy-dog");
+      setNotice({ headline });
+      setStatusMessage(headline);
+      return;
+    }
     setDownloading(true);
     setDownloadPercent(null);
     setNotice(null);
     setStatusMessage(t("petImport.downloading", "下载中…"));
     try {
-      const result = await window.companion.downloadPetPack(slug);
+      const result = await window.companion.downloadPetPack(parsed.slug);
       if (result.ok) {
         setDownloadedAttribution({ galleryUrl: result.galleryUrl, creator: result.creator });
         setImportZipPath(result.zipPath);
-        setDownloadSlug("");
+        setInstallCommand("");
         setStatusMessage("");
       } else {
         setNotice({ headline: downloadFailureHeadline(result.code), detail: result.detail });
@@ -157,13 +167,30 @@ export function PetThemeGrid({ activeThemeId, petPacks, onSelectTheme, refreshPe
     }
   }
 
+  // Downloaded archives are lifecycle-owned temp files: discard them when
+  // the import finishes or is dismissed. File-picked zips belong to the
+  // user and are never deleted (main confines deletion to pet-downloads
+  // regardless).
+  function discardDownloadedArchive() {
+    if (downloadedAttribution && importZipPath) {
+      void window.companion.discardPetPackDownload(importZipPath);
+    }
+  }
+
   function handleImported(themeId: string, warning?: string) {
+    discardDownloadedArchive();
     setImportZipPath(null);
     setDownloadedAttribution(null);
     setNotice(warning ? { headline: t("petImport.installedWithWarning", "已安装，但有警告"), detail: warning } : null);
     setStatusMessage(warning ? t("petImport.installedWithWarning", "已安装，但有警告") : t("petImport.installedStatus", "已安装"));
     refreshPetPacks();
     onSelectTheme(themeId);
+  }
+
+  function handleDialogClosed() {
+    discardDownloadedArchive();
+    setImportZipPath(null);
+    setDownloadedAttribution(null);
   }
 
   return (
@@ -214,20 +241,24 @@ export function PetThemeGrid({ activeThemeId, petPacks, onSelectTheme, refreshPe
         </button>
       </div>
       <div className="pet-install-by-id">
-        <input
-          type="text"
-          value={downloadSlug}
-          onChange={event => setDownloadSlug(event.target.value)}
-          onKeyDown={event => { if (event.key === "Enter") void beginInstallBySlug(); }}
-          placeholder={t("petImport.idPlaceholder", "例如 happy-dog")}
-          aria-label={t("petImport.installById", "按 ID 安装")}
-          disabled={downloading}
-        />
+        <span className="pet-install-command">
+          <Terminal size={13} aria-hidden="true" />
+          <input
+            type="text"
+            value={installCommand}
+            onChange={event => setInstallCommand(event.target.value)}
+            onKeyDown={event => { if (event.key === "Enter") void beginInstallFromCommand(); }}
+            placeholder={t("petImport.commandPlaceholder", "npx codex-pet-installer add happy-dog")}
+            aria-label={t("petImport.installCommand", "安装命令")}
+            disabled={downloading}
+            spellCheck={false}
+          />
+        </span>
         <button
           type="button"
           className="pet-install-by-id-get"
-          onClick={() => void beginInstallBySlug()}
-          disabled={downloading || !downloadSlug.trim()}
+          onClick={() => void beginInstallFromCommand()}
+          disabled={downloading || !installCommand.trim()}
         >
           <Download size={13} />
           {downloading
@@ -257,7 +288,7 @@ export function PetThemeGrid({ activeThemeId, petPacks, onSelectTheme, refreshPe
           zipPath={importZipPath}
           galleryUrl={downloadedAttribution?.galleryUrl}
           creator={downloadedAttribution?.creator}
-          onClose={() => { setImportZipPath(null); setDownloadedAttribution(null); }}
+          onClose={handleDialogClosed}
           onInstalled={handleImported}
         />
       ) : null}

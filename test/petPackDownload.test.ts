@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { downloadPetPack } from "../src/main/petPackDownload";
+import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "../src/main/petPackDownload";
 import { inspectPetPackZip } from "../src/main/petPackStore";
 import { makeVp8lHeader } from "./helpers/imageFixtures";
 
@@ -151,6 +151,41 @@ describe("downloadPetPack", () => {
       })).impl
     });
     expect(streamed).toMatchObject({ ok: false, code: "too-large" });
+  });
+
+  it("discards downloaded archives, hard-confined to the downloads directory", async () => {
+    const { impl } = makeFetch(happyRoutes());
+    const result = await downloadPetPack("boba", downloadsDir, { fetchImpl: impl });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // A user-selected zip elsewhere must never be deletable through this
+    // endpoint, even via traversal.
+    const userDir = mkdtempSync(join(tmpdir(), "user-zips-"));
+    const userZip = join(userDir, "precious.codex-pet.zip");
+    writeFileSync(userZip, "user data");
+    expect(discardDownloadedPetPack(userZip, downloadsDir)).toEqual({ ok: false });
+    expect(discardDownloadedPetPack(join(downloadsDir, "..", "escape.zip"), downloadsDir)).toEqual({ ok: false });
+    expect(existsSync(userZip)).toBe(true);
+
+    // The downloaded archive itself is removed.
+    expect(discardDownloadedPetPack(result.zipPath, downloadsDir)).toEqual({ ok: true });
+    expect(existsSync(result.zipPath)).toBe(false);
+    rmSync(userDir, { recursive: true, force: true });
+  });
+
+  it("wipes crash leftovers at startup and downloads fine afterwards", async () => {
+    mkdirSync(downloadsDir, { recursive: true });
+    const leftover = join(downloadsDir, "stale.codex-pet.zip");
+    writeFileSync(leftover, "leftover");
+    cleanupPetDownloads(downloadsDir);
+    expect(existsSync(leftover)).toBe(false);
+
+    // The directory is recreated on demand by the next download.
+    const { impl } = makeFetch(happyRoutes());
+    const result = await downloadPetPack("boba", downloadsDir, { fetchImpl: impl });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(existsSync(result.zipPath)).toBe(true);
   });
 
   it("rejects unusable downloaded manifests", async () => {

