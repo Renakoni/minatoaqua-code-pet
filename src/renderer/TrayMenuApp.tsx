@@ -30,6 +30,7 @@ type TrayMenuAction = "toggle-pet" | "toggle-panel" | "quit" | "close";
 type TrayCompanionApi = {
   onTrayMenuState?: (callback: (state: TrayMenuState) => void) => () => void;
   trayMenuReady?: () => Promise<TrayMenuState | null | undefined>;
+  trayMenuRendered?: () => Promise<void>;
   trayMenuAction?: (action: TrayMenuAction) => Promise<void>;
 };
 
@@ -74,10 +75,26 @@ export default function TrayMenuApp() {
   }, []);
 
   // Every (re)open pushes a fresh state object: park focus on the container
-  // so keys work immediately but no item reads as preselected.
+  // so keys work immediately but no item reads as preselected, then tell
+  // main once the frame is painted — main keeps the window hidden until
+  // then, so a reopen can never flash evicted or stale pixels. Two frames:
+  // the first schedules after commit, the second runs after the paint.
+  // (backgroundThrottling is off for this window, so frames run while it is
+  // still hidden.)
   useEffect(() => {
     if (!state) return;
     menuRef.current?.focus();
+    const schedule: (callback: () => void) => number | ReturnType<typeof setTimeout> =
+      typeof requestAnimationFrame === "function" ? requestAnimationFrame : callback => setTimeout(callback, 16);
+    const cancel = typeof requestAnimationFrame === "function" ? cancelAnimationFrame : clearTimeout;
+    let second: number | ReturnType<typeof setTimeout> | null = null;
+    const first = schedule(() => {
+      second = schedule(() => void trayCompanion()?.trayMenuRendered?.());
+    });
+    return () => {
+      cancel(first as never);
+      if (second !== null) cancel(second as never);
+    };
   }, [state]);
 
   if (!state) return null;

@@ -7,6 +7,7 @@ import TrayMenuApp, { resolveTrayLocale, type TrayMenuState } from "../src/rende
 let pushState: (state: TrayMenuState) => void;
 let trayMenuAction: ReturnType<typeof vi.fn>;
 let trayMenuReady: ReturnType<typeof vi.fn>;
+let trayMenuRendered: ReturnType<typeof vi.fn>;
 
 function baseState(overrides: Partial<TrayMenuState> = {}): TrayMenuState {
   return { petVisible: true, panelVisible: false, petEnabled: true, dark: true, language: "zh", ...overrides };
@@ -15,12 +16,14 @@ function baseState(overrides: Partial<TrayMenuState> = {}): TrayMenuState {
 function installCompanion(readyResult: TrayMenuState | null) {
   trayMenuAction = vi.fn(async () => undefined);
   trayMenuReady = vi.fn(async () => readyResult);
+  trayMenuRendered = vi.fn(async () => undefined);
   Reflect.set(window, "companion", {
     onTrayMenuState: (callback: (state: TrayMenuState) => void) => {
       pushState = state => act(() => callback(state));
       return () => undefined;
     },
     trayMenuReady,
+    trayMenuRendered,
     trayMenuAction
   });
 }
@@ -91,6 +94,16 @@ describe("TrayMenuApp state flow", () => {
     pushState(baseState());
     fireEvent.keyDown(window, { key: "Escape" });
     expect(trayMenuAction).toHaveBeenCalledWith("close");
+  });
+
+  it("reports every fresh state as painted so main can un-hide the window", async () => {
+    // Main keeps the popup hidden until this signal: showing earlier flashes
+    // evicted/stale frames on every reopen (the second-open flicker).
+    render(<TrayMenuApp />);
+    pushState(baseState());
+    await waitFor(() => expect(trayMenuRendered).toHaveBeenCalledTimes(1));
+    pushState(baseState({ petVisible: false }));
+    await waitFor(() => expect(trayMenuRendered).toHaveBeenCalledTimes(2));
   });
 
   it("uses dark and light surfaces per the OS theme", () => {

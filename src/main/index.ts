@@ -400,12 +400,43 @@ const TRAY_MENU_HEIGHT = 148;
 let trayMenuRendererReady = false;
 let trayMenuShowPending = false;
 let trayMenuBlurHideTimer: ReturnType<typeof setTimeout> | null = null;
+// Present-on-painted: the window is only revealed once the renderer reports
+// the fresh state committed AND painted, so it can never appear with evicted
+// or stale pixels. The fallback timer guarantees a reveal even if the paint
+// signal is lost — worst case equals the old behavior, never a stuck menu.
+let trayMenuPresentPending = false;
+let trayMenuPresentFallback: ReturnType<typeof setTimeout> | null = null;
+// Logical open state. After its first show the window is never OS-hidden
+// again — "closed" is opacity 0 + click-through. hide() lets Chromium mark
+// the window occluded and evict its GPU surface, and the next show() then
+// presents a blank/stale surface for a frame (the reopen flicker); an
+// alpha-hidden window keeps compositing, so reopening is an atomic reveal.
+let trayMenuOpen = false;
 
 function cancelTrayMenuBlurHide() {
   if (trayMenuBlurHideTimer !== null) {
     clearTimeout(trayMenuBlurHideTimer);
     trayMenuBlurHideTimer = null;
   }
+}
+
+function cancelTrayMenuPresent() {
+  trayMenuPresentPending = false;
+  if (trayMenuPresentFallback !== null) {
+    clearTimeout(trayMenuPresentFallback);
+    trayMenuPresentFallback = null;
+  }
+}
+
+function completeTrayMenuPresent() {
+  if (!trayMenuPresentPending) return;
+  cancelTrayMenuPresent();
+  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+  trayMenuOpen = true;
+  trayMenuWindow.setIgnoreMouseEvents(false);
+  trayMenuWindow.setOpacity(1);
+  if (!trayMenuWindow.isVisible()) trayMenuWindow.show();
+  trayMenuWindow.focus();
 }
 
 function trayMenuState() {
@@ -439,7 +470,13 @@ function createTrayMenuWindow() {
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // The popup paints WHILE HIDDEN: after a hide, Chromium treats the
+      // window as occluded and evicts its frames, so a plain show() flashes
+      // stale/empty pixels before the repaint lands (the reopen flicker).
+      // With throttling off, the renderer keeps compositing and the
+      // rendered-handshake below can complete before the window is shown.
+      backgroundThrottling: false
     }
   });
 
@@ -467,7 +504,9 @@ function createTrayMenuWindow() {
   });
   trayMenuWindow.on("closed", () => {
     cancelTrayMenuBlurHide();
+    cancelTrayMenuPresent();
     trayMenuWindow = null;
+    trayMenuOpen = false;
     trayMenuRendererReady = false;
     trayMenuShowPending = false;
   });
@@ -475,13 +514,23 @@ function createTrayMenuWindow() {
 
 function hideTrayMenu() {
   cancelTrayMenuBlurHide();
-  if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) trayMenuWindow.hide();
+  // A hide always wins over an in-flight presentation: a late paint signal
+  // must not pop the menu back open.
+  cancelTrayMenuPresent();
+  if (!trayMenuOpen) return;
+  trayMenuOpen = false;
+  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+  // Alpha-hide, never hide(): see trayMenuOpen. Click-through while
+  // invisible, and hand focus back in case we still hold it (Escape path).
+  trayMenuWindow.setOpacity(0);
+  trayMenuWindow.setIgnoreMouseEvents(true);
+  trayMenuWindow.blur();
 }
 
-// Position at the CURRENT cursor, push fresh state, show. Only called once
-// the renderer is known to be listening. When the menu is already visible
-// (right-click while open), this refreshes it in place — show() is a no-op —
-// so the menu "snaps" without ever disappearing.
+// Position at the CURRENT cursor, push fresh state — the window becomes
+// visible in the rendered handshake, once those pixels exist. When the menu
+// is already visible (right-click while open), the refresh happens in place
+// and the show is a no-op, so the menu never disappears.
 function presentTrayMenu() {
   cancelTrayMenuBlurHide();
   if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
@@ -489,9 +538,10 @@ function presentTrayMenu() {
   const workArea = screen.getDisplayNearestPoint(cursor).workArea;
   const position = trayMenuPosition(cursor, { width: TRAY_MENU_WIDTH, height: TRAY_MENU_HEIGHT }, workArea);
   trayMenuWindow.setPosition(position.x, position.y);
+  trayMenuPresentPending = true;
+  if (trayMenuPresentFallback !== null) clearTimeout(trayMenuPresentFallback);
+  trayMenuPresentFallback = setTimeout(completeTrayMenuPresent, 150);
   trayMenuWindow.webContents.send("companion:tray-menu-state", trayMenuState());
-  trayMenuWindow.show();
-  trayMenuWindow.focus();
 }
 
 function showTrayMenu() {
@@ -3154,6 +3204,9 @@ app.whenReady().then(() => {
     // The handshake doubles as the pull path: the renderer renders from this
     // result even if a push was emitted before it subscribed.
     return trayMenuState();
+  });
+  ipcMain.handle("companion:tray-menu-rendered", () => {
+    completeTrayMenuPresent();
   });
   ipcMain.handle("companion:tray-menu-action", (_, action: string) => {
     hideTrayMenu();
