@@ -37,7 +37,7 @@ import { PermissionBroker, type PendingPermission, type PermissionPollResult } f
 import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
-import { trayMenuPosition } from "./trayMenuPosition";
+import { pointInBounds, trayMenuPosition } from "./trayMenuPosition";
 
 type DailyRuntimeStats = {
   events: number;
@@ -399,6 +399,14 @@ const TRAY_MENU_HEIGHT = 148;
 // handshake, and a right-click that lands earlier is queued.
 let trayMenuRendererReady = false;
 let trayMenuShowPending = false;
+let trayMenuBlurHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelTrayMenuBlurHide() {
+  if (trayMenuBlurHideTimer !== null) {
+    clearTimeout(trayMenuBlurHideTimer);
+    trayMenuBlurHideTimer = null;
+  }
+}
 
 function trayMenuState() {
   return {
@@ -441,9 +449,24 @@ function createTrayMenuWindow() {
   trayMenuWindow.webContents.on("did-start-loading", () => {
     trayMenuRendererReady = false;
   });
-  // A popup menu's contract: clicking anywhere else dismisses it.
-  trayMenuWindow.on("blur", hideTrayMenu);
+  // A popup menu's contract: clicking anywhere else dismisses it. But a blur
+  // caused by clicking the app's OWN tray icon is not "clicking away" — the
+  // mousedown blurs the popup before the tray event fires, and hiding here
+  // made the incoming right-click close-then-reopen the menu (a visible
+  // flicker). For that case the hide is deferred: the tray event that
+  // follows either refreshes the menu in place (right-click) or hides it
+  // (left-click); the timer only fires if no tray event arrives at all
+  // (mousedown dragged off the icon).
+  trayMenuWindow.on("blur", () => {
+    if (tray && pointInBounds(screen.getCursorScreenPoint(), tray.getBounds())) {
+      cancelTrayMenuBlurHide();
+      trayMenuBlurHideTimer = setTimeout(hideTrayMenu, 300);
+      return;
+    }
+    hideTrayMenu();
+  });
   trayMenuWindow.on("closed", () => {
+    cancelTrayMenuBlurHide();
     trayMenuWindow = null;
     trayMenuRendererReady = false;
     trayMenuShowPending = false;
@@ -451,12 +474,16 @@ function createTrayMenuWindow() {
 }
 
 function hideTrayMenu() {
+  cancelTrayMenuBlurHide();
   if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) trayMenuWindow.hide();
 }
 
 // Position at the CURRENT cursor, push fresh state, show. Only called once
-// the renderer is known to be listening.
+// the renderer is known to be listening. When the menu is already visible
+// (right-click while open), this refreshes it in place — show() is a no-op —
+// so the menu "snaps" without ever disappearing.
 function presentTrayMenu() {
+  cancelTrayMenuBlurHide();
   if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
   const cursor = screen.getCursorScreenPoint();
   const workArea = screen.getDisplayNearestPoint(cursor).workArea;
@@ -485,7 +512,12 @@ function createTray() {
   tray = new Tray(trayIcon);
   tray.setToolTip("Claude Codex Pet is running");
 
-  tray.on("click", showPetWindow);
+  tray.on("click", () => {
+    // A left-click while the menu is open (its deferred blur-hide pending)
+    // dismisses the menu, then toggles the pet as usual.
+    hideTrayMenu();
+    showPetWindow();
+  });
   tray.on("right-click", showTrayMenu);
 }
 

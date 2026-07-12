@@ -29,6 +29,9 @@ body {
   background: rgba(38, 38, 42, 0.98);
   color: rgba(245, 245, 247, 0.95);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  /* Focus parks here between key/pointer interactions; the card itself must
+     never render a focus ring. */
+  outline: none;
 }
 
 .tray-menu.light {
@@ -51,14 +54,15 @@ body {
   cursor: pointer;
 }
 
-.tray-menu button:hover:not(:disabled),
-.tray-menu button:focus-visible {
+/* Single highlight source: the focused item. The pointer focuses the item
+   under it (component), so hover and keyboard never show two highlights and
+   nothing looks preselected when the menu opens. */
+.tray-menu button:focus {
   background: rgba(255, 255, 255, 0.09);
   outline: none;
 }
 
-.tray-menu.light button:hover:not(:disabled),
-.tray-menu.light button:focus-visible {
+.tray-menu.light button:focus {
   background: rgba(0, 0, 0, 0.07);
 }
 

@@ -21,6 +21,18 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/** Whether a screen point lies inside a bounds rect (empty rects match nothing). */
+export function pointInBounds(point: TrayMenuPoint, bounds: TrayMenuWorkArea): boolean {
+  return (
+    bounds.width > 0 &&
+    bounds.height > 0 &&
+    point.x >= bounds.x &&
+    point.x < bounds.x + bounds.width &&
+    point.y >= bounds.y &&
+    point.y < bounds.y + bounds.height
+  );
+}
+
 export function trayMenuPosition(
   cursor: TrayMenuPoint,
   size: { width: number; height: number },

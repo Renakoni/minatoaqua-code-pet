@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { trayMenuPosition } from "../src/main/trayMenuPosition";
+import { pointInBounds, trayMenuPosition } from "../src/main/trayMenuPosition";
 
 const SIZE = { width: 208, height: 148 };
 // A 1920x1032 work area: a bottom taskbar owns the remaining 48px.
@@ -32,5 +32,23 @@ describe("trayMenuPosition", () => {
   it("never exceeds the bottom of the work area", () => {
     const position = trayMenuPosition({ x: 960, y: 5000 }, SIZE, WORK_AREA);
     expect(position.y).toBe(WORK_AREA.height - SIZE.height - 4);
+  });
+});
+
+describe("pointInBounds", () => {
+  // Used to tell "the popup blurred because our own tray icon was clicked"
+  // from a genuine click-away — the flicker fix depends on it.
+  const trayIcon = { x: 1500, y: 1040, width: 24, height: 24 };
+
+  it("matches points inside and on the leading edges only", () => {
+    expect(pointInBounds({ x: 1500, y: 1040 }, trayIcon)).toBe(true);
+    expect(pointInBounds({ x: 1512, y: 1052 }, trayIcon)).toBe(true);
+    expect(pointInBounds({ x: 1524, y: 1052 }, trayIcon)).toBe(false); // exclusive right edge
+    expect(pointInBounds({ x: 1499, y: 1052 }, trayIcon)).toBe(false);
+    expect(pointInBounds({ x: 1512, y: 1064 }, trayIcon)).toBe(false); // exclusive bottom edge
+  });
+
+  it("matches nothing for an empty rect (tray bounds unavailable)", () => {
+    expect(pointInBounds({ x: 0, y: 0 }, { x: 0, y: 0, width: 0, height: 0 })).toBe(false);
   });
 });

@@ -10,10 +10,12 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 // can never show an empty popup (renderer sends are not buffered, and the
 // app mounts via dynamic import after did-finish-load).
 //
-// Keyboard: the ARIA menu contract this popup declares — the first enabled
-// item is focused when the menu opens, ArrowUp/ArrowDown rove with
-// wraparound, Home/End jump, Enter/Space activate, disabled items are
-// skipped, Escape closes.
+// Keyboard: the ARIA menu contract this popup declares — ArrowUp/ArrowDown
+// rove with wraparound, Home/End jump, Enter/Space activate, disabled items
+// are skipped, Escape closes. Like a native pointer-opened menu, NOTHING is
+// preselected on open: focus rests on the menu container (so no item looks
+// active) and the highlight has a single source — the pointer focuses the
+// item under it, the first ArrowDown/ArrowUp focuses the first/last item.
 
 export interface TrayMenuState {
   petVisible: boolean;
@@ -47,6 +49,7 @@ export function resolveTrayLocale(language: string | undefined, navigatorLanguag
 
 export default function TrayMenuApp() {
   const [state, setState] = useState<TrayMenuState | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const itemsRef = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
@@ -70,10 +73,11 @@ export default function TrayMenuApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // Every (re)open pushes a fresh state object: focus the first enabled item.
+  // Every (re)open pushes a fresh state object: park focus on the container
+  // so keys work immediately but no item reads as preselected.
   useEffect(() => {
     if (!state) return;
-    itemsRef.current.find(item => item && !item.disabled)?.focus();
+    menuRef.current?.focus();
   }, [state]);
 
   if (!state) return null;
@@ -106,8 +110,20 @@ export default function TrayMenuApp() {
     event.preventDefault();
   }
 
+  // The pointer moves the single highlight, exactly like a native menu: the
+  // hovered item takes focus, and leaving the menu parks focus back on the
+  // container so no stale highlight lingers.
+  const focusOnHover = (event: { currentTarget: HTMLButtonElement }) => event.currentTarget.focus();
+
   return (
-    <div className={`tray-menu ${state.dark ? "dark" : "light"}`} role="menu" onKeyDown={handleMenuKeyDown}>
+    <div
+      className={`tray-menu ${state.dark ? "dark" : "light"}`}
+      role="menu"
+      tabIndex={-1}
+      ref={menuRef}
+      onKeyDown={handleMenuKeyDown}
+      onMouseLeave={() => menuRef.current?.focus()}
+    >
       <button
         type="button"
         role="menuitem"
@@ -115,6 +131,7 @@ export default function TrayMenuApp() {
         ref={item => { itemsRef.current[0] = item; }}
         disabled={!state.petEnabled}
         onClick={send("toggle-pet")}
+        onMouseEnter={focusOnHover}
       >
         {state.petVisible ? copy.hidePet : copy.showPet}
       </button>
@@ -124,6 +141,7 @@ export default function TrayMenuApp() {
         tabIndex={-1}
         ref={item => { itemsRef.current[1] = item; }}
         onClick={send("toggle-panel")}
+        onMouseEnter={focusOnHover}
       >
         {state.panelVisible ? copy.hidePanel : copy.showPanel}
       </button>
@@ -134,6 +152,7 @@ export default function TrayMenuApp() {
         tabIndex={-1}
         ref={item => { itemsRef.current[2] = item; }}
         onClick={send("quit")}
+        onMouseEnter={focusOnHover}
       >
         {copy.quit}
       </button>

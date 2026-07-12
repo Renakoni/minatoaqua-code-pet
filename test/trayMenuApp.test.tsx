@@ -110,15 +110,30 @@ describe("TrayMenuApp keyboard navigation", () => {
     return screen.getByRole("menuitem", { name }) as HTMLButtonElement;
   }
 
-  it("focuses the first enabled item when the menu opens", () => {
-    render(<TrayMenuApp />);
+  it("preselects nothing on open: focus parks on the menu container", () => {
+    const view = render(<TrayMenuApp />);
     pushState(baseState({ language: "en" }));
-    expect(document.activeElement).toBe(item("Hide pet"));
+    // Like a native pointer-opened menu, no item may look active until the
+    // user hovers or presses a key.
+    expect(document.activeElement).toBe(menu(view));
   });
 
-  it("skips a disabled pet item for the initial focus and while roving", () => {
+  it("moves focus to the first/last enabled item on the first arrow press", () => {
+    const view = render(<TrayMenuApp />);
+    pushState(baseState({ language: "en" }));
+    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
+    expect(document.activeElement).toBe(item("Hide pet"));
+
+    pushState(baseState({ language: "en" })); // fresh open re-parks focus
+    expect(document.activeElement).toBe(menu(view));
+    fireEvent.keyDown(menu(view), { key: "ArrowUp" });
+    expect(document.activeElement).toBe(item("Quit"));
+  });
+
+  it("skips a disabled pet item while roving", () => {
     const view = render(<TrayMenuApp />);
     pushState(baseState({ language: "en", petEnabled: false }));
+    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
     expect(document.activeElement).toBe(item("Show panel"));
     fireEvent.keyDown(menu(view), { key: "ArrowDown" });
     expect(document.activeElement).toBe(item("Quit"));
@@ -130,6 +145,7 @@ describe("TrayMenuApp keyboard navigation", () => {
   it("roves with wraparound in both directions", () => {
     const view = render(<TrayMenuApp />);
     pushState(baseState({ language: "en" }));
+    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
     fireEvent.keyDown(menu(view), { key: "ArrowUp" });
     expect(document.activeElement).toBe(item("Quit")); // wrap from first to last
     fireEvent.keyDown(menu(view), { key: "ArrowDown" });
@@ -147,13 +163,30 @@ describe("TrayMenuApp keyboard navigation", () => {
     expect(document.activeElement).toBe(item("Hide pet"));
   });
 
-  it("activates the focused item with Enter and Space", () => {
+  it("activates only a focused item with Enter and Space", () => {
     const view = render(<TrayMenuApp />);
     pushState(baseState({ language: "en" }));
+    // Nothing focused yet: Enter must not activate anything.
+    fireEvent.keyDown(menu(view), { key: "Enter" });
+    expect(trayMenuAction).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
     fireEvent.keyDown(menu(view), { key: "Enter" });
     fireEvent.keyDown(menu(view), { key: "ArrowDown" });
     fireEvent.keyDown(menu(view), { key: " " });
     expect(trayMenuAction.mock.calls.map(call => call[0])).toEqual(["toggle-pet", "toggle-panel"]);
+  });
+
+  it("moves the highlight with the pointer and clears it on leave", () => {
+    const view = render(<TrayMenuApp />);
+    pushState(baseState({ language: "en" }));
+    fireEvent.mouseEnter(item("Show panel"));
+    expect(document.activeElement).toBe(item("Show panel"));
+    fireEvent.mouseEnter(item("Quit"));
+    expect(document.activeElement).toBe(item("Quit"));
+    // Leaving the menu parks focus back on the container: no stale highlight.
+    fireEvent.mouseLeave(menu(view));
+    expect(document.activeElement).toBe(menu(view));
   });
 });
 
