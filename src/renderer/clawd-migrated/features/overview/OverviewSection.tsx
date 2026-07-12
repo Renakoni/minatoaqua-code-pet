@@ -26,9 +26,10 @@ export function ConnectionRow({ label, value, state }: { label: string; value: s
 // onboarding for an installed-but-broken config — that keeps the workbench with a
 // contextual Repair. Repair is offered only for problems Repair can fix (hook
 // config/command); forwarder-file and listener failures get their own guidance.
-// The Overview stays compact: it keeps the three hook-chain rows and contextual
-// actions, while the always-on facts (local listener, recent event) and the
-// destructive Remove live in Settings → Connection details.
+// The Overview stays compact: it keeps the two hook-chain rows and contextual
+// actions, while the always-on facts (forwarder file, local listener, recent
+// event) and the destructive Remove live in Settings → Connection details —
+// a missing forwarder still surfaces here through its guidance block.
 export function OverviewSection({
   settings,
   connection,
@@ -62,15 +63,13 @@ export function OverviewSection({
     configuredCount,
     configComplete,
     commandOk,
-    forwarderOk,
     listening,
     healthy,
     canRepair,
     forwarderMissing,
     listenerDown,
     configState,
-    commandState,
-    forwarderState
+    commandState
   } = facts;
 
   const recheckButton = onRecheck ? (
@@ -140,11 +139,6 @@ export function OverviewSection({
                 label={t("connection.hookCommand", "Hook 命令")}
                 value={commandOk ? t("connection.commandCurrent", "指向当前 forwarder") : t("connection.commandMismatch", "路径或超时不匹配，需修复")}
                 state={commandState}
-              />
-              <ConnectionRow
-                label={t("connection.forwarder", "Forwarder 文件")}
-                value={forwarderOk ? t("connection.available", "可用") : t("doctor.fileMissing", "文件不存在")}
-                state={forwarderState}
               />
             </div>
 
