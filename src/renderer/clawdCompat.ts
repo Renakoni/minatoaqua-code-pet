@@ -1,5 +1,7 @@
 import { isSessionStartEvent, type PetEvent } from "../shared/events";
 import type { HookStatus, HookOperationResult } from "../shared/hooks";
+import type { PetPackManifest } from "../shared/petPack";
+import type { PetPackInspectResult, PetPackInstallResult, PetPackRemoveResult } from "../shared/petPackTransport";
 import {
   defaultSettings,
   defaultStats,
@@ -102,6 +104,11 @@ type CompanionApi = {
   testClaudeProvider: (payload: { id?: string; baseUrl?: string }) => Promise<ClaudeProviderTestResult>;
   openClaudeProviderTerminal: (providerId: string) => Promise<{ ok: boolean; command: string; error?: string }>;
   onCcSwitchChanged: (callback: Listener<unknown>) => Unsubscribe;
+  pickPetPackFile: () => Promise<string | null>;
+  inspectPetPack: (zipPath: string) => Promise<PetPackInspectResult>;
+  installPetPack: (zipPath: string, rowFrameCounts: number[], packageSha256: string, overwrite?: boolean) => Promise<PetPackInstallResult>;
+  listPetPacks: () => Promise<PetPackManifest[]>;
+  removePetPack: (id: string) => Promise<PetPackRemoveResult>;
 };
 
 declare global {
@@ -495,6 +502,11 @@ export function installClawdCompat() {
       message: "Connectivity tests are only available in the desktop app."
     }),
     openClaudeProviderTerminal: async () => ({ ok: false, command: "", error: "Terminal launch is only available in the desktop app." }),
-    onCcSwitchChanged: () => () => undefined
+    onCcSwitchChanged: () => () => undefined,
+    pickPetPackFile: async () => null,
+    inspectPetPack: async () => ({ ok: false, problems: [{ field: "app", message: "Pet import is only available in the desktop app." }] }),
+    installPetPack: async () => ({ ok: false, problems: [{ field: "app", message: "Pet import is only available in the desktop app." }] }),
+    listPetPacks: async () => [],
+    removePetPack: async () => ({ ok: false, error: "Pet import is only available in the desktop app." })
   };
 }
