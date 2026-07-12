@@ -12,6 +12,7 @@ import { PET_IMAGE_SIZE, getPetWindowHeight, getPetWindowWidth, normalizePetDisp
 import { packIdFromThemeId } from "../shared/petThemeCatalog";
 import { displayedSpriteHeight } from "../shared/spriteFrame";
 import { createDefaultCompanionSettings, pickCanonicalSettings } from "./companionSettingsSchema";
+import { applyThemeAnimationProfileSwitch } from "./themeProfiles";
 import { redactDisplayEvent } from "../shared/privacy";
 import { canonicalizeEventEntries, evaluateHookConfig, isClawdHookCommand } from "./hookConfig";
 import { isReadableRegularFile } from "./fsAccess";
@@ -2356,6 +2357,12 @@ function broadcastCcSwitchChanged() {
   }
 }
 
+function broadcastPetPacksChanged() {
+  for (const target of [panelWindow, petWindow]) {
+    if (target && !target.isDestroyed()) target.webContents.send("companion:pet-packs-changed", { at: Date.now() });
+  }
+}
+
 function getConnectionStatus() {
   const latest = eventHistory[0] ? toCompanionEvent(eventHistory[0]) : undefined;
   // No single "connected" flag: a past event does not prove the live link is
@@ -2977,9 +2984,17 @@ app.whenReady().then(() => {
     const previousPetScale = companionSettings.petScale;
     const previousFeedbackScale = companionSettings.feedbackScale;
     const previousPermissionScale = companionSettings.permissionScale;
+    const previousPetTheme = typeof companionSettings.petTheme === "string" ? companionSettings.petTheme : "";
     const canonicalNext = pickCanonicalSettings(next && typeof next === "object" ? next : {});
     const mergedSettings = { ...companionSettings, ...canonicalNext };
     companionSettings = { ...mergedSettings, ...normalizePetDisplaySettings(mergedSettings) };
+    // Theme changes swap the per-theme animation profile (stateAnimations +
+    // idleAnim) so one theme's mappings never leak into another, and resize
+    // the pet window for the incoming theme's sprite height.
+    if (companionSettings.petTheme !== previousPetTheme) {
+      companionSettings = applyThemeAnimationProfileSwitch(companionSettings, previousPetTheme, listPetPacks(petPacksDir()));
+      setPetWindowExpanded(petExpanded, true);
+    }
     saveCompanionSettings();
     if (previousLaunchAtLogin !== companionSettings.launchAtLogin) {
       applyLaunchAtLoginSetting();
@@ -3107,10 +3122,17 @@ app.whenReady().then(() => {
     return result.filePaths[0];
   });
   ipcMain.handle("companion:pet-pack-inspect", (_, zipPath: string) => inspectPetPackZip(String(zipPath)));
-  ipcMain.handle("companion:pet-pack-install", (_, zipPath: string, rowFrameCounts: number[], packageSha256: string, overwrite?: boolean) =>
-    installPetPack(String(zipPath), Array.isArray(rowFrameCounts) ? rowFrameCounts.map(Number) : [], String(packageSha256 ?? ""), petPacksDir(), { overwrite: Boolean(overwrite) }));
+  ipcMain.handle("companion:pet-pack-install", (_, zipPath: string, rowFrameCounts: number[], packageSha256: string, overwrite?: boolean) => {
+    const result = installPetPack(String(zipPath), Array.isArray(rowFrameCounts) ? rowFrameCounts.map(Number) : [], String(packageSha256 ?? ""), petPacksDir(), { overwrite: Boolean(overwrite) });
+    if (result.ok) broadcastPetPacksChanged();
+    return result;
+  });
   ipcMain.handle("companion:pet-pack-list", () => listPetPacks(petPacksDir()));
-  ipcMain.handle("companion:pet-pack-remove", (_, id: string) => removePetPack(String(id), petPacksDir()));
+  ipcMain.handle("companion:pet-pack-remove", (_, id: string) => {
+    const result = removePetPack(String(id), petPacksDir());
+    if (result.ok) broadcastPetPacksChanged();
+    return result;
+  });
   ipcMain.handle("companion:get-monitors", () => screen.getAllDisplays().map(display => ({ id: String(display.id), label: display.label || `Display ${display.id}`, bounds: display.bounds, workArea: display.workArea, scaleFactor: display.scaleFactor })));
   ipcMain.handle("companion:get-plugins", () => companionSettings.customPlugins);
   ipcMain.handle("companion:get-claude-resources", (_, force?: boolean) => getClaudeResourcesSnapshot(Boolean(force)));

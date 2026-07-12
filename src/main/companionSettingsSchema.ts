@@ -116,7 +116,11 @@ export const DEFAULT_COMPANION_SETTINGS: Record<string, any> = {
     repeatMin: 1,
     repeatMax: 2
   },
-  stateAnimations: {}
+  stateAnimations: {},
+  // Per-theme snapshots of stateAnimations + idleAnim, keyed by theme id.
+  // The active fields above stay the single runtime source; switching themes
+  // swaps them through this store (src/main/themeProfiles.ts).
+  themeAnimationProfiles: {}
 };
 
 // Keys that may legitimately appear in a persisted settings file. Everything

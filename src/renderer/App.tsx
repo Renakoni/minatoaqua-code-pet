@@ -50,6 +50,7 @@ type PetCompanionApi = {
   respondPermission?: (response: { id: string; decision: "allow" | "deny"; reason?: string }) => Promise<void>;
   onPlaySound?: (callback: (dataUrl: string) => void) => () => void;
   listPetPacks?: () => Promise<PetPackManifest[]>;
+  onPetPacksChanged?: (callback: (payload: unknown) => void) => () => void;
 };
 
 function petCompanion(): PetCompanionApi | undefined {
@@ -227,8 +228,13 @@ export default function App() {
   }, []);
 
   // The active theme decides which animations exist and how states resolve.
-  // Installed packs are fetched when a pack theme becomes active; the theme
-  // falls back to the built-in until the pack list arrives.
+  // Installed packs are fetched when a pack theme becomes active and
+  // refetched when the pack store changes (import/overwrite/remove), so a
+  // reinstalled active pack never plays stale frame data.
+  const [petPacksVersion, setPetPacksVersion] = useState(0);
+  useEffect(() => {
+    return petCompanion()?.onPetPacksChanged?.(() => setPetPacksVersion(version => version + 1));
+  }, []);
   useEffect(() => {
     if (!packIdFromThemeId(petTheme)) {
       setPetPacks([]);
@@ -239,7 +245,7 @@ export default function App() {
       .then(packs => { if (!cancelled) setPetPacks(Array.isArray(packs) ? packs : []); })
       .catch(() => { if (!cancelled) setPetPacks([]); });
     return () => { cancelled = true; };
-  }, [petTheme]);
+  }, [petTheme, petPacksVersion]);
 
   const themeCatalog = useMemo(() => resolveThemeCatalog(petTheme, petPacks), [petTheme, petPacks]);
   const activePack = useMemo(() => {

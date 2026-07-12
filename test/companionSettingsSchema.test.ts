@@ -54,6 +54,7 @@ const EXPECTED_CANONICAL_KEYS = [
   "currentClaudeProviderId",
   "idleAnim",
   "stateAnimations",
+  "themeAnimationProfiles",
   "positionOffsets"
 ];
 
