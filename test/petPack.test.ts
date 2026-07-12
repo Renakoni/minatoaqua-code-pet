@@ -181,6 +181,17 @@ describe("deriveSheetGeometry", () => {
     expect(deriveSheetGeometry(16384, 18432).ok).toBe(false); // 2048px cells
   });
 
+  it("caps the decoded pixel area even when the cells are individually legal", () => {
+    // 4000x3996 = 15.984M pixels: divisible, 500x444 cells, under the cap.
+    expect(deriveSheetGeometry(4000, 3996).ok).toBe(true);
+    // 4096x4104 = 16.8M pixels: divisible, 512x456 cells, over the cap.
+    const oversized = deriveSheetGeometry(4096, 4104);
+    expect(oversized.ok).toBe(false);
+    if (!oversized.ok) expect(oversized.problems[0].message).toContain("pixels");
+    // The verified reference sheet stays comfortably valid.
+    expect(deriveSheetGeometry(1536, 1872).ok).toBe(true);
+  });
+
   it("rejects non-integer or non-positive dimensions", () => {
     expect(deriveSheetGeometry(1536.5, 1872).ok).toBe(false);
     expect(deriveSheetGeometry(0, 1872).ok).toBe(false);

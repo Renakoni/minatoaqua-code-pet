@@ -7,7 +7,8 @@ import minatoAquaCover from "../../../assets/themes/minato-aqua-cover.png";
 import { NotificationRulesPanel } from "../../components/NotificationRulesPanel";
 import { GroupCard, LanguageSegmented, SettingsInfoRow, Slider, ThemeSegmented, Toggle } from "../../components/workbench/Primitives";
 import { ConnectionManagement } from "./ConnectionManagement";
-import { getPetTheme, petThemes } from "../../utils/petThemes";
+import { PetThemeGrid } from "./PetThemeGrid";
+import { getPetTheme } from "../../utils/petThemes";
 
 export function SettingsSection({
   settings,
@@ -28,7 +29,9 @@ export function SettingsSection({
   appVersion,
   updateStatus,
   checkingUpdate,
-  handleCheckUpdate
+  handleCheckUpdate,
+  petPacks = [],
+  refreshPetPacks
 }: {
   settings: any;
   updateSettings: (settings: any) => void;
@@ -49,13 +52,15 @@ export function SettingsSection({
   updateStatus: any;
   checkingUpdate: boolean;
   handleCheckUpdate: () => void;
+  petPacks?: any[];
+  refreshPetPacks?: () => void;
 }) {
   const { t } = useI18n();
-  const activePetTheme = getPetTheme(settings.petTheme);
+  const activePetTheme = getPetTheme(settings.petTheme, petPacks);
   const petThemeCovers: Record<string, string> = {
     "minato-aqua": minatoAquaCover
   };
-  const aboutCover = petThemeCovers[activePetTheme.id];
+  const aboutCover = petThemeCovers[activePetTheme.id] ?? minatoAquaCover;
   // Mirrors the footer's update state machine faithfully (same priority order)
   // instead of collapsing every in-between state to "idle".
   const aboutUpdateValue = updateStatus.error ? updateStatus.error
@@ -162,22 +167,12 @@ export function SettingsSection({
           </GroupCard>
 
           <GroupCard icon={<Sparkles size={18} />} title={t("sections.petTheme", "桌宠选择")}>
-            <div className="pet-theme-grid">
-              {petThemes.map(theme => (
-                <button
-                  key={theme.id}
-                  type="button"
-                  className={`pet-theme-card ${activePetTheme.id === theme.id ? "active" : ""}`}
-                  onClick={() => updateSettings({ petTheme: theme.id })}
-                >
-                  <img src={petThemeCovers[theme.id]} alt="" draggable={false} />
-                  <span className="pet-theme-card-copy">
-                    <strong>{theme.displayName}</strong>
-                    <small>{theme.characterName}</small>
-                  </span>
-                </button>
-              ))}
-            </div>
+            <PetThemeGrid
+              activeThemeId={activePetTheme.id}
+              petPacks={petPacks}
+              onSelectTheme={themeId => updateSettings({ petTheme: themeId })}
+              refreshPetPacks={() => refreshPetPacks?.()}
+            />
           </GroupCard>
 
           <div className="pet-display-controls">

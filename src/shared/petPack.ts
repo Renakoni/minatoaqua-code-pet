@@ -95,6 +95,14 @@ export const CODEX_PET_FRAME_DURATION_MS = 160;
 
 const MIN_CELL_PX = 16;
 const MAX_CELL_PX = 1024;
+/**
+ * Cap on the DECODED sheet area. The compressed-byte limits cannot bound
+ * decoded memory: a highly compressible sheet at the 1024px cell bound would
+ * decode to ~75M pixels (~302MB as RGBA) inside the renderer during the
+ * import scan. 16M pixels keeps the worst-case ImageData at ~64MB while
+ * leaving room for sheets several times the 1536x1872 reference.
+ */
+export const MAX_SHEET_DECODED_PIXELS = 16_000_000;
 const MAX_ID_LENGTH = 64;
 const MAX_DISPLAY_NAME_LENGTH = 120;
 const MAX_DESCRIPTION_LENGTH = 500;
@@ -277,6 +285,9 @@ export function deriveSheetGeometry(width: number, height: number): PetPackResul
   }
   if (cellWidth > MAX_CELL_PX || cellHeight > MAX_CELL_PX) {
     problems.push({ field: "size", message: `cells must be at most ${MAX_CELL_PX}px on each side` });
+  }
+  if (width * height > MAX_SHEET_DECODED_PIXELS) {
+    problems.push({ field: "size", message: `the sheet must decode to at most ${MAX_SHEET_DECODED_PIXELS.toLocaleString("en-US")} pixels` });
   }
   if (problems.length > 0) return { ok: false, problems };
 

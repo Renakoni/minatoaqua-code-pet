@@ -46,6 +46,9 @@ import { connectionSurfaceKey } from "./features/overview/connectionState";
 import { useConnectionSurface } from "./features/overview/useConnectionSurface";
 import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
 import { getPetTheme } from "./utils/petThemes";
+import { usePetPacks } from "./usePetPacks";
+import { spritesheetAssetsFromPack } from "../../shared/petPackAssets";
+import { packIdFromThemeId, resolveThemeCatalog } from "../../shared/petThemeCatalog";
 
 const APP_DISPLAY_NAME = "Chara Desk";
 
@@ -905,7 +908,14 @@ function StateProp({ state }: { state: PetState }) {
 function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
   const { settings, updateSettings, connection, applyConnection, events, petState, toolStreams, clearActivityHistory } = useCompanion();
-  const activePetTheme = getPetTheme(settings.petTheme);
+  const { petPacks, refreshPetPacks } = usePetPacks();
+  const activePetTheme = getPetTheme(settings.petTheme, petPacks);
+  // Active theme's animation catalog and (for imported packs) its sheet —
+  // the animation workbench pickers follow the theme the pet actually shows.
+  const activeThemeCatalog = resolveThemeCatalog(settings.petTheme, petPacks);
+  const activeThemePackId = packIdFromThemeId(settings.petTheme);
+  const activeThemePack = activeThemePackId ? petPacks.find(pack => pack.id === activeThemePackId) ?? null : null;
+  const activeThemeSheet = activeThemePack ? spritesheetAssetsFromPack(activeThemePack) : null;
   // Character chrome (anchor icon, character name in the version bar) only
   // belongs to the pet interface theme; light/dark stay neutral.
   const petChromeActive = (settings.theme ?? "system") === "system" && activePetTheme.interfaceTheme === "pet";
@@ -1161,6 +1171,8 @@ function SettingsApp() {
               updateStatus={updateStatus}
               checkingUpdate={checkingUpdate}
               handleCheckUpdate={handleCheckUpdate}
+              petPacks={petPacks}
+              refreshPetPacks={refreshPetPacks}
             />
           )}
 
@@ -1168,7 +1180,7 @@ function SettingsApp() {
 
           {activeSection === "plugins" && <PluginsPage settings={settings} updateSettings={updateSettings} />}
 
-          {activeSection === "animation" && <AnimationSection settings={settings} updateSettings={updateSettings} />}
+          {activeSection === "animation" && <AnimationSection settings={settings} updateSettings={updateSettings} catalog={activeThemeCatalog} spritesheet={activeThemeSheet} />}
 
           {activeSection === "data" && (
             <DataSection

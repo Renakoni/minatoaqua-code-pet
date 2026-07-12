@@ -109,6 +109,9 @@ type CompanionApi = {
   installPetPack: (zipPath: string, rowFrameCounts: number[], packageSha256: string, overwrite?: boolean) => Promise<PetPackInstallResult>;
   listPetPacks: () => Promise<PetPackManifest[]>;
   removePetPack: (id: string) => Promise<PetPackRemoveResult>;
+  onPetPacksChanged: (callback: Listener<unknown>) => Unsubscribe;
+  /** Absolute path of a dropped File (Electron webUtils); "" in the browser. */
+  getPetPackFilePath: (file: File) => string;
 };
 
 declare global {
@@ -507,6 +510,8 @@ export function installClawdCompat() {
     inspectPetPack: async () => ({ ok: false, problems: [{ field: "app", message: "Pet import is only available in the desktop app." }] }),
     installPetPack: async () => ({ ok: false, problems: [{ field: "app", message: "Pet import is only available in the desktop app." }] }),
     listPetPacks: async () => [],
-    removePetPack: async () => ({ ok: false, error: "Pet import is only available in the desktop app." })
+    removePetPack: async () => ({ ok: false, error: "Pet import is only available in the desktop app." }),
+    onPetPacksChanged: () => () => undefined,
+    getPetPackFilePath: () => ""
   };
 }

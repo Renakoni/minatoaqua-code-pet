@@ -5,30 +5,34 @@ import type { CompanionSettings, IdleAnimConfig } from "../../../shared/events";
 import { defaultSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import { petAnimationAssets } from "../../utils/petAnimationAssets";
-import { normalizeAnimationKey, normalizeAnimationKeys, petAnimationOptions, toggleIdlePoolSprite, type PetAnimationKey } from "../../utils/petAnimations";
+import { normalizeAnimationKey, normalizeAnimationKeys, petAnimationOptionsForCatalog, toggleIdlePoolSprite, type PetAnimationKey } from "../../utils/petAnimations";
+import { displayedMappingKey, mappingRowMeta, stateMappingRowsFor } from "../../utils/stateMappingRows";
+import { MINATO_AQUA_CATALOG, normalizeCatalogAnimationKey } from "../../../../shared/petThemeCatalog";
+import { SpritesheetSprite } from "../../../components/SpritesheetSprite";
+import { displayedSpriteHeight } from "../../../../shared/spriteFrame";
 
-const stateAnimEntries: Array<{ key: string; labelKey: string; fallback: string; meta: string; defaultAnimation: PetAnimationKey }> = [
-  { key: "running", labelKey: "animation.state.running", fallback: "正在运行", meta: "读取、编辑、执行、搜索、技能、子代理、错误", defaultAnimation: "running" },
-  { key: "waiting_permission", labelKey: "animation.state.permission", fallback: "权限请求", meta: "权限等待、通知确认", defaultAnimation: "waiting_permission" },
-  { key: "done", labelKey: "animation.state.done", fallback: "运行完成", meta: "任务完成、停止事件", defaultAnimation: "done" }
-];
-
-export function AnimationSection({ settings, updateSettings }: { settings: CompanionSettings; updateSettings: (settings: Partial<CompanionSettings>) => void }) {
+export function AnimationSection({ settings, updateSettings, catalog = MINATO_AQUA_CATALOG, spritesheet = null }: {
+  settings: CompanionSettings;
+  updateSettings: (settings: Partial<CompanionSettings>) => void;
+  catalog?: any;
+  spritesheet?: any;
+}) {
   const { t } = useI18n();
+  const options = petAnimationOptionsForCatalog(catalog);
 
   return (
     <div className="animation-page animation-workbench">
-      <AnimationPanel icon={<Sparkles size={17} />} title={t("sections.idleAnimation", "待机动画")} meta="Aqua 动作库">
-        <IdleAnimSettings config={settings.idleAnim ?? defaultSettings.idleAnim!} onChange={cfg => updateSettings({ idleAnim: cfg })} />
+      <AnimationPanel icon={<Sparkles size={17} />} title={t("sections.idleAnimation", "待机动画")} meta={catalog.source === "codex-pet-pack" ? t("petImport.importedTheme", "导入宠物") : "Aqua 动作库"}>
+        <IdleAnimSettings config={settings.idleAnim ?? defaultSettings.idleAnim!} onChange={cfg => updateSettings({ idleAnim: cfg })} catalog={catalog} options={options} spritesheet={spritesheet} />
       </AnimationPanel>
 
       <div className="animation-page-secondary">
         <AnimationPanel icon={<Wand2 size={17} />} title={t("sections.actionMapping", "动作映射")}>
-          <StateAnimSettings stateAnimations={settings.stateAnimations ?? {}} onChange={sa => updateSettings({ stateAnimations: sa })} />
+          <StateAnimSettings stateAnimations={settings.stateAnimations ?? {}} onChange={sa => updateSettings({ stateAnimations: sa })} catalog={catalog} options={options} spritesheet={spritesheet} />
         </AnimationPanel>
 
         <AnimationPanel icon={<FlaskConical size={17} />} title={t("sections.animationTest", "动画测试")}>
-          <AnimationTestBlock />
+          <AnimationTestBlock options={options} spritesheet={spritesheet} />
         </AnimationPanel>
       </div>
     </div>
@@ -50,11 +54,12 @@ function AnimationPanel({ icon, title, meta, children }: { icon?: React.ReactNod
   );
 }
 
-function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChange: (cfg: IdleAnimConfig) => void }) {
+function IdleAnimSettings({ config, onChange, catalog, options, spritesheet }: { config: IdleAnimConfig; onChange: (cfg: IdleAnimConfig) => void; catalog: any; options: any[]; spritesheet: any }) {
   const { t } = useI18n();
   // Honest count: a persisted empty pool displays as 0 selected instead of
-  // falling back to "everything selected".
-  const selectedSprites = normalizeAnimationKeys(config.selectedSprites);
+  // falling back to "everything selected". Validated against the active
+  // theme's catalog — foreign keys neither display nor count.
+  const selectedSprites = normalizeAnimationKeys(config.selectedSprites, catalog);
 
   function toggleSprite(key: PetAnimationKey) {
     const next = toggleIdlePoolSprite(selectedSprites, key);
@@ -72,7 +77,7 @@ function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChan
       </section>
 
       <div className="animation-summary-row">
-        <AnimationStat label={t("animation.pool", "动画池")} value={`${selectedSprites.length}/${petAnimationOptions.length}`} />
+        <AnimationStat label={t("animation.pool", "动画池")} value={`${selectedSprites.length}/${options.length}`} />
         <AnimationStat icon={<Clock3 size={14} />} label={t("data.playInterval", "播放间隔")} value={formatRange(config.intervalMin, config.intervalMax, value => `${value}s`)} />
         <AnimationStat icon={<Repeat2 size={14} />} label={t("data.repeatCount", "每次播放")} value={formatRange(config.repeatMin, config.repeatMax, value => `${value}x`)} />
       </div>
@@ -80,13 +85,14 @@ function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChan
       <section className="animation-section-block">
         <SectionHead title={t("data.optionalPool", "可选动画池")} meta={t("animation.selectedCount", "已选 {count}").replace("{count}", String(selectedSprites.length))} />
         <div className="idle-sprite-grid">
-          {petAnimationOptions.map(option => (
+          {options.map(option => (
             <SpriteOptionButton
               key={option.key}
               spriteKey={option.key}
-              label={spriteLabel(t, option.key)}
+              label={spriteLabel(t, option.key, options)}
               selected={selectedSprites.includes(option.key)}
               onClick={() => toggleSprite(option.key)}
+              spritesheet={spritesheet}
             />
           ))}
         </div>
@@ -118,13 +124,16 @@ function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChan
   );
 }
 
-function StateAnimSettings({ stateAnimations, onChange }: { stateAnimations: Record<string, string>; onChange: (sa: Record<string, string>) => void }) {
+function StateAnimSettings({ stateAnimations, onChange, catalog, options, spritesheet }: { stateAnimations: Record<string, string>; onChange: (sa: Record<string, string>) => void; catalog: any; options: any[]; spritesheet: any }) {
   const { t } = useI18n();
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
   const [openKey, setOpenKey] = useState<string | null>(null);
+  // Role-accurate rows for the active theme: a dedicated error row when the
+  // theme has one, merged rows when fallback chains share a slot key.
+  const mappingRows = stateMappingRowsFor(catalog);
 
-  function selectSprite(state: string, sprite: string) {
-    onChange({ ...stateAnimations, [state]: normalizeAnimationKey(sprite, "running") });
+  function selectSprite(state: string, sprite: string, fallback: string) {
+    onChange({ ...stateAnimations, [state]: normalizeCatalogAnimationKey(catalog, sprite, fallback) });
     setOpenKey(null);
   }
 
@@ -135,35 +144,40 @@ function StateAnimSettings({ stateAnimations, onChange }: { stateAnimations: Rec
     setOpenKey(null);
   }
 
-  const openEntry = openKey ? stateAnimEntries.find(entry => entry.key === openKey) : null;
+  const openRow = openKey ? mappingRows.find(row => row.key === openKey) : null;
 
   return (
     <div className="state-anim-settings">
       <div className="state-anim-list">
-        {stateAnimEntries.map(entry => {
-          const currentSprite = normalizeAnimationKey(stateAnimations[entry.key], entry.defaultAnimation);
-          const isOpen = openKey === entry.key;
+        {mappingRows.map(row => {
+          // Displayed exactly as the live pet resolves it: catalog-validated,
+          // so a stale or foreign mapping shows the real fallback animation.
+          const currentSprite = displayedMappingKey(catalog, stateAnimations, row);
+          const isOpen = openKey === row.key;
           return (
-            <div key={entry.key} className="state-anim-row">
+            <div key={row.key} className="state-anim-row">
               <div className="state-anim-meta">
-                <strong>{t(entry.labelKey, entry.fallback)}</strong>
-                <span>{entry.meta}</span>
+                <strong>{t(row.labelKey, row.labelFallback)}</strong>
+                <span>{mappingRowMeta(row, t)}</span>
               </div>
               <AssignmentButton
                 spriteKey={currentSprite}
-                label={spriteLabel(t, currentSprite)}
+                label={spriteLabel(t, currentSprite, options)}
                 open={isOpen}
-                onClick={() => setOpenKey(isOpen ? null : entry.key)}
+                onClick={() => setOpenKey(isOpen ? null : row.key)}
+                spritesheet={spritesheet}
               />
             </div>
           );
         })}
       </div>
-      {openKey && openEntry && (
+      {openKey && openRow && (
         <SpritePicker
-          title={formatText(t("data.chooseActionAnimation", "选择「{name}」的动画"), { name: t(openEntry.labelKey, openEntry.fallback) })}
-          currentSprite={normalizeAnimationKey(stateAnimations[openKey], openEntry.defaultAnimation)}
-          onSelect={sprite => selectSprite(openKey, sprite)}
+          title={formatText(t("data.chooseActionAnimation", "选择「{name}」的动画"), { name: t(openRow.labelKey, openRow.labelFallback) })}
+          currentSprite={displayedMappingKey(catalog, stateAnimations, openRow)}
+          options={options}
+          spritesheet={spritesheet}
+          onSelect={sprite => selectSprite(openKey, sprite, openRow.key)}
           onReset={() => resetState(openKey)}
           onClose={() => setOpenKey(null)}
         />
@@ -172,7 +186,7 @@ function StateAnimSettings({ stateAnimations, onChange }: { stateAnimations: Rec
   );
 }
 
-function AnimationTestBlock() {
+function AnimationTestBlock({ options, spritesheet }: { options: any[]; spritesheet: any }) {
   const { t } = useI18n();
   const [activeKey, setActiveKey] = useState<string | null>(null);
 
@@ -191,13 +205,14 @@ function AnimationTestBlock() {
       <section className="animation-section-block">
         <SectionHead title={t("animation.testBlock", "点击测试姿势")} meta={t("animation.temporaryPreview", "临时预览")} />
         <div className="idle-sprite-grid animation-test-grid">
-          {petAnimationOptions.map(option => (
+          {options.map(option => (
             <SpriteOptionButton
               key={option.key}
               spriteKey={option.key}
-              label={spriteLabel(t, option.key)}
+              label={spriteLabel(t, option.key, options)}
               selected={activeKey === option.key}
               onClick={() => previewAnimation(option.key)}
+              spritesheet={spritesheet}
             />
           ))}
         </div>
@@ -236,19 +251,21 @@ function SectionHead({ title, meta }: { title: string; meta?: string }) {
   );
 }
 
-function AssignmentButton({ spriteKey, label, open, onClick }: { spriteKey: string; label: string; open: boolean; onClick: () => void }) {
+function AssignmentButton({ spriteKey, label, open, onClick, spritesheet }: { spriteKey: string; label: string; open: boolean; onClick: () => void; spritesheet: any }) {
   return (
     <button type="button" className={`animation-assignment-button ${open ? "open" : ""}`} onClick={onClick} title={label}>
-      <SpriteFigure spriteKey={spriteKey} />
+      <SpriteFigure spriteKey={spriteKey} spritesheet={spritesheet} />
       <span>{label}</span>
       <ChevronDown size={15} />
     </button>
   );
 }
 
-function SpritePicker({ title, currentSprite, includeRandom, onSelect, onReset, onClose }: {
+function SpritePicker({ title, currentSprite, options, spritesheet, includeRandom, onSelect, onReset, onClose }: {
   title: string;
   currentSprite: string;
+  options: any[];
+  spritesheet: any;
   includeRandom?: boolean;
   onSelect: (sprite: string) => void;
   onReset?: () => void;
@@ -270,15 +287,17 @@ function SpritePicker({ title, currentSprite, includeRandom, onSelect, onReset, 
             label={t("common.random", "随机")}
             selected={normalizedCurrent === "random"}
             onClick={() => onSelect("random")}
+            spritesheet={spritesheet}
           />
         ) : null}
-        {petAnimationOptions.map(option => (
+        {options.map(option => (
           <SpriteOptionButton
             key={option.key}
             spriteKey={option.key}
-            label={spriteLabel(t, option.key)}
+            label={spriteLabel(t, option.key, options)}
             selected={normalizedCurrent === option.key}
             onClick={() => onSelect(option.key)}
+            spritesheet={spritesheet}
           />
         ))}
         {onReset ? (
@@ -292,17 +311,17 @@ function SpritePicker({ title, currentSprite, includeRandom, onSelect, onReset, 
   );
 }
 
-function SpriteOptionButton({ spriteKey, label, selected, onClick }: { spriteKey: string; label: string; selected: boolean; onClick: () => void }) {
+function SpriteOptionButton({ spriteKey, label, selected, onClick, spritesheet }: { spriteKey: string; label: string; selected: boolean; onClick: () => void; spritesheet: any }) {
   return (
     <button type="button" className={`idle-sprite-preview ${selected ? "checked" : ""}`} onClick={onClick} aria-pressed={selected} title={label}>
-      <SpriteFigure spriteKey={spriteKey} />
+      <SpriteFigure spriteKey={spriteKey} spritesheet={spritesheet} />
       <span className="idle-sprite-label">{label}</span>
       {selected ? <span className="sprite-selected-mark"><Check size={12} /></span> : null}
     </button>
   );
 }
 
-function SpriteFigure({ spriteKey }: { spriteKey: string }) {
+function SpriteFigure({ spriteKey, spritesheet }: { spriteKey: string; spritesheet: any }) {
   if (spriteKey === "random") {
     return (
       <span className="sprite-preview-box random">
@@ -313,9 +332,35 @@ function SpriteFigure({ spriteKey }: { spriteKey: string }) {
 
   const key = normalizeAnimationKey(spriteKey, "running");
 
+  // Pack themes preview straight from the installed spritesheet — and only
+  // from it. A key the pack does not provide renders an empty box rather
+  // than falling through to a built-in Aqua clip inside an imported theme.
+  if (spritesheet) {
+    const packAnimation = spritesheet.animations?.[key];
+    if (!packAnimation) return <span className="sprite-preview-box" />;
+    const width = 44;
+    const height = displayedSpriteHeight(spritesheet.cellWidth, spritesheet.cellHeight, width);
+    return (
+      <span className="sprite-preview-box">
+        <SpritesheetSprite
+          sheetUrl={spritesheet.sheetUrl}
+          columns={spritesheet.columns}
+          rows={spritesheet.rows}
+          row={packAnimation.row}
+          frameCount={packAnimation.frameCount}
+          frameDurationMs={packAnimation.frameDurationMs}
+          width={width}
+          height={height}
+          alt=""
+        />
+      </span>
+    );
+  }
+
+  const clip = petAnimationAssets[key];
   return (
     <span className="sprite-preview-box">
-      <img className="sprite-preview-image" src={petAnimationAssets[key]} alt="" draggable={false} />
+      {clip ? <img className="sprite-preview-image" src={clip} alt="" draggable={false} /> : null}
     </span>
   );
 }
@@ -350,10 +395,10 @@ function RangeSlider({ label, min, max, step, low, high, format, onChange }: {
   );
 }
 
-function spriteLabel(t: (key: string, fallback?: string) => string, key: string) {
+function spriteLabel(t: (key: string, fallback?: string) => string, key: string, options: any[]) {
   if (key === "random") return t("common.random", "随机");
   const normalized = normalizeAnimationKey(key, "running");
-  const option = petAnimationOptions.find(item => item.key === normalized);
+  const option = options.find(item => item.key === normalized);
   return option ? t(option.labelKey, option.fallback) : key;
 }
 

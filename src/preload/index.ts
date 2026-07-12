@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { PetEvent, PetState } from "../shared/events";
 
 export interface PetSnapshot {
@@ -67,6 +67,8 @@ contextBridge.exposeInMainWorld("companion", {
   installPetPack: (zipPath: string, rowFrameCounts: number[], packageSha256: string, overwrite?: boolean) => ipcRenderer.invoke("companion:pet-pack-install", zipPath, rowFrameCounts, packageSha256, overwrite),
   listPetPacks: () => ipcRenderer.invoke("companion:pet-pack-list"),
   removePetPack: (id: string) => ipcRenderer.invoke("companion:pet-pack-remove", id),
+  onPetPacksChanged: (callback: (payload: unknown) => void) => onChannel("companion:pet-packs-changed", callback),
+  getPetPackFilePath: (file: File) => webUtils.getPathForFile(file),
   listClaudeProviders: () => ipcRenderer.invoke("companion:providers-list"),
   saveClaudeProvider: (provider: unknown, originalId?: string) => ipcRenderer.invoke("companion:providers-save", provider, originalId),
   deleteClaudeProvider: (id: string) => ipcRenderer.invoke("companion:providers-delete", id),
