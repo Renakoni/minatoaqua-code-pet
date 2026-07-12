@@ -6,6 +6,8 @@ import {
   startIdleAnimator,
   type IdleAnimationPlan
 } from "../src/renderer/state/petIdleAnimator";
+import { catalogFromPetPack } from "../src/shared/petThemeCatalog";
+import { makePackManifest } from "./helpers/packFixtures";
 
 // Deterministic rng: yields the given values in order, then 0.
 function rngSequence(values: number[]): () => number {
@@ -55,6 +57,17 @@ describe("planIdleAnimation: config → runnable plan", () => {
   it("keeps the interval ordered and the repeat counts sane", () => {
     const plan = planIdleAnimation({ ...baseConfig, intervalMin: 30, intervalMax: 10, repeatMin: 0, repeatMax: -2 });
     expect(plan).toMatchObject({ intervalMinMs: 30_000, intervalMaxMs: 30_000, repeatMin: 1, repeatMax: 1 });
+  });
+
+  it("scopes the pool to the active theme's catalog", () => {
+    const packCatalog = catalogFromPetPack(makePackManifest());
+    const mixed = { ...baseConfig, selectedSprites: ["idle", "jumping", "extra_action_5"] };
+    // Under the pack catalog the built-in-only key drops out; under the
+    // default built-in catalog the pack-only key drops out instead.
+    expect(planIdleAnimation(mixed, packCatalog)?.pool).toEqual(["idle", "jumping"]);
+    expect(planIdleAnimation(mixed)?.pool).toEqual(["idle", "extra_action_5"]);
+    // A pool of purely foreign keys halts rotation, same as an empty pool.
+    expect(planIdleAnimation({ ...baseConfig, selectedSprites: ["extra_action_5"] }, packCatalog)).toBeNull();
   });
 });
 

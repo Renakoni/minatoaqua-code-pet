@@ -122,7 +122,10 @@ export type PetState =
   | "error";
 
 export type FeedbackMode = "thought" | "card" | "ribbon";
-export type PetThemeId = "minato-aqua";
+// Theme ids are dynamic since imported pet packs became selectable themes;
+// values are validated against the theme registry (utils/petThemes.ts), with
+// the built-in theme as the fallback for unknown ids.
+export type PetThemeId = string;
 
 export type ClientType = "cli" | "desktop" | "vscode" | "unknown";
 

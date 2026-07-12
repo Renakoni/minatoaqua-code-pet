@@ -14,6 +14,8 @@
  * import pipeline, which feeds the per-row visible frame counts in here.
  */
 
+import type { PetAnimationKey } from "./petAnimationKeys";
+
 export const CODEX_PET_COLUMNS = 8;
 
 /** Official row order of the v1 spritesheet contract, top to bottom. */
@@ -32,12 +34,12 @@ export const CODEX_PET_ROWS = [
 export type CodexPetRow = (typeof CODEX_PET_ROWS)[number];
 
 /**
- * Animation vocabulary of an imported pack, expressed in this app's naming.
- * `idle`, `running`, and `waiting_permission` coincide with the existing
- * canonical PetAnimationKey values; the remaining keys join the canonical
- * vocabulary when the per-theme catalogs land.
+ * Animation vocabulary of an imported pack — the subset of the canonical
+ * PetAnimationKey superset that codex-pet spritesheets can provide. Extract
+ * keeps this bound to shared/petAnimationKeys.ts by construction.
  */
-export type PetPackAnimationKey =
+export type PetPackAnimationKey = Extract<
+  PetAnimationKey,
   | "idle"
   | "running"
   | "waiting_permission"
@@ -46,7 +48,8 @@ export type PetPackAnimationKey =
   | "waving"
   | "jumping"
   | "failed"
-  | "review";
+  | "review"
+>;
 
 /** One-time vocabulary translation at the import boundary; never aliased at runtime. */
 export const CODEX_ROW_TO_ANIMATION_KEY: Record<CodexPetRow, PetPackAnimationKey> = {

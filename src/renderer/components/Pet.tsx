@@ -11,7 +11,11 @@ import permissionPromptImage from "../assets/pet/permission-prompt.webp";
 import runningImage from "../assets/pet/running.webp";
 import { PetAnimationKey, resolvePetAnimation } from "../state/petAnimations";
 
-const animationImages: Record<PetAnimationKey, string> = {
+// Clip assets for the built-in theme. The canonical key superset is wider
+// than any one theme, so this record is partial; resolution against the
+// built-in catalog can only yield these keys, and idle stays the last-resort
+// image if that invariant is ever broken.
+const animationImages: Partial<Record<PetAnimationKey, string>> = {
   idle: idleImage,
   running: runningImage,
   waiting_permission: permissionPromptImage,
@@ -38,7 +42,7 @@ export function Pet({ state, stateAnimations, idleAnimation, previewAnimation, s
 
   return (
     <div className={`pet pet-${state}`} style={{ transform: `scale(${scale})`, opacity }}>
-      <img key={imageKey} src={animationImages[animationKey]} alt={animationKey} draggable={false} />
+      <img key={imageKey} src={animationImages[animationKey] ?? idleImage} alt={animationKey} draggable={false} />
     </div>
   );
 }
