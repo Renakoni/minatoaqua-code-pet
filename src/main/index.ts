@@ -35,7 +35,7 @@ import {
 } from "./ccSwitchStore";
 import { PermissionBroker, type PendingPermission, type PermissionPollResult } from "./permissionBroker";
 import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
-import { downloadPetPack } from "./petPackDownload";
+import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2965,6 +2965,8 @@ if (singleInstanceLock) {
 app.whenReady().then(() => {
   loadCompanionSettings();
   loadRuntimeStats();
+  // Crash leftovers from network pet installs are temp files by definition.
+  cleanupPetDownloads(petDownloadsDir());
   watchCcSwitch(broadcastCcSwitchChanged);
   protocol.handle("pet-asset", request => {
     const filePath = resolvePetAssetPath(request.url, petPacksDir());
@@ -3167,6 +3169,8 @@ app.whenReady().then(() => {
         }
       }
     }));
+  ipcMain.handle("companion:pet-pack-discard-download", (_, zipPath: string) =>
+    discardDownloadedPetPack(String(zipPath ?? ""), petDownloadsDir()));
   ipcMain.handle("companion:get-monitors", () => screen.getAllDisplays().map(display => ({ id: String(display.id), label: display.label || `Display ${display.id}`, bounds: display.bounds, workArea: display.workArea, scaleFactor: display.scaleFactor })));
   ipcMain.handle("companion:get-plugins", () => companionSettings.customPlugins);
   ipcMain.handle("companion:get-claude-resources", (_, force?: boolean) => getClaudeResourcesSnapshot(Boolean(force)));

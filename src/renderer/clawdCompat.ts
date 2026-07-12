@@ -116,6 +116,7 @@ type CompanionApi = {
   /** Absolute path of a dropped File (Electron webUtils); "" in the browser. */
   getPetPackFilePath: (file: File) => string;
   downloadPetPack: (petSlug: string) => Promise<PetPackDownloadResult>;
+  discardPetPackDownload: (zipPath: string) => Promise<{ ok: boolean }>;
   onPetPackDownloadProgress: (callback: Listener<PetPackDownloadProgress>) => Unsubscribe;
 };
 
@@ -522,6 +523,7 @@ export function installClawdCompat() {
     onPetPacksChanged: () => () => undefined,
     getPetPackFilePath: () => "",
     downloadPetPack: async () => ({ ok: false, code: "unavailable" }),
+    discardPetPackDownload: async () => ({ ok: false }),
     onPetPackDownloadProgress: () => () => undefined
   };
 }
