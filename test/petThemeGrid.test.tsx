@@ -15,6 +15,9 @@ interface CompanionMock {
   pickPetPackFile: ReturnType<typeof vi.fn>;
   getPetPackFilePath: ReturnType<typeof vi.fn>;
   inspectPetPack: ReturnType<typeof vi.fn>;
+  downloadPetPack: ReturnType<typeof vi.fn>;
+  onPetPackDownloadProgress: ReturnType<typeof vi.fn>;
+  openExternal: ReturnType<typeof vi.fn>;
 }
 
 let companion: CompanionMock;
@@ -49,7 +52,10 @@ beforeEach(() => {
     removePetPack: vi.fn(async (): Promise<PetPackRemoveResult> => ({ ok: true })),
     pickPetPackFile: vi.fn(async () => null),
     getPetPackFilePath: vi.fn(() => ""),
-    inspectPetPack: vi.fn(() => new Promise(() => undefined))
+    inspectPetPack: vi.fn(() => new Promise(() => undefined)),
+    downloadPetPack: vi.fn(async () => ({ ok: false as const, code: "network" as const })),
+    onPetPackDownloadProgress: vi.fn(() => () => undefined),
+    openExternal: vi.fn(async () => undefined)
   };
   Reflect.set(window, "companion", companion);
   onSelectTheme = vi.fn<(themeId: string) => void>();
@@ -211,5 +217,49 @@ describe("PetThemeGrid import entry", () => {
     expect(view.container.querySelector(".pet-theme-notice-detail")?.textContent)
       .toBe("the previous version's backup could not be removed (X)");
     expect(onSelectTheme).toHaveBeenCalledWith("codex-pet:boba");
+  });
+});
+
+describe("PetThemeGrid install by id", () => {
+  function slugInput(): HTMLInputElement {
+    return screen.getByRole("textbox", { name: "Install by ID" }) as HTMLInputElement;
+  }
+
+  it("downloads a slug and opens the import dialog with gallery attribution", async () => {
+    companion.downloadPetPack.mockResolvedValueOnce({
+      ok: true,
+      zipPath: "C:/downloads/boba.codex-pet.zip",
+      slug: "boba",
+      displayName: "Boba",
+      creator: "qa-user",
+      galleryUrl: "https://codex-pet.org/pets/boba"
+    });
+    renderGrid("en");
+
+    fireEvent.change(slugInput(), { target: { value: "boba" } });
+    fireEvent.click(screen.getByRole("button", { name: /Get/ }));
+
+    await screen.findByRole("dialog");
+    expect(companion.downloadPetPack).toHaveBeenCalledWith("boba");
+    // The dialog's mount effect may flush a tick after the dialog appears.
+    await waitFor(() => expect(companion.inspectPetPack).toHaveBeenCalledWith("C:/downloads/boba.codex-pet.zip"));
+  });
+
+  it("maps download failure codes to localized notices", async () => {
+    companion.downloadPetPack.mockResolvedValueOnce({ ok: false, code: "not-found" });
+    const view = renderGrid("en");
+
+    fireEvent.change(slugInput(), { target: { value: "ghost" } });
+    fireEvent.click(screen.getByRole("button", { name: /Get/ }));
+
+    await waitFor(() => expect(view.container.querySelector(".pet-theme-notice")?.textContent)
+      .toContain("That pet is not in the gallery"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("opens the gallery in the external browser", () => {
+    renderGrid("en");
+    fireEvent.click(screen.getByRole("button", { name: /Open pet gallery/ }));
+    expect(companion.openExternal).toHaveBeenCalledWith("https://codex-pet.org");
   });
 });

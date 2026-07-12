@@ -19,6 +19,7 @@ function deferred<T>() {
 interface CompanionMock {
   inspectPetPack: ReturnType<typeof vi.fn>;
   installPetPack: ReturnType<typeof vi.fn>;
+  openExternal: ReturnType<typeof vi.fn>;
 }
 
 let companion: CompanionMock;
@@ -44,7 +45,8 @@ async function renderReadyDialog() {
 beforeEach(() => {
   companion = {
     inspectPetPack: vi.fn(async (): Promise<PetPackInspectResult> => ({ ok: true, staged: stagedFixture() })),
-    installPetPack: vi.fn(async (): Promise<PetPackInstallResult> => ({ ok: false, problems: [{ field: "install", message: "unset" }] }))
+    installPetPack: vi.fn(async (): Promise<PetPackInstallResult> => ({ ok: false, problems: [{ field: "install", message: "unset" }] })),
+    openExternal: vi.fn(async () => undefined)
   };
   Reflect.set(window, "companion", companion);
   onClose = vi.fn<() => void>();
@@ -159,5 +161,26 @@ describe("PetImportDialog", () => {
     fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect((document.activeElement as HTMLElement).textContent).toBe("Install");
+  });
+
+  it("shows creator attribution and the gallery link for downloaded packages", async () => {
+    render(
+      <I18nProvider initialLocale="en">
+        <PetImportDialog
+          zipPath={ZIP}
+          galleryUrl="https://codex-pet.org/pets/boba"
+          creator="qa-user"
+          onClose={onClose}
+          onInstalled={onInstalled}
+        />
+      </I18nProvider>
+    );
+    await waitFor(() => expect(FakeSheetImage.instances.length).toBe(1));
+    act(() => { FakeSheetImage.instances[0].onload?.(); });
+    await screen.findByRole("button", { name: "Install" });
+
+    expect(screen.getByText(/Creator:/).textContent).toContain("qa-user");
+    fireEvent.click(screen.getByRole("button", { name: "View on codex-pet.org" }));
+    expect(companion.openExternal).toHaveBeenCalledWith("https://codex-pet.org/pets/boba");
   });
 });

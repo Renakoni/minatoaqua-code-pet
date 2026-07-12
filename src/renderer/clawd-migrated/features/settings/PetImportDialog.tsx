@@ -35,8 +35,11 @@ function problemHeadline(t: (key: string, fallback?: string) => string, problems
  * Closing is blocked while an install is in flight (there is no cancel
  * contract for it), and results arriving after unmount are dropped.
  */
-export function PetImportDialog({ zipPath, onClose, onInstalled }: {
+export function PetImportDialog({ zipPath, galleryUrl, creator, onClose, onInstalled }: {
   zipPath: string;
+  /** Gallery page of a downloaded package, for creator attribution. */
+  galleryUrl?: string;
+  creator?: string;
   onClose: () => void;
   onInstalled: (themeId: string, warning?: string) => void;
 }) {
@@ -223,6 +226,12 @@ export function PetImportDialog({ zipPath, onClose, onInstalled }: {
               {staged?.manifest.description ? <p>{staged.manifest.description}</p> : null}
               {rowFrameCounts ? (
                 <small>{t("petImport.animationsFound", "识别动画：")} {rowFrameCounts.filter(count => count > 0).length}</small>
+              ) : null}
+              {creator ? <small className="pet-import-creator">{t("petImport.byCreator", "作者：")}{creator}</small> : null}
+              {galleryUrl ? (
+                <button type="button" className="pet-import-gallery-link" onClick={() => void window.companion.openExternal(galleryUrl)}>
+                  {t("petImport.viewOnGallery", "在 codex-pet.org 查看")}
+                </button>
               ) : null}
               {needsOverwrite ? <em className="pet-import-overwrite-note">{t("petImport.overwriteConfirm", "已安装同名宠物，覆盖安装？")}</em> : null}
             </div>
