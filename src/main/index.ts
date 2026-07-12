@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, protocol, screen, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, protocol, screen, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
 import { spawn } from "node:child_process";
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -37,6 +37,7 @@ import { PermissionBroker, type PendingPermission, type PermissionPollResult } f
 import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
+import { trayMenuPosition } from "./trayMenuPosition";
 
 type DailyRuntimeStats = {
   events: number;
@@ -81,6 +82,7 @@ const singleInstanceLock = app.requestSingleInstanceLock();
 let petWindow: BrowserWindow | null = null;
 let petDragWatcher: PetDragWatcher | null = null;
 let panelWindow: BrowserWindow | null = null;
+let trayMenuWindow: BrowserWindow | null = null;
 // The transparent pet window grows upward for larger pets and permission
 // cards while keeping the character anchored to the same desktop position.
 let petExpanded = false;
@@ -169,13 +171,13 @@ function setPetWindowExpanded(expanded: boolean, force = false) {
   petExpanded = expanded;
 }
 
-function rendererUrl(view?: "panel") {
+function rendererUrl(view?: "panel" | "traymenu") {
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
   if (!devServerUrl) return null;
   return view ? `${devServerUrl}?view=${view}` : devServerUrl;
 }
 
-function loadRenderer(window: BrowserWindow, view?: "panel") {
+function loadRenderer(window: BrowserWindow, view?: "panel" | "traymenu") {
   const url = rendererUrl(view);
   if (url) {
     window.loadURL(url);
@@ -266,15 +268,10 @@ function createPetWindow() {
   });
   petWindow.on("moved", () => petDragWatcher?.onMoveEnd());
 
-  petWindow.on("show", updateTrayMenu);
-  petWindow.on("hide", updateTrayMenu);
-  petWindow.on("minimize", updateTrayMenu);
-  petWindow.on("restore", updateTrayMenu);
   petWindow.on("closed", () => {
     petDragWatcher?.dispose();
     petDragWatcher = null;
     petWindow = null;
-    updateTrayMenu();
   });
 }
 
@@ -301,13 +298,8 @@ function createPanelWindow() {
   });
 
   loadRenderer(panelWindow, "panel");
-  panelWindow.on("show", updateTrayMenu);
-  panelWindow.on("hide", updateTrayMenu);
-  panelWindow.on("minimize", updateTrayMenu);
-  panelWindow.on("restore", updateTrayMenu);
   panelWindow.on("closed", () => {
     panelWindow = null;
-    updateTrayMenu();
   });
 
   return panelWindow;
@@ -318,12 +310,10 @@ function showPanelWindow() {
   if (window.isMinimized()) window.restore();
   window.show();
   window.focus();
-  updateTrayMenu();
 }
 
 function hidePanelWindow() {
   panelWindow?.hide();
-  updateTrayMenu();
 }
 
 function warmPanelWindow() {
@@ -379,12 +369,10 @@ function showPetWindow() {
   petWindow.focus();
   applyPetAlwaysOnTopSetting();
   if (isPetAlwaysOnTop()) petWindow.moveTop();
-  updateTrayMenu();
 }
 
 function hidePetWindow() {
   petWindow?.hide();
-  updateTrayMenu();
 }
 
 function togglePetWindow() {
@@ -397,30 +385,98 @@ function togglePetWindow() {
   }
 }
 
-function updateTrayMenu() {
-  if (!tray) return;
-  const petEnabled = isPetEnabled();
-  const isPetVisible = Boolean(petWindow && !petWindow.isDestroyed() && petWindow.isVisible());
-  const isPanelVisible = Boolean(panelWindow && !panelWindow.isDestroyed() && panelWindow.isVisible());
+// Custom tray popup instead of a native context menu: Win32 menus reserve
+// checkmark/accelerator gutters and use OS-fixed item metrics, which reads
+// as glitchy dead space next to two-character labels — and Electron exposes
+// no control over any of it. This window is app-styled, localized, and reads
+// its state fresh each time it opens.
+const TRAY_MENU_WIDTH = 208;
+const TRAY_MENU_HEIGHT = 148;
 
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      {
-        label: isPetVisible ? "隐藏桌宠" : "显示桌宠",
-        enabled: petEnabled,
-        click: isPetVisible ? hidePetWindow : showPetWindow
-      },
-      {
-        label: isPanelVisible ? "隐藏面板" : "显示面板",
-        click: isPanelVisible ? hidePanelWindow : showPanelWindow
-      },
-      { type: "separator" },
-      {
-        label: "退出",
-        click: () => app.quit()
-      }
-    ])
-  );
+// Renderer-driven readiness: sends to a renderer are not buffered, and
+// did-finish-load fires before the dynamically imported TrayMenuApp has
+// subscribed — so main never presents the popup until the renderer's ready
+// handshake, and a right-click that lands earlier is queued.
+let trayMenuRendererReady = false;
+let trayMenuShowPending = false;
+
+function trayMenuState() {
+  return {
+    petVisible: Boolean(petWindow && !petWindow.isDestroyed() && petWindow.isVisible()),
+    panelVisible: Boolean(panelWindow && !panelWindow.isDestroyed() && panelWindow.isVisible()),
+    petEnabled: isPetEnabled(),
+    dark: nativeTheme.shouldUseDarkColors,
+    language: companionSettings.language
+  };
+}
+
+function createTrayMenuWindow() {
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) return;
+
+  trayMenuWindow = new BrowserWindow({
+    width: TRAY_MENU_WIDTH,
+    height: TRAY_MENU_HEIGHT,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      preload: join(__dirname, "../preload/index.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  loadRenderer(trayMenuWindow, "traymenu");
+  // Any (re)load invalidates the renderer's subscription until it hands
+  // shakes again.
+  trayMenuWindow.webContents.on("did-start-loading", () => {
+    trayMenuRendererReady = false;
+  });
+  // A popup menu's contract: clicking anywhere else dismisses it.
+  trayMenuWindow.on("blur", hideTrayMenu);
+  trayMenuWindow.on("closed", () => {
+    trayMenuWindow = null;
+    trayMenuRendererReady = false;
+    trayMenuShowPending = false;
+  });
+}
+
+function hideTrayMenu() {
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) trayMenuWindow.hide();
+}
+
+// Position at the CURRENT cursor, push fresh state, show. Only called once
+// the renderer is known to be listening.
+function presentTrayMenu() {
+  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+  const cursor = screen.getCursorScreenPoint();
+  const workArea = screen.getDisplayNearestPoint(cursor).workArea;
+  const position = trayMenuPosition(cursor, { width: TRAY_MENU_WIDTH, height: TRAY_MENU_HEIGHT }, workArea);
+  trayMenuWindow.setPosition(position.x, position.y);
+  trayMenuWindow.webContents.send("companion:tray-menu-state", trayMenuState());
+  trayMenuWindow.show();
+  trayMenuWindow.focus();
+}
+
+function showTrayMenu() {
+  createTrayMenuWindow();
+  if (!trayMenuWindow) return;
+  if (!trayMenuRendererReady) {
+    // Cold first open (or mid-reload): present as soon as the renderer's
+    // ready handshake lands instead of showing an empty transparent window.
+    trayMenuShowPending = true;
+    return;
+  }
+  presentTrayMenu();
 }
 
 function createTray() {
@@ -428,9 +484,9 @@ function createTray() {
 
   tray = new Tray(trayIcon);
   tray.setToolTip("Claude Codex Pet is running");
-  updateTrayMenu();
 
   tray.on("click", showPetWindow);
+  tray.on("right-click", showTrayMenu);
 }
 
 function broadcastUpdateStatus() {
@@ -2664,7 +2720,6 @@ const permissionBroker = new PermissionBroker({
       if (target && !target.isDestroyed()) target.webContents.send("companion:permission-resolved", { id: pending.id, decision: result.decision });
     }
     if (permissionBroker.size === 0) setPetWindowExpanded(false);
-    updateTrayMenu();
   }
 });
 
@@ -2700,7 +2755,6 @@ function announcePermissionRequest(pending: PendingPermission) {
     detail: pending.toolDetail,
     timestamp: pending.timestamp
   });
-  updateTrayMenu();
 }
 
 function handlePermissionRequest(payload: unknown): { id?: string } {
@@ -2934,7 +2988,6 @@ function publishPetEvent(event: PetEvent) {
   panelWindow?.webContents.send("pet-snapshot", getSnapshot());
   broadcastCompanionEvent(companionEvent);
   handleCompanionAlerts(companionEvent);
-  updateTrayMenu();
 }
 
 const PERMISSION_ID_PATTERN = /^\/permission\/([A-Za-z0-9-]+)$/;
@@ -3037,7 +3090,6 @@ app.whenReady().then(() => {
       else hidePetWindow();
     } else if (previousAlwaysOnTop !== companionSettings.alwaysOnTop) {
       applyPetAlwaysOnTopSetting();
-      updateTrayMenu();
     }
     if (previousPetScale !== companionSettings.petScale
       || previousFeedbackScale !== companionSettings.feedbackScale
@@ -3061,6 +3113,30 @@ app.whenReady().then(() => {
     else panelWindow.maximize();
   });
   ipcMain.handle("companion:close-settings", () => hidePanelWindow());
+  ipcMain.handle("companion:tray-menu-ready", () => {
+    trayMenuRendererReady = true;
+    if (trayMenuShowPending) {
+      trayMenuShowPending = false;
+      presentTrayMenu();
+    }
+    // The handshake doubles as the pull path: the renderer renders from this
+    // result even if a push was emitted before it subscribed.
+    return trayMenuState();
+  });
+  ipcMain.handle("companion:tray-menu-action", (_, action: string) => {
+    hideTrayMenu();
+    // State is read live, not from the payload the popup rendered with, so
+    // a stale menu can only ever toggle to the correct current state.
+    if (action === "toggle-pet") {
+      if (petWindow && !petWindow.isDestroyed() && petWindow.isVisible()) hidePetWindow();
+      else showPetWindow();
+    } else if (action === "toggle-panel") {
+      if (panelWindow && !panelWindow.isDestroyed() && panelWindow.isVisible()) hidePanelWindow();
+      else showPanelWindow();
+    } else if (action === "quit") {
+      app.quit();
+    }
+  });
   ipcMain.handle("companion:set-pet-interactive", (_, interactive: boolean) => petWindow?.setIgnoreMouseEvents(!interactive, { forward: true }));
   ipcMain.handle("companion:update-permission-card-rect", () => undefined);
   ipcMain.handle("companion:drag-pet-to", (_, position: { x: number; y: number }) => {
@@ -3217,6 +3293,8 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:import-stats-file", () => null);
   if (isPetEnabled()) createPetWindow();
   createTray();
+  // Warm the tray popup so the first right-click opens instantly.
+  createTrayMenuWindow();
   startEventServer();
   runStartupBehaviors();
 

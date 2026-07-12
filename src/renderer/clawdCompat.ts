@@ -51,6 +51,9 @@ type CompanionApi = {
   dragPetTo: (position: { x: number; y: number }) => Promise<void>;
   movePetBy: (delta: { x: number; y: number }) => Promise<void>;
   onPetDragDirection: (callback: Listener<"left" | "right" | null>) => Unsubscribe;
+  onTrayMenuState: (callback: Listener<unknown>) => Unsubscribe;
+  trayMenuReady: () => Promise<unknown>;
+  trayMenuAction: (action: string) => Promise<void>;
   onPermissionRequest: (callback: Listener<PermissionRequest>) => Unsubscribe;
   onPermissionResolved: (callback: Listener<{ id: string }>) => Unsubscribe;
   respondPermission: (response: { id: string; decision: "allow" | "deny"; reason?: string }) => Promise<void>;
@@ -416,6 +419,9 @@ export function installClawdCompat() {
     dragPetTo: async () => undefined,
     movePetBy: async () => undefined,
     onPetDragDirection: () => () => undefined,
+    onTrayMenuState: () => () => undefined,
+    trayMenuReady: async () => null,
+    trayMenuAction: async () => undefined,
     onPermissionRequest: callback => subscribe(permissionRequestListeners, callback),
     onPermissionResolved: callback => subscribe(permissionResolvedListeners, callback),
     respondPermission: async response => emit(permissionResolvedListeners, { id: response.id }),

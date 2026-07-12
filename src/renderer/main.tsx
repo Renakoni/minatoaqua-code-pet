@@ -1,18 +1,29 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-const isPanelView = new URLSearchParams(window.location.search).get("view") === "panel";
+const view = new URLSearchParams(window.location.search).get("view");
 
 async function render() {
   const root = createRoot(document.getElementById("root")!);
 
-  if (isPanelView) {
+  if (view === "panel") {
     const [{ ClawdSettingsRoot }, { installClawdCompat }] = await Promise.all([
       import("./clawd-migrated/main"),
       import("./clawdCompat")
     ]);
     installClawdCompat();
     root.render(<ClawdSettingsRoot />);
+    return;
+  }
+
+  if (view === "traymenu") {
+    await import("./trayMenu.css");
+    const { default: TrayMenuApp } = await import("./TrayMenuApp");
+    root.render(
+      <StrictMode>
+        <TrayMenuApp />
+      </StrictMode>
+    );
     return;
   }
 

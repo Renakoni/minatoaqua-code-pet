@@ -1,0 +1,78 @@
+/* Custom tray popup. The window is transparent and slightly larger than the
+   card so the drop shadow has room to render; the card itself owns all
+   visible spacing — no phantom OS gutters. */
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tray-menu {
+  box-sizing: border-box;
+  margin: 10px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(38, 38, 42, 0.98);
+  color: rgba(245, 245, 247, 0.95);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+
+.tray-menu.light {
+  border-color: rgba(0, 0, 0, 0.1);
+  background: rgba(249, 249, 249, 0.98);
+  color: rgba(28, 28, 30, 0.92);
+}
+
+.tray-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tray-menu button:hover:not(:disabled),
+.tray-menu button:focus-visible {
+  background: rgba(255, 255, 255, 0.09);
+  outline: none;
+}
+
+.tray-menu.light button:hover:not(:disabled),
+.tray-menu.light button:focus-visible {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.tray-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tray-menu-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tray-menu.light .tray-menu-separator {
+  background: rgba(0, 0, 0, 0.1);
+}
