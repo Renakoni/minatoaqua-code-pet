@@ -722,7 +722,11 @@ function applyLaunchAtLoginSetting() {
 
 function runStartupBehaviors() {
   if (process.platform === "win32") {
-    app.setAppUserModelId("ClaudeCodexPet.ClawdCompanion");
+    // Windows shell / taskbar / notification identity. When packaging is
+    // configured, the installer's shortcut AppUserModelID (electron-builder
+    // `appId`) MUST match this string, or toast notifications won't group
+    // under the app.
+    app.setAppUserModelId("CharaDesk");
   }
   applyLaunchAtLoginSetting();
   if (companionSettings.openSettingsOnStart) showPanelWindow();
