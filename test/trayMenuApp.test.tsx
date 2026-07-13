@@ -244,6 +244,24 @@ describe("TrayMenuApp keyboard navigation", () => {
     fireEvent.keyDown(menu(view), { key: "Enter" });
     expect(trayMenuAction).toHaveBeenCalledWith("quit");
   });
+
+  it("Escape closes an open submenu first, then dismisses the popup", () => {
+    const view = render(<TrayMenuApp />);
+    pushState(baseState({ language: "en" }));
+    fireEvent.click(item("Switch pet"));
+    expect(flyout(view).classList.contains("open")).toBe(true);
+    screen.getByRole("menuitemradio", { name: /Boba/ }).focus();
+
+    // First Escape: submenu closes, focus returns to the trigger, popup stays.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(flyout(view).classList.contains("open")).toBe(false);
+    expect(document.activeElement).toBe(item("Switch pet"));
+    expect(trayMenuAction).not.toHaveBeenCalledWith("close");
+
+    // Second Escape: the whole popup dismisses.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(trayMenuAction).toHaveBeenCalledWith("close");
+  });
 });
 
 describe("resolveTrayLocale", () => {

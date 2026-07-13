@@ -42,6 +42,15 @@ describe("trayMenuLayout", () => {
     const { bounds } = trayMenuLayout({ x: 960, y: 60 }, METRICS, topTaskbar);
     expect(bounds.y).toBe(topTaskbar.y + 4);
   });
+
+  it("keeps the top-left on-screen when the window is larger than the work area", () => {
+    // A work area smaller than the 368x160 window: the leading edge must win,
+    // not a negative right/bottom-derived maximum.
+    const tiny = { x: 0, y: 0, width: 300, height: 120 };
+    const { bounds } = trayMenuLayout({ x: 150, y: 110 }, METRICS, tiny);
+    expect(bounds.x).toBe(tiny.x + 4);
+    expect(bounds.y).toBe(tiny.y + 4);
+  });
 });
 
 describe("pointInBounds", () => {

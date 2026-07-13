@@ -31,6 +31,11 @@ body {
 .tray-overlay.submenu-right { justify-content: flex-start; }
 .tray-overlay.submenu-left { justify-content: flex-end; }
 
+/* Native form controls (the scrolling pet list's scrollbar) follow the theme
+   instead of rendering a bright light scrollbar inside the dark card. */
+.tray-overlay.dark { color-scheme: dark; }
+.tray-overlay.light { color-scheme: light; }
+
 .tray-menu {
   position: relative;
   box-sizing: border-box;
@@ -97,8 +102,11 @@ body {
 
 /* --- Switch pet flyout --- */
 
+/* A real positioned box wrapping the trigger, so the submenu (its DOM child)
+   counts as inside the flyout for hover hit-testing — the pointer can cross
+   from the trigger into the adjacent submenu without a mouseleave firing. */
 .tray-flyout {
-  display: contents;
+  position: relative;
 }
 
 .tray-flyout-trigger {
@@ -111,15 +119,16 @@ body {
   opacity: 0.55;
 }
 
-/* Bottom-aligned to the menu card, opening on the side main chose; hidden
-   until the flyout is open (hover or keyboard focus). */
+/* Top-aligned to the "Switch pet" trigger and directly adjacent (no gap), so
+   the natural motion is straight sideways into it; opening on the side main
+   chose; hidden until the flyout is open (hover or keyboard focus). */
 .tray-submenu {
   position: absolute;
-  bottom: 0;
+  top: 0;
   z-index: 1;
   box-sizing: border-box;
   width: 164px;
-  max-height: 176px;
+  max-height: calc(100vh - 44px);
   overflow-y: auto;
   padding: 4px;
   display: none;
@@ -132,6 +141,26 @@ body {
   scrollbar-width: thin;
 }
 
+.tray-submenu::-webkit-scrollbar {
+  width: 9px;
+}
+
+.tray-submenu::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  background-clip: padding-box;
+}
+
+.tray-submenu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tray-overlay.light .tray-submenu::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.24);
+  background-clip: padding-box;
+}
+
 .tray-overlay.light .tray-submenu {
   border-color: rgba(0, 0, 0, 0.1);
   background: rgba(250, 250, 250, 0.99);
@@ -141,8 +170,8 @@ body {
   display: flex;
 }
 
-.tray-overlay.submenu-right .tray-submenu { left: calc(100% + 4px); }
-.tray-overlay.submenu-left .tray-submenu { right: calc(100% + 4px); }
+.tray-overlay.submenu-right .tray-submenu { left: 100%; }
+.tray-overlay.submenu-left .tray-submenu { right: 100%; }
 
 .tray-submenu-item {
   gap: 6px;

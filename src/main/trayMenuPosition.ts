@@ -37,8 +37,10 @@ export interface TrayMenuLayoutResult {
 const EDGE_MARGIN_PX = 4;
 
 function clamp(value: number, min: number, max: number): number {
-  // When the window is wider/taller than the work area, min wins (keeps the
-  // top-left on-screen rather than clamping it off the far edge).
+  // When the window is wider/taller than the work area (max < min), min wins,
+  // so the top-left stays on-screen rather than being pushed off the leading
+  // edge (plain Math.min(Math.max(...)) would return max, i.e. negative).
+  if (max < min) return min;
   return Math.min(Math.max(value, min), max);
 }
 

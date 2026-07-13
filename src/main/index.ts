@@ -395,7 +395,7 @@ function togglePetWindow() {
 // Switch pet flyout). Sized generously and laid out with flexbox inside — the
 // spare area is transparent + dismiss-on-click, so these needn't be pixel
 // exact. The submenu scrolls within the fixed height rather than growing it.
-const TRAY_MENU_METRICS: TrayMenuMetrics = { mainWidth: 184, submenuWidth: 184, height: 188 };
+const TRAY_MENU_METRICS: TrayMenuMetrics = { mainWidth: 184, submenuWidth: 184, height: 160 };
 
 // The horizontal side the submenu opened on, chosen per-present by
 // trayMenuLayout and forwarded to the renderer so its flyout matches.

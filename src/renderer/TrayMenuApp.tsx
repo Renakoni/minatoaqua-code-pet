@@ -59,6 +59,12 @@ export default function TrayMenuApp() {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const submenuRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  // A short close delay bridges the pointer crossing from the trigger to the
+  // submenu; re-entering either cancels it. submenuOpenRef lets the global
+  // Escape handler know a submenu is open without re-subscribing.
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const submenuOpenRef = useRef(false);
+  submenuOpenRef.current = submenuOpen;
 
   useEffect(() => {
     let mounted = true;
@@ -74,10 +80,21 @@ export default function TrayMenuApp() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") void trayCompanion()?.trayMenuAction?.("close");
+      if (event.key !== "Escape") return;
+      // Nested-menu Escape: the first Escape closes an open submenu and
+      // restores the trigger; only a second Escape dismisses the popup.
+      if (submenuOpenRef.current) {
+        setSubmenuOpen(false);
+        triggerRef.current?.focus();
+        return;
+      }
+      void trayCompanion()?.trayMenuAction?.("close");
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current);
+    };
   }, []);
 
   // Every (re)open pushes a fresh state object: park focus on the container so
@@ -118,11 +135,26 @@ export default function TrayMenuApp() {
   }
   const focusOnHover = (event: { currentTarget: HTMLButtonElement }) => event.currentTarget.focus();
 
+  function cancelClose() {
+    if (closeTimerRef.current !== null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }
   function openSubmenu(focusFirst: boolean) {
+    cancelClose();
     setSubmenuOpen(true);
     if (focusFirst) requestAnimationFrame(() => submenuItems()[0]?.focus());
   }
+  function scheduleCloseSubmenu() {
+    cancelClose();
+    closeTimerRef.current = setTimeout(() => {
+      setSubmenuOpen(false);
+      closeTimerRef.current = null;
+    }, 220);
+  }
   function closeSubmenu(focusTrigger: boolean) {
+    cancelClose();
     setSubmenuOpen(false);
     if (focusTrigger) triggerRef.current?.focus();
   }
@@ -166,9 +198,9 @@ export default function TrayMenuApp() {
       <div className="tray-menu" role="menu" tabIndex={-1} ref={menuRef} onKeyDown={handleMenuKeyDown} onMouseLeave={() => menuRef.current?.focus()}>
         <div
           className={`tray-flyout ${submenuOpen ? "open" : ""}`}
-          onMouseEnter={() => setSubmenuOpen(true)}
-          onMouseLeave={() => setSubmenuOpen(false)}
-          onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setSubmenuOpen(false); }}
+          onMouseEnter={() => openSubmenu(false)}
+          onMouseLeave={scheduleCloseSubmenu}
+          onBlur={event => { if (submenuOpen && !event.currentTarget.contains(event.relatedTarget as Node)) closeSubmenu(false); }}
         >
           <button
             type="button"
