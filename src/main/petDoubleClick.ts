@@ -44,8 +44,11 @@ export interface DoubleClickPoint {
 export interface DoubleClickDetectorOptions {
   /** System double-click time in ms (GetDoubleClickTime / registry DoubleClickSpeed). */
   doubleClickMs: number;
-  /** Max movement (physical px) between the two downs for a double-click. */
-  maxDistancePx: number;
+  /** Half-extent (physical px) of the Windows double-click rectangle, per axis —
+   *  SM_CXDOUBLECLK/2 and SM_CYDOUBLECLK/2, DPI-scaled, so the second down must land
+   *  within the same rectangle Windows would use. */
+  maxDistanceX: number;
+  maxDistanceY: number;
   /** Injected clock (Date.now). */
   now: () => number;
 }
@@ -53,6 +56,9 @@ export interface DoubleClickDetectorOptions {
 export interface DoubleClickDetector {
   /** Feed a left-button-down point; returns the point iff it completes a double-click. */
   push(x: number, y: number): DoubleClickPoint | null;
+  /** Cancel the pending first click — e.g. when a native drag has moved the window, so
+   *  the client-relative point can no longer be trusted as "the same spot". */
+  reset(): void;
 }
 
 export function createDoubleClickDetector(options: DoubleClickDetectorOptions): DoubleClickDetector {
@@ -62,14 +68,17 @@ export function createDoubleClickDetector(options: DoubleClickDetectorOptions): 
       const t = options.now();
       const isPair = previous !== null
         && t - previous.t <= options.doubleClickMs
-        && Math.abs(x - previous.x) <= options.maxDistancePx
-        && Math.abs(y - previous.y) <= options.maxDistancePx;
+        && Math.abs(x - previous.x) <= options.maxDistanceX
+        && Math.abs(y - previous.y) <= options.maxDistanceY;
       if (isPair) {
         previous = null; // consume the pair, so a triple-click isn't two double-clicks
         return { x, y };
       }
       previous = { t, x, y };
       return null;
+    },
+    reset() {
+      previous = null;
     }
   };
 }
@@ -97,7 +106,7 @@ export function installPetParentNotifyWatcher(
   });
 }
 
-// --- System double-click time (read from the registry via a TRUSTED reg.exe) ---
+// --- System double-click settings (read from the registry via a TRUSTED reg.exe) ---
 
 /** Read a variable from an env map case-insensitively (Windows keys vary in case). */
 function envValue(env: Record<string, string | undefined>, name: string): string | undefined {
@@ -120,21 +129,31 @@ export function trustedRegExePath(
   return pathWin32.isAbsolute(candidate) && fileExists(candidate) ? candidate : null;
 }
 
-/** Parse the DoubleClickSpeed (ms) from `reg query ... /v DoubleClickSpeed` output,
- *  clamped to a sane range; returns `fallbackMs` when it's absent or out of range. */
-export function parseDoubleClickSpeed(regOutput: string, fallbackMs: number): number {
-  const match = regOutput.match(/DoubleClickSpeed\s+REG_[A-Z_]+\s+(\d+)/i);
+/** Parse a REG_* integer named `name` (decimal) from `reg query` output, clamped to
+ *  [min, max]; returns `fallback` when it's absent or out of range. */
+export function parseRegInt(regOutput: string, name: string, fallback: number, min: number, max: number): number {
+  const match = regOutput.match(new RegExp(`\\b${name}\\s+REG_[A-Z_]+\\s+(\\d+)`, "i"));
   if (match) {
     const value = Number(match[1]);
-    if (Number.isFinite(value) && value >= 100 && value <= 2000) return value;
+    if (Number.isFinite(value) && value >= min && value <= max) return value;
   }
-  return fallbackMs;
+  return fallback;
+}
+
+export interface DoubleClickMetrics {
+  /** DoubleClickSpeed (ms). */
+  speedMs: number;
+  /** The double-click rectangle (DoubleClickWidth / DoubleClickHeight,
+   *  i.e. SM_CXDOUBLECLK / SM_CYDOUBLECLK), in logical px. */
+  width: number;
+  height: number;
 }
 
 function runReg(regExe: string): string | null {
   try {
-    // Short timeout so a wedged reg.exe can't block pet-window creation indefinitely.
-    const out = spawnSync(regExe, ["query", "HKCU\\Control Panel\\Mouse", "/v", "DoubleClickSpeed"], {
+    // Dump the whole Mouse key in one call; short timeout so a wedged reg.exe can't
+    // block pet-window creation indefinitely.
+    const out = spawnSync(regExe, ["query", "HKCU\\Control Panel\\Mouse"], {
       encoding: "utf8", windowsHide: true, timeout: 2000
     });
     return typeof out.stdout === "string" ? out.stdout : null;
@@ -144,18 +163,24 @@ function runReg(regExe: string): string | null {
 }
 
 /**
- * The user's system double-click time in ms (GetDoubleClickTime), read from the
- * registry via the TRUSTED absolute reg.exe (never a cwd-local one), clamped, with a
- * 500 ms fallback. `runRegQuery` / `fileExists` are injectable for tests.
+ * The user's Windows double-click settings — speed (GetDoubleClickTime) and the
+ * double-click rectangle (DoubleClickWidth/Height) — read from the registry via the
+ * TRUSTED absolute reg.exe (never a cwd-local one), clamped, with Windows defaults.
+ * `runRegQuery` / `fileExists` are injectable for tests.
  */
-export function readSystemDoubleClickMs(
+export function readSystemDoubleClickMetrics(
   env: Record<string, string | undefined>,
   runRegQuery: (regExe: string) => string | null = runReg,
   fileExists: (path: string) => boolean = existsSync
-): number {
-  const fallback = 500;
+): DoubleClickMetrics {
+  const defaults: DoubleClickMetrics = { speedMs: 500, width: 4, height: 4 };
   const regExe = trustedRegExePath(env, fileExists);
-  if (!regExe) return fallback;
+  if (!regExe) return defaults;
   const output = runRegQuery(regExe);
-  return output === null ? fallback : parseDoubleClickSpeed(output, fallback);
+  if (output === null) return defaults;
+  return {
+    speedMs: parseRegInt(output, "DoubleClickSpeed", 500, 100, 2000),
+    width: parseRegInt(output, "DoubleClickWidth", 4, 1, 200),
+    height: parseRegInt(output, "DoubleClickHeight", 4, 1, 200)
+  };
 }

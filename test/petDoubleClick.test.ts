@@ -5,8 +5,8 @@ import {
   createDoubleClickDetector,
   decodeParentNotify,
   installPetParentNotifyWatcher,
-  parseDoubleClickSpeed,
-  readSystemDoubleClickMs,
+  parseRegInt,
+  readSystemDoubleClickMetrics,
   trustedRegExePath
 } from "../src/main/petDoubleClick";
 
@@ -41,7 +41,7 @@ describe("createDoubleClickDetector", () => {
 
   it("detects two downs within the time + distance window", () => {
     const c = clock();
-    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistancePx: 8, now: c.now });
+    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistanceX: 8, maxDistanceY: 8, now: c.now });
     expect(detector.push(100, 100)).toBeNull(); // first down
     c.advance(200);
     expect(detector.push(103, 98)).toEqual({ x: 103, y: 98 }); // within 500ms and 8px
@@ -49,7 +49,7 @@ describe("createDoubleClickDetector", () => {
 
   it("rejects a second down that is too slow", () => {
     const c = clock();
-    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistancePx: 8, now: c.now });
+    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistanceX: 8, maxDistanceY: 8, now: c.now });
     detector.push(100, 100);
     c.advance(600); // past the double-click time
     expect(detector.push(100, 100)).toBeNull();
@@ -57,7 +57,7 @@ describe("createDoubleClickDetector", () => {
 
   it("rejects a second down that is too far (a move, not a double-click)", () => {
     const c = clock();
-    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistancePx: 8, now: c.now });
+    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistanceX: 8, maxDistanceY: 8, now: c.now });
     detector.push(100, 100);
     c.advance(100);
     expect(detector.push(140, 100)).toBeNull(); // 40px away
@@ -65,12 +65,39 @@ describe("createDoubleClickDetector", () => {
 
   it("consumes the pair so a triple-click is one double-click, not two", () => {
     const c = clock();
-    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistancePx: 8, now: c.now });
+    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistanceX: 8, maxDistanceY: 8, now: c.now });
     detector.push(50, 50);
     c.advance(100);
     expect(detector.push(50, 50)).toEqual({ x: 50, y: 50 }); // double
     c.advance(100);
     expect(detector.push(50, 50)).toBeNull(); // third starts a fresh pair
+  });
+
+  it("cancels the pending click on reset — a native drag moves the window, so a quick click at the same client-relative point isn't a double-click", () => {
+    const c = clock();
+    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistanceX: 8, maxDistanceY: 8, now: c.now });
+    expect(detector.push(96, 160)).toBeNull(); // first down
+    detector.reset(); // the pet window moved (native drag) — index.ts calls this on 'move'
+    c.advance(200);
+    expect(detector.push(96, 160)).toBeNull(); // same client point, but the drag reset the pending click
+  });
+
+  it("uses the per-axis half-extents (the Windows double-click rectangle), not a single radius", () => {
+    const c = clock();
+    // Narrow-x, tall-y rectangle: ±1 on x, ±5 on y.
+    const near = () => createDoubleClickDetector({ doubleClickMs: 500, maxDistanceX: 1, maxDistanceY: 5, now: c.now });
+    const withinBoth = near();
+    withinBoth.push(100, 100);
+    c.advance(50);
+    expect(withinBoth.push(101, 104)).toEqual({ x: 101, y: 104 }); // dx=1 (<=1), dy=4 (<=5) -> pair
+    const beyondX = near();
+    beyondX.push(100, 100);
+    c.advance(50);
+    expect(beyondX.push(102, 100)).toBeNull(); // dx=2 (>1), even though dy=0
+    const beyondY = near();
+    beyondY.push(100, 100);
+    c.advance(50);
+    expect(beyondY.push(100, 106)).toBeNull(); // dy=6 (>5), even though dx=0
   });
 });
 
@@ -79,7 +106,7 @@ describe("installPetParentNotifyWatcher", () => {
     const hooks = new Map<number, (w: Buffer, l: Buffer) => void>();
     const window = { hookWindowMessage: (m: number, cb: (w: Buffer, l: Buffer) => void) => { hooks.set(m, cb); } };
     let t = 0;
-    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistancePx: 8, now: () => t });
+    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistanceX: 8, maxDistanceY: 8, now: () => t });
     const points: Array<{ x: number; y: number }> = [];
     installPetParentNotifyWatcher(window, detector, (x, y) => points.push({ x, y }));
 
@@ -94,7 +121,7 @@ describe("installPetParentNotifyWatcher", () => {
   it("ignores WM_PARENTNOTIFY messages that aren't a left-button-down", () => {
     const hooks = new Map<number, (w: Buffer, l: Buffer) => void>();
     const window = { hookWindowMessage: (m: number, cb: (w: Buffer, l: Buffer) => void) => { hooks.set(m, cb); } };
-    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistancePx: 8, now: () => 0 });
+    const detector = createDoubleClickDetector({ doubleClickMs: 500, maxDistanceX: 8, maxDistanceY: 8, now: () => 0 });
     let opened = 0;
     installPetParentNotifyWatcher(window, detector, () => { opened += 1; });
 
@@ -118,36 +145,53 @@ describe("trustedRegExePath", () => {
   });
 });
 
-describe("parseDoubleClickSpeed", () => {
-  it("parses the value and clamps out-of-range or missing to the fallback", () => {
-    expect(parseDoubleClickSpeed("    DoubleClickSpeed    REG_SZ    350\r\n", 500)).toBe(350);
-    expect(parseDoubleClickSpeed("DoubleClickSpeed REG_DWORD 900", 500)).toBe(900);
-    expect(parseDoubleClickSpeed("DoubleClickSpeed REG_SZ 50", 500)).toBe(500); // too low
-    expect(parseDoubleClickSpeed("DoubleClickSpeed REG_SZ 9999", 500)).toBe(500); // too high
-    expect(parseDoubleClickSpeed("no value here", 500)).toBe(500);
+describe("parseRegInt", () => {
+  it("parses a named REG value (decimal), clamps out-of-range, and falls back when absent", () => {
+    const out = "    DoubleClickSpeed    REG_SZ    350\r\n    DoubleClickWidth    REG_SZ    12\r\n";
+    expect(parseRegInt(out, "DoubleClickSpeed", 500, 100, 2000)).toBe(350);
+    expect(parseRegInt(out, "DoubleClickWidth", 4, 1, 200)).toBe(12);
+    expect(parseRegInt(out, "DoubleClickHeight", 4, 1, 200)).toBe(4); // absent -> fallback
+    expect(parseRegInt("DoubleClickWidth REG_SZ 0", "DoubleClickWidth", 4, 1, 200)).toBe(4); // below min
+    expect(parseRegInt("DoubleClickWidth REG_SZ 9999", "DoubleClickWidth", 4, 1, 200)).toBe(4); // above max
   });
 });
 
-describe("readSystemDoubleClickMs", () => {
-  it("reads via the TRUSTED absolute reg.exe, never a bare name — so a cwd-local reg.exe can't win", () => {
+describe("readSystemDoubleClickMetrics", () => {
+  const REG_OUTPUT = [
+    "HKEY_CURRENT_USER\\Control Panel\\Mouse",
+    "    DoubleClickSpeed    REG_SZ    350",
+    "    DoubleClickWidth    REG_SZ    10",
+    "    DoubleClickHeight    REG_SZ    12"
+  ].join("\r\n");
+
+  it("reads speed + rectangle via the TRUSTED absolute reg.exe, never a bare name (a cwd-local reg.exe can't win)", () => {
     let invokedWith: string | null = null;
-    const ms = readSystemDoubleClickMs(
+    const metrics = readSystemDoubleClickMetrics(
       { SystemRoot: "C:\\Windows" },
-      regExe => { invokedWith = regExe; return "  DoubleClickSpeed  REG_SZ  350\r\n"; },
+      regExe => { invokedWith = regExe; return REG_OUTPUT; },
       () => true
     );
-    expect(ms).toBe(350);
+    expect(metrics).toEqual({ speedMs: 350, width: 10, height: 12 });
     // The regression guard: the runner is handed the fully-qualified System32 path.
     expect(invokedWith).toBe("C:\\Windows\\System32\\reg.exe");
     expect(invokedWith).not.toBe("reg");
   });
 
-  it("falls back to 500ms when reg.exe is absent or returns nothing usable", () => {
-    expect(readSystemDoubleClickMs({ SystemRoot: "C:\\Windows" }, () => "nope", () => true)).toBe(500);
-    expect(readSystemDoubleClickMs({ SystemRoot: "C:\\Windows" }, () => null, () => true)).toBe(500);
+  it("returns Windows defaults (500ms, 4x4) when reg.exe is absent or returns nothing usable", () => {
+    const defaults = { speedMs: 500, width: 4, height: 4 };
+    expect(readSystemDoubleClickMetrics({ SystemRoot: "C:\\Windows" }, () => "nope", () => true)).toEqual(defaults);
+    expect(readSystemDoubleClickMetrics({ SystemRoot: "C:\\Windows" }, () => null, () => true)).toEqual(defaults);
     // reg.exe absent: the runner is never invoked.
     let invoked = false;
-    expect(readSystemDoubleClickMs({ SystemRoot: "C:\\Windows" }, () => { invoked = true; return "DoubleClickSpeed REG_SZ 350"; }, () => false)).toBe(500);
+    expect(readSystemDoubleClickMetrics({ SystemRoot: "C:\\Windows" }, () => { invoked = true; return REG_OUTPUT; }, () => false)).toEqual(defaults);
     expect(invoked).toBe(false);
+  });
+
+  it("honors a customized (larger accessibility) double-click rectangle", () => {
+    const out = "    DoubleClickWidth    REG_SZ    16\r\n    DoubleClickHeight    REG_SZ    20";
+    const metrics = readSystemDoubleClickMetrics({ SystemRoot: "C:\\Windows" }, () => out, () => true);
+    expect(metrics.width).toBe(16);
+    expect(metrics.height).toBe(20);
+    expect(metrics.speedMs).toBe(500); // absent speed -> default
   });
 });
