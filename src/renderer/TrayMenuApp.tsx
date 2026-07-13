@@ -120,6 +120,9 @@ export default function TrayMenuApp() {
   if (!state) return null;
   const copy = COPY[resolveTrayLocale(state.language, navigator.language)];
   const send = (action: TrayMenuAction) => () => void trayCompanion()?.trayMenuAction?.(action);
+  // The active pet leads the list so it lands on the trigger row (at the
+  // cursor) when the flyout top-aligns with the menu; the rest follow below.
+  const orderedPets = [...state.pets.filter(pet => pet.active), ...state.pets.filter(pet => !pet.active)];
 
   function switchPet(id: string) {
     // Reuse the settings path so the theme swap runs its full pipeline
@@ -218,9 +221,9 @@ export default function TrayMenuApp() {
             <span className="tray-flyout-caret" aria-hidden="true">{state.submenuSide === "left" ? "‹" : "›"}</span>
           </button>
           <div className="tray-submenu" role="menu" ref={submenuRef} aria-label={copy.switchPet}>
-            {state.pets.length === 0 ? (
+            {orderedPets.length === 0 ? (
               <div className="tray-submenu-empty">{copy.noPets}</div>
-            ) : state.pets.map(pet => (
+            ) : orderedPets.map(pet => (
               <button
                 key={pet.id}
                 type="button"
