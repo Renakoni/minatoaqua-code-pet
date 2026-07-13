@@ -235,7 +235,7 @@ function toCompanionEvent(event: PetEvent): CompanionEvent {
     event: mappedEvent,
     sessionId,
     clientType: "desktop",
-    clientLabel: "Minato Aqua Code Pet",
+    clientLabel: "Chara Desk",
     tool: event.tool ? normalizeTool(event.tool) : undefined,
     notificationKind: event.notificationKind,
     title: event.title ?? event.event,
@@ -251,7 +251,7 @@ function currentConnection(): CompanionConnectionStatus {
     serverListening: true,
     activeSessionId: sessionId,
     activeClientType: "desktop",
-    activeClientLabel: "Minato Aqua Code Pet",
+    activeClientLabel: "Chara Desk",
     lastEventAt: lastEvent?.timestamp,
     lastEventTitle: lastEvent?.title,
     lastEventType: lastEvent?.event,
@@ -324,8 +324,8 @@ function buildStats(): AppStats {
 function sessionHistory(): SessionHistory[] {
   return [{
     sessionId,
-    title: "Minato Aqua Code Pet",
-    clientLabel: "Minato Aqua Code Pet",
+    title: "Chara Desk",
+    clientLabel: "Chara Desk",
     startedAt,
     lastEventAt: lastEvent?.timestamp ?? startedAt,
     eventCount: eventHistory.length,

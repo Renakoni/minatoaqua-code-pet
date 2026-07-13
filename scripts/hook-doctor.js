@@ -51,7 +51,7 @@ function checkTcpPort(host, port, timeoutMs = 700) {
 }
 
 function printReport() {
-  console.log("Minato Aqua Code Pet hook doctor");
+  console.log("Chara Desk hook doctor");
   console.log("");
 
   for (const check of checks) {

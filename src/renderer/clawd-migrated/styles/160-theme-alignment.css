@@ -1114,22 +1114,27 @@
   background: var(--ccs-editor-bg);
 }
 
+/* Dark editor palette mirrors the Overview's dark tokens (the screen this
+   panel launches from) — warm near-black surfaces (hue 75) and the app's gold
+   accent (hue 82) — so the editor stops reading as a foreign blue/neutral
+   theme. The light palette above was already harmonized this way; this brings
+   dark to parity. Light and Pet themes are untouched. */
 [data-theme=dark] .ccs-fullscreen-panel,
 [data-theme=dark] .ccs-confirm-backdrop {
-  --ccs-editor-ink: #f4efe7;
-  --ccs-editor-muted: rgba(244,239,231,.72);
-  --ccs-editor-faint: rgba(244,239,231,.48);
-  --ccs-editor-line: rgba(255,255,255,.1);
-  --ccs-editor-line-strong: rgba(255,255,255,.14);
-  --ccs-editor-bg: #1c1b1c;
-  --ccs-editor-surface: rgba(28,27,28,.98);
-  --ccs-editor-raised: rgba(255,255,255,.045);
-  --ccs-editor-hover: rgba(255,255,255,.08);
-  --ccs-editor-focus: rgba(59,130,246,.72);
-  --ccs-editor-primary: #3b82f6;
-  --ccs-editor-primary-hover: #2563eb;
-  --ccs-editor-primary-ink: #f4efe7;
-  --ccs-editor-shadow: 0 18px 50px rgba(0,0,0,.22);
+  --ccs-editor-ink: oklch(91% 0.012 78);
+  --ccs-editor-muted: oklch(63% 0.009 78);
+  --ccs-editor-faint: oklch(52% 0.008 78);
+  --ccs-editor-line: oklch(27% 0.006 75);
+  --ccs-editor-line-strong: oklch(32% 0.007 75);
+  --ccs-editor-bg: oklch(15% 0.006 75);
+  --ccs-editor-surface: oklch(17.5% 0.006 75);
+  --ccs-editor-raised: oklch(20% 0.006 75);
+  --ccs-editor-hover: oklch(21.5% 0.007 75);
+  --ccs-editor-focus: oklch(64% 0.065 82 / 0.5);
+  --ccs-editor-primary: oklch(77% 0.105 82);
+  --ccs-editor-primary-hover: oklch(81% 0.11 82);
+  --ccs-editor-primary-ink: oklch(16% 0.006 75);
+  --ccs-editor-shadow: 0 18px 50px oklch(0% 0 0 / 0.42);
 }
 
 .ccs-fullscreen-panel .ccs-fullscreen-header,
@@ -1184,7 +1189,13 @@
 [data-theme=dark] .ccs-fullscreen-panel .ccs-provider-form input:focus,
 [data-theme=dark] .ccs-fullscreen-panel .ccs-provider-form select:focus,
 [data-theme=dark] .ccs-fullscreen-panel .ccs-provider-form textarea:focus {
-  box-shadow: 0 0 0 3px rgba(59,130,246,.16);
+  box-shadow: 0 0 0 3px oklch(64% 0.065 82 / 0.2);
+}
+
+/* The icon-block trigger's hover border hardcodes cc-switch blue; in dark it
+   follows the editor's gold accent instead (light/pet keep their own base). */
+[data-theme=dark] .ccs-fullscreen-panel .ccs-icon-block button:hover {
+  border-color: var(--ccs-editor-primary);
 }
 
 .ccs-fullscreen-panel .ccs-provider-form select option {

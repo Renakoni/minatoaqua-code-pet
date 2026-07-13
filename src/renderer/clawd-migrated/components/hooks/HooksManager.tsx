@@ -107,7 +107,7 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
         )}
       </div>}
 
-      {!compact && !actionsOnly && <p className="note">{t("doctor.note", "安装 hooks 后，Claude Code 会自动将事件发送到 Clawd Companion。备份文件保存在 ~/.claude/settings.clawd-backup.json")}</p>}
+      {!compact && !actionsOnly && <p className="note">{t("doctor.note", "安装 hooks 后，Claude Code 会自动将事件发送到 Chara Desk。备份文件保存在 ~/.claude/settings.clawd-backup.json")}</p>}
     </div>
   );
 }

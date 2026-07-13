@@ -489,7 +489,7 @@
     "onboardingWelcome": "Welcome",
     "onboardingConnect": "Connect",
     "onboardingDone": "Done",
-    "welcomeTitle": "Welcome to Clawd Companion",
+    "welcomeTitle": "Welcome to Chara Desk",
     "welcomeDesc": "Clawd is a desktop companion for Claude Code, showing tool calls, session status, and animated feedback in real time.",
     "welcomeNote": "You only need 2 steps to get started.",
     "connectTitle": "Connect Claude Code",
@@ -791,6 +791,6 @@
     "removeDone": "Removed all Clawd hooks.",
     "removeFailed": "Remove failed: {error}",
     "removeFailedHidden": "Hook removal failed. Details are hidden.",
-    "note": "After installing hooks, Claude Code will automatically send events to Clawd Companion. Backup files are stored at ~/.claude/settings.clawd-backup.json"
+    "note": "After installing hooks, Claude Code will automatically send events to Chara Desk. Backup files are stored at ~/.claude/settings.clawd-backup.json"
   }
 }

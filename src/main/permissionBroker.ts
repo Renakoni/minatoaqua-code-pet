@@ -122,7 +122,7 @@ export class PermissionBroker {
     this.finalize(state, {
       status,
       decision: response.decision,
-      reason: response.reason ?? (response.decision === "allow" ? "Approved via Minato Aqua Code Pet" : "Denied via Minato Aqua Code Pet")
+      reason: response.reason ?? (response.decision === "allow" ? "Approved via Chara Desk" : "Denied via Chara Desk")
     });
     return { ok: true };
   }

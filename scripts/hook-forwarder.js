@@ -161,7 +161,7 @@ function formatPermissionDecision(decision, reason) {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: decision,
-      permissionDecisionReason: reason ?? (decision === "allow" ? "Approved via Minato Aqua Code Pet" : "Denied via Minato Aqua Code Pet")
+      permissionDecisionReason: reason ?? (decision === "allow" ? "Approved via Chara Desk" : "Denied via Chara Desk")
     },
     continue: true
   });
@@ -415,7 +415,8 @@ function unique(values) {
 }
 
 function candidateSettingsPaths() {
-  const appNames = ["claude-codex-pet", "Claude Codex Pet", "Clawd Companion", "Minato Aqua Code Pet"];
+  // The app's userData folder (productName). Settings live under this name.
+  const appNames = ["Chara Desk"];
   const candidates = [cli.settingsPath, process.env.CLAWD_COMPANION_SETTINGS_PATH];
 
   if (process.env.APPDATA) {
