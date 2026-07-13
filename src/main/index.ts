@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
@@ -39,6 +39,7 @@ import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
+import { buildProviderTerminalArtifacts, providerTerminalEnv } from "./providerTerminal";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2269,35 +2270,33 @@ function sanitizeClaudeSettingsConfig(config: Record<string, any>) {
   return next;
 }
 
-const TERMINAL_ENV_KEYS = [
-  "ANTHROPIC_BASE_URL",
-  "ANTHROPIC_AUTH_TOKEN",
-  "ANTHROPIC_API_KEY",
-  "ANTHROPIC_MODEL",
-  "ANTHROPIC_DEFAULT_SONNET_MODEL",
-  "ANTHROPIC_DEFAULT_OPUS_MODEL",
-  "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-  "ANTHROPIC_DEFAULT_FABLE_MODEL"
-] as const;
-
 function openClaudeProviderTerminal(providerId: string) {
   const listed = listUnifiedProviders();
   const provider = listed.providers.find(item => item.id === providerId);
   if (!provider) return { ok: false, command: "", error: `Provider ${providerId} not found` };
-  const config = (provider.settingsConfig ?? {}) as Record<string, any>;
-  const env = config.env && typeof config.env === "object" ? config.env as Record<string, any> : {};
-  const pairs: string[] = [];
-  for (const key of TERMINAL_ENV_KEYS) {
-    const value = env[key];
-    if (typeof value === "string" && value) pairs.push(`$env:${key}=${JSON.stringify(value)}`);
-    else if (typeof value === "number") pairs.push(`$env:${key}=${JSON.stringify(String(value))}`);
+  if (process.platform !== "win32") {
+    return { ok: false, command: "", error: "Terminal launch is only implemented on Windows in this build" };
   }
-  const command = `${pairs.length > 0 ? `${pairs.join("; ")}; ` : ""}claude`;
-  if (process.platform === "win32") {
-    spawn("cmd.exe", ["/c", "start", "Claude Route", "powershell.exe", "-NoExit", "-Command", command], { detached: true, windowsHide: true, stdio: "ignore" }).unref();
-    return { ok: true, command };
+  const env = providerTerminalEnv(provider.settingsConfig);
+  // The provider env goes into a temp settings file loaded via
+  // `claude --settings`, run from a temp .bat that self-cleans. The launch
+  // command references only the .bat PATH, so nested quotes in tokens/URLs
+  // can never break through cmd/start (the old inline-command bug).
+  const safeId = String(providerId).replace(/[^a-zA-Z0-9._-]/g, "_") || "provider";
+  const configFile = join(tmpdir(), `chara-desk-claude-${safeId}-${process.pid}.json`);
+  const batFile = join(tmpdir(), `chara-desk-claude-${safeId}-${process.pid}.bat`);
+  const { settingsJson, batContent } = buildProviderTerminalArtifacts(env, configFile, provider.name ?? "");
+  try {
+    writeFileSync(configFile, settingsJson, "utf8");
+    writeFileSync(batFile, batContent, "utf8");
+  } catch (error) {
+    return { ok: false, command: "", error: error instanceof Error ? error.message : String(error) };
   }
-  return { ok: false, command, error: "Terminal launch is only implemented on Windows in this build" };
+  const command = `claude --settings "${configFile}"`;
+  // Empty start title (a quoted "" so it can't be misread as the program),
+  // then a fresh visible cmd running the bat; the transient launcher is hidden.
+  spawn("cmd.exe", ["/c", "start", "", "cmd.exe", "/k", batFile], { detached: true, windowsHide: true, stdio: "ignore" }).unref();
+  return { ok: true, command };
 }
 
 /* ---------- unified Claude provider service (cc-switch db when present) ---------- */
