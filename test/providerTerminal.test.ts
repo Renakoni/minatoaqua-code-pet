@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProviderTerminalArtifacts, providerTerminalEnv } from "../src/main/providerTerminal";
+import { buildProviderTerminalLaunch, providerTerminalEnv } from "../src/main/providerTerminal";
 
 describe("providerTerminalEnv", () => {
   it("keeps string and finite-number env entries and drops the rest", () => {
@@ -15,47 +15,60 @@ describe("providerTerminalEnv", () => {
   });
 });
 
-describe("buildProviderTerminalArtifacts", () => {
-  const configFile = "C:\\Temp\\chara-desk-claude-demo-1234.json";
+describe("buildProviderTerminalLaunch", () => {
+  const providerEnv = {
+    ANTHROPIC_BASE_URL: "https://api.example.com",
+    ANTHROPIC_AUTH_TOKEN: "sk-secret-token"
+  };
+  const baseEnv = { PATH: "C:\\Windows", SystemRoot: "C:\\Windows", ANTHROPIC_BASE_URL: "https://default" };
 
-  it("puts the env in a --settings JSON and never inlines it in the batch", () => {
-    const { settingsJson, batContent } = buildProviderTerminalArtifacts(
-      { ANTHROPIC_BASE_URL: "https://api.example.com", ANTHROPIC_AUTH_TOKEN: "sk-secret-token" },
-      configFile,
-      "Demo Router"
-    );
+  it("passes provider credentials through env, never on the command line", () => {
+    const launch = buildProviderTerminalLaunch(providerEnv, baseEnv, "C:\\Windows\\System32\\cmd.exe");
 
-    expect(JSON.parse(settingsJson)).toEqual({
-      env: { ANTHROPIC_BASE_URL: "https://api.example.com", ANTHROPIC_AUTH_TOKEN: "sk-secret-token" }
-    });
+    // The provider values reach the child only through env...
+    expect(launch.env.ANTHROPIC_BASE_URL).toBe("https://api.example.com");
+    expect(launch.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-secret-token");
 
-    // The batch references only the config PATH — the token/URL are NOT inline
-    // (this is the whole point: no nested quoting through cmd/start).
-    expect(batContent).toContain(`claude --settings "${configFile}"`);
-    expect(batContent).not.toContain("sk-secret-token");
-    expect(batContent).not.toContain("https://api.example.com");
-
-    // Self-cleaning and batch-shaped.
-    expect(batContent).toContain(`del "${configFile}" >nul 2>&1`);
-    expect(batContent).toContain(`del "%~f0" >nul 2>&1`);
-    expect(batContent.startsWith("@echo off\r\n")).toBe(true);
-    expect(batContent.split("\n").every(line => line === "" || line.endsWith("\r"))).toBe(true);
+    // ...and never appear on the launched command line (the whole point: no
+    // inline quoting to break, no credential file). The args are constant.
+    expect(launch.file).toBe("C:\\Windows\\System32\\cmd.exe");
+    expect(launch.args).toEqual(["/K", "claude"]);
+    expect(JSON.stringify(launch.args)).not.toContain("sk-secret-token");
+    expect(JSON.stringify(launch.args)).not.toContain("https://api.example.com");
   });
 
-  it("writes an empty env object for a provider with no env (official Claude)", () => {
-    const { settingsJson } = buildProviderTerminalArtifacts({}, configFile, "Claude Official");
-    expect(JSON.parse(settingsJson)).toEqual({ env: {} });
+  it("layers the provider env over the inherited base env", () => {
+    const launch = buildProviderTerminalLaunch(providerEnv, baseEnv, "cmd.exe");
+    // Inherited entries survive (spawn replaces env wholesale, so claude still
+    // needs PATH etc.)...
+    expect(launch.env.PATH).toBe("C:\\Windows");
+    expect(launch.env.SystemRoot).toBe("C:\\Windows");
+    // ...and the provider's routing wins over any inherited value.
+    expect(launch.env.ANTHROPIC_BASE_URL).toBe("https://api.example.com");
   });
 
-  it("strips batch-unsafe characters from the window title", () => {
-    const { batContent } = buildProviderTerminalArtifacts({}, configFile, 'Bad & Name | <redirect> "q"');
-    const titleLine = batContent.split("\r\n").find(line => line.startsWith("title "))!;
-    expect(titleLine).toBe("title Chara Desk - Claude - Bad Name redirect q");
-    expect(titleLine).not.toMatch(/[&|<>"]/);
+  it("drops undefined base env values", () => {
+    const launch = buildProviderTerminalLaunch({}, { A: "x", B: undefined }, "cmd.exe");
+    expect(launch.env).toEqual({ A: "x" });
   });
 
-  it("falls back to a plain title when the name has no safe characters", () => {
-    const { batContent } = buildProviderTerminalArtifacts({}, configFile, "月薪喵");
-    expect(batContent).toContain("title Chara Desk - Claude\r\n");
+  it("falls back to cmd.exe when the comspec is empty", () => {
+    expect(buildProviderTerminalLaunch({}, {}, "").file).toBe("cmd.exe");
+  });
+
+  it("returns independent, file-free launches for repeated opens of one provider", () => {
+    const first = buildProviderTerminalLaunch(providerEnv, baseEnv, "cmd.exe");
+    const second = buildProviderTerminalLaunch(providerEnv, baseEnv, "cmd.exe");
+
+    // Nothing is written to disk, so there are no temp paths to collide over or
+    // delete out from under each other — no .bat/.json/%TEMP% artifact anywhere.
+    const serialized = JSON.stringify(first) + JSON.stringify(second);
+    expect(serialized).not.toMatch(/\.bat|\.json|temp|tmp/i);
+
+    // Two opens share no mutable state: mutating one never touches the other.
+    first.env.ANTHROPIC_AUTH_TOKEN = "mutated";
+    first.args.push("injected");
+    expect(second.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-secret-token");
+    expect(second.args).toEqual(["/K", "claude"]);
   });
 });

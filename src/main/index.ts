@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
@@ -39,7 +39,7 @@ import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
-import { buildProviderTerminalArtifacts, providerTerminalEnv } from "./providerTerminal";
+import { buildProviderTerminalLaunch, providerTerminalEnv } from "./providerTerminal";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2277,25 +2277,29 @@ function openClaudeProviderTerminal(providerId: string) {
   if (process.platform !== "win32") {
     return { ok: false, command: "", error: "Terminal launch is only implemented on Windows in this build" };
   }
-  const env = providerTerminalEnv(provider.settingsConfig);
-  // The provider env goes into a temp settings file loaded via
-  // `claude --settings`, run from a temp .bat that self-cleans. The launch
-  // command references only the .bat PATH, so nested quotes in tokens/URLs
-  // can never break through cmd/start (the old inline-command bug).
-  const safeId = String(providerId).replace(/[^a-zA-Z0-9._-]/g, "_") || "provider";
-  const configFile = join(tmpdir(), `chara-desk-claude-${safeId}-${process.pid}.json`);
-  const batFile = join(tmpdir(), `chara-desk-claude-${safeId}-${process.pid}.bat`);
-  const { settingsJson, batContent } = buildProviderTerminalArtifacts(env, configFile, provider.name ?? "");
+  // The provider's env (base URL, tokens) is handed to the child process through
+  // spawn's `env` — never written to disk and never placed on the command line.
+  // That keeps API keys out of %TEMP% (honoring the ccSwitchStore invariant that
+  // they live only in the db and the live settings file), sidesteps the nested-
+  // quote breakage of inlining `$env:` through cmd/start (the old bug), and
+  // mirrors how resumeClaudeSession() opens a terminal. Nothing is written, so
+  // repeated opens can't collide or leave stale credential files behind.
+  const providerEnv = providerTerminalEnv(provider.settingsConfig);
+  const comspec = process.env.ComSpec || "cmd.exe";
+  const { file, args, env } = buildProviderTerminalLaunch(providerEnv, process.env, comspec);
+  const command = "claude";
   try {
-    writeFileSync(configFile, settingsJson, "utf8");
-    writeFileSync(batFile, batContent, "utf8");
+    const child = spawn(file, args, {
+      cwd: homedir(),
+      detached: true,
+      windowsHide: false,
+      stdio: "ignore",
+      env
+    });
+    child.unref();
   } catch (error) {
-    return { ok: false, command: "", error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, command, error: error instanceof Error ? error.message : String(error) };
   }
-  const command = `claude --settings "${configFile}"`;
-  // Empty start title (a quoted "" so it can't be misread as the program),
-  // then a fresh visible cmd running the bat; the transient launcher is hidden.
-  spawn("cmd.exe", ["/c", "start", "", "cmd.exe", "/k", batFile], { detached: true, windowsHide: true, stdio: "ignore" }).unref();
   return { ok: true, command };
 }
 
