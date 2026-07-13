@@ -21,6 +21,7 @@ import { displayedSpriteHeight } from "../shared/spriteFrame";
 import { dragAnimationForDirection, type DragDirection } from "../shared/petDrag";
 import { type IdleAnimationConfig, planIdleAnimation, startIdleAnimator } from "./state/petIdleAnimator";
 import { nextPetState } from "./state/petStateMachine";
+import { isPetElement } from "./petHitTest";
 
 const defaultBubbleSeconds = 8;
 const soundClipMs = 3000;
@@ -53,6 +54,8 @@ type PetCompanionApi = {
   listPetPacks?: () => Promise<PetPackManifest[]>;
   onPetPacksChanged?: (callback: (payload: unknown) => void) => () => void;
   onPetDragDirection?: (callback: (direction: "left" | "right" | null) => void) => () => void;
+  onPetDoubleClickProbe?: (callback: (point: { x: number; y: number }) => void) => () => void;
+  openSettings?: () => Promise<void> | void;
 };
 
 function petCompanion(): PetCompanionApi | undefined {
@@ -288,6 +291,18 @@ export default function App() {
   useEffect(() => {
     return petCompanion()?.onPetDragDirection?.(direction => {
       setDragDirection(direction === "left" || direction === "right" ? direction : null);
+    });
+  }, []);
+
+  // Main reconstructs a pet double-click from WM_PARENTNOTIFY and sends the click
+  // point (physical px, parent-client space). Convert to CSS px and hit-test it
+  // against the actual pet element: only the pet opens the panel — the bubble,
+  // permission card, Allow/Deny buttons and transparent background are excluded.
+  useEffect(() => {
+    return petCompanion()?.onPetDoubleClickProbe?.(({ x, y }) => {
+      const ratio = window.devicePixelRatio || 1;
+      const target = document.elementFromPoint(x / ratio, y / ratio);
+      if (isPetElement(target)) void petCompanion()?.openSettings?.();
     });
   }, []);
 

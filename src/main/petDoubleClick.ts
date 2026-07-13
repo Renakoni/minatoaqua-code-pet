@@ -1,37 +1,94 @@
-// Open the panel when the pet is double-clicked, via the OS non-client
-// double-click message — the mechanism that stays compatible with the pet's
-// native `-webkit-app-region: drag` region (a React onDoubleClick on `.pet`
-// would pass jsdom tests but never fire, because Electron drag regions consume
-// pointer/mouse events before the renderer sees them).
+// Detect a double-click on the pet from WM_PARENTNOTIFY.
 //
-// The pet element is the ONLY drag region in the pet window, so Windows
-// classifies just the pet as non-client (HTCAPTION) and everything else — the
-// status/notification bubble, the permission card and its Allow/Deny buttons,
-// and the transparent background — as client area. WM_NCLBUTTONDBLCLK therefore
-// reaches us only for a double-click on the pet, never on those surfaces. Three
-// more properties fall out for free: the OS (not a renderer timer) decides what
-// counts as a double-click; the native drag is a different message
-// (WM_NCLBUTTONDOWN + move), so a drag is never a double-click and a single
-// click does nothing; and because the pet *is* the drag region, the hit target
-// tracks the pet at any scale or imported-sprite height, with built-in clip pets
-// and imported spritesheet pets behaving identically.
+// In Electron (39+) a click on the pet's `-webkit-app-region: drag` element is
+// delivered to Chromium's child render-widget HWND, not the outer BrowserWindow —
+// so hookWindowMessage on the outer window never sees WM_NCLBUTTONDBLCLK, or even
+// WM_LBUTTONDOWN. The one message the outer window does receive is WM_PARENTNOTIFY,
+// emitted once per real child WM_LBUTTONDOWN. We reconstruct a double-click from two
+// of those (within the system double-click time and a small distance) and hand the
+// click point to the renderer, which hit-tests it against the actual pet element
+// (document.elementFromPoint). That excludes the status/notification bubble, the
+// permission card and its Allow/Deny buttons, plugin widgets and the transparent
+// background for free, and native dragging (one down then movement, never two quick
+// stationary downs) is preserved.
 
-/** WM_NCLBUTTONDBLCLK: the non-client (caption) left-button double-click. */
-export const WM_NCLBUTTONDBLCLK = 0x00a3;
+export const WM_PARENTNOTIFY = 0x0210;
+export const WM_LBUTTONDOWN = 0x0201;
 
-export interface DoubleClickHookWindow {
-  hookWindowMessage(message: number, callback: () => void): void;
+export interface ParentNotifyEvent {
+  /** The child mouse message (low word of wParam), e.g. WM_LBUTTONDOWN. */
+  message: number;
+  /** Cursor position in the parent's client area, in physical pixels. */
+  x: number;
+  y: number;
+}
+
+/** Decode a WM_PARENTNOTIFY (wParam, lParam) pair into the child mouse event. */
+export function decodeParentNotify(wParam: Buffer, lParam: Buffer): ParentNotifyEvent {
+  return {
+    message: wParam.readUInt16LE(0),
+    x: lParam.readInt16LE(0),
+    y: lParam.readInt16LE(2)
+  };
+}
+
+export interface DoubleClickPoint {
+  x: number;
+  y: number;
+}
+
+export interface DoubleClickDetectorOptions {
+  /** System double-click time in ms (GetDoubleClickTime / registry DoubleClickSpeed). */
+  doubleClickMs: number;
+  /** Max movement (physical px) between the two downs for a double-click. */
+  maxDistancePx: number;
+  /** Injected clock (Date.now). */
+  now: () => number;
+}
+
+export interface DoubleClickDetector {
+  /** Feed a left-button-down point; returns the point iff it completes a double-click. */
+  push(x: number, y: number): DoubleClickPoint | null;
+}
+
+export function createDoubleClickDetector(options: DoubleClickDetectorOptions): DoubleClickDetector {
+  let previous: { t: number; x: number; y: number } | null = null;
+  return {
+    push(x, y) {
+      const t = options.now();
+      const isPair = previous !== null
+        && t - previous.t <= options.doubleClickMs
+        && Math.abs(x - previous.x) <= options.maxDistancePx
+        && Math.abs(y - previous.y) <= options.maxDistancePx;
+      if (isPair) {
+        previous = null; // consume the pair, so a triple-click isn't two double-clicks
+        return { x, y };
+      }
+      previous = { t, x, y };
+      return null;
+    }
+  };
+}
+
+export interface ParentNotifyHookWindow {
+  hookWindowMessage(message: number, callback: (wParam: Buffer, lParam: Buffer) => void): void;
 }
 
 /**
- * Wire the pet window's non-client double-click to `openPanel`. Call once per pet
- * window (createPetWindow's single-instance guard ensures that); the hook is
- * released when that window is destroyed, so a recreated pet window gets a fresh
- * single hook and handlers never accumulate.
+ * Hook WM_PARENTNOTIFY on the pet window and call `onDoubleClick(x, y)` (physical
+ * client px) when two child left-button-downs form a double-click. Register once per
+ * pet window (createPetWindow's single-instance guard ensures that); the hook is
+ * released when the window is destroyed, so recreations don't accumulate handlers.
  */
-export function installPetDoubleClickToOpenPanel(
-  window: DoubleClickHookWindow,
-  openPanel: () => void
+export function installPetParentNotifyWatcher(
+  window: ParentNotifyHookWindow,
+  detector: DoubleClickDetector,
+  onDoubleClick: (x: number, y: number) => void
 ): void {
-  window.hookWindowMessage(WM_NCLBUTTONDBLCLK, () => openPanel());
+  window.hookWindowMessage(WM_PARENTNOTIFY, (wParam, lParam) => {
+    const event = decodeParentNotify(wParam, lParam);
+    if (event.message !== WM_LBUTTONDOWN) return;
+    const hit = detector.push(event.x, event.y);
+    if (hit) onDoubleClick(hit.x, hit.y);
+  });
 }

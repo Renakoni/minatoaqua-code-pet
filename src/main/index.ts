@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, protocol, screen, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
@@ -37,7 +37,7 @@ import { PermissionBroker, type PendingPermission, type PermissionPollResult } f
 import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
-import { installPetDoubleClickToOpenPanel } from "./petDoubleClick";
+import { createDoubleClickDetector, installPetParentNotifyWatcher } from "./petDoubleClick";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
 
@@ -222,6 +222,26 @@ function applyPetAlwaysOnTopSetting() {
   petWindow.setVisibleOnAllWorkspaces(false);
 }
 
+// The system double-click time (GetDoubleClickTime), read once from the registry so
+// the pet's reconstructed double-click matches the user's mouse settings.
+let cachedDoubleClickMs: number | null = null;
+function systemDoubleClickMs(): number {
+  if (cachedDoubleClickMs !== null) return cachedDoubleClickMs;
+  let ms = 500; // GetDoubleClickTime default
+  try {
+    const out = spawnSync("reg", ["query", "HKCU\\Control Panel\\Mouse", "/v", "DoubleClickSpeed"], { encoding: "utf8", windowsHide: true });
+    const match = out.stdout ? out.stdout.match(/DoubleClickSpeed\s+REG_[A-Z_]+\s+(\d+)/i) : null;
+    if (match) {
+      const value = Number(match[1]);
+      if (Number.isFinite(value) && value >= 100 && value <= 2000) ms = value;
+    }
+  } catch {
+    // Registry read is best-effort; keep the default.
+  }
+  cachedDoubleClickMs = ms;
+  return ms;
+}
+
 function createPetWindow() {
   if (!isPetEnabled()) return;
   if (petWindow && !petWindow.isDestroyed()) return;
@@ -270,14 +290,25 @@ function createPetWindow() {
   });
   petWindow.on("moved", () => petDragWatcher?.onMoveEnd());
 
-  // Double-click the pet to summon the panel. Uses the OS non-client double-click
-  // message so it fires only on the pet's drag region — never the bubble, card,
-  // Allow/Deny buttons, or transparent background — and follows the OS double-click
-  // timing (see petDoubleClick.ts). Registered once per window; the hook is released
-  // when this window is destroyed, so recreations don't accumulate handlers.
-  // resizable:false means the OS won't try to maximize the window on the gesture.
+  // Double-click the pet to summon the panel. Electron delivers the pet's
+  // drag-region clicks to Chromium's child window, so the outer window only sees
+  // WM_PARENTNOTIFY — reconstruct the double-click from two of those (system timing
+  // + a small distance), then let the renderer hit-test the point against the actual
+  // pet element so the bubble / card / Allow-Deny buttons / transparent background
+  // are excluded and native dragging is preserved (see petDoubleClick.ts +
+  // petHitTest.ts). Registered once per window; the hook is released when the window
+  // is destroyed, so recreations don't stack handlers.
   if (process.platform === "win32") {
-    installPetDoubleClickToOpenPanel(petWindow, () => showPanelWindow());
+    const doubleClick = createDoubleClickDetector({
+      doubleClickMs: systemDoubleClickMs(),
+      maxDistancePx: 8,
+      now: () => Date.now()
+    });
+    installPetParentNotifyWatcher(petWindow, doubleClick, (x, y) => {
+      if (petWindow && !petWindow.isDestroyed()) {
+        petWindow.webContents.send("companion:pet-doubleclick-probe", { x, y });
+      }
+    });
   }
 
   petWindow.on("closed", () => {
