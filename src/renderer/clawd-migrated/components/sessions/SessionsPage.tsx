@@ -85,17 +85,27 @@ export function SessionsPage({ hideSensitiveContent = false }: { hideSensitiveCo
 
   async function resumeSession(session: ClaudeSessionIndexItem) {
     const command = `claude --resume ${session.sessionId}`;
+    setError(null);
     try {
       const result = await window.companion.resumeClaudeSession(session.sessionId, session.projectPath);
       if (result?.ok) {
         setToast(zh ? "已打开终端恢复会话" : "Opened terminal to resume");
         return;
       }
-      await navigator.clipboard.writeText(result?.command || command);
-      setToast(zh ? "终端未打开，已复制恢复命令" : "Could not open terminal; command copied");
-    } catch {
+      // Surface the actionable error from main (missing CLI + install/restart hint,
+      // an unsupported working directory, or a launch failure). Copying the command
+      // only helps when it could actually run, so copy + say so only when main marks
+      // the result copyable (claude resolved) — otherwise the error is the guidance,
+      // and copying an unrunnable `claude --resume ...` would just mislead.
+      if (result?.copyable) {
+        await navigator.clipboard.writeText(result?.command || command);
+        setToast(zh ? "终端未打开，已复制恢复命令" : "Could not open terminal; command copied");
+      }
+      if (result?.error) setError(result.error);
+    } catch (err) {
       await navigator.clipboard.writeText(command);
-      setToast(zh ? "已复制恢复命令" : "Resume command copied");
+      setToast(zh ? "调用失败，已复制恢复命令" : "Resume failed; command copied");
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
