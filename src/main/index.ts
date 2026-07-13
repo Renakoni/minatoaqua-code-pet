@@ -38,7 +38,7 @@ import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
-import { buildProviderTerminalLaunch, claudeIsAvailable, isUncPath, launchDetachedTerminal, providerTerminalEnv } from "./providerTerminal";
+import { isUncPath, launchDetachedTerminal, mergeTerminalEnv, normalizeWorkingDirectory, providerTerminalEnv, resolveClaudeExecutable } from "./providerTerminal";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2217,20 +2217,26 @@ async function resumeClaudeSession(sessionId: string, projectPath?: string) {
   const safeSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
   if (!/^[a-zA-Z0-9._:-]{6,200}$/.test(safeSessionId)) return { ok: false, command: "", error: "Invalid session id" };
   const command = `claude --resume ${safeSessionId}`;
-  const cwd = getSessionResumeCwd(projectPath);
 
   if (process.platform !== "win32") {
     return { ok: false, command, error: "Terminal launch is only implemented on Windows in this build" };
   }
-  const comspec = process.env.ComSpec || "cmd.exe";
-  // Same preflight + async launch handling as the provider terminal: confirm the
-  // claude CLI resolves before opening a window, and turn an async spawn failure
-  // into { ok:false, error } instead of a false success plus an unhandled event.
-  if (!(await claudeIsAvailable(process.env))) {
-    return { ok: false, command, error: CLAUDE_NOT_ON_PATH_ERROR };
+  // Resolve claude to a trusted absolute path from PATH (never the session's cwd),
+  // so a project-local claude.cmd can't shadow the real CLI. A null result is the
+  // clean-machine / stale-PATH case the actionable error is for.
+  const claudeExe = resolveClaudeExecutable(process.env);
+  if (!claudeExe) return { ok: false, command, error: CLAUDE_NOT_ON_PATH_ERROR };
+  // cmd.exe can't run in a UNC / extended-length working directory (it warns and
+  // silently falls back to C:\Windows), so normalize the session cwd and reject
+  // genuine UNC instead of resuming in the wrong place. claude resolved, so the
+  // copied command is a real recovery — mark it copyable.
+  const cwd = normalizeWorkingDirectory(getSessionResumeCwd(projectPath));
+  if (isUncPath(cwd)) {
+    return { ok: false, command, error: `This session's folder is a network (UNC) path the terminal can't open in (${cwd}). Run the copied command from a local folder instead.`, copyable: true };
   }
-  const result = await launchDetachedTerminal(comspec, ["/K", command], { cwd });
-  return result.ok ? { ok: true, command, cwd } : { ok: false, command, error: result.error };
+  const comspec = process.env.ComSpec || "cmd.exe";
+  const result = await launchDetachedTerminal(comspec, ["/K", claudeExe, "--resume", safeSessionId], { cwd });
+  return result.ok ? { ok: true, command, cwd } : { ok: false, command, error: result.error, copyable: true };
 }
 
 function getCompanionEvents() {
@@ -2278,14 +2284,15 @@ async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   // provider terminal exists to run `claude` against a project, so the working
   // directory is the point, not an afterthought. Refuse anything that isn't a
   // real directory instead of silently falling back to the home folder.
-  const workingDir = typeof cwd === "string" ? cwd.trim() : "";
+  const workingDir = normalizeWorkingDirectory(typeof cwd === "string" ? cwd : "");
   if (!workingDir || !isDirectoryPath(workingDir)) {
     return { ok: false, command: "", error: `Not a folder: ${workingDir || "(none selected)"}` };
   }
   // cmd.exe can't use a UNC path (\\server\share) as its working directory — it
   // warns and silently falls back to C:\Windows, which would launch claude in
   // the wrong place while still reporting success. Reject it with an actionable
-  // error rather than a false green toast.
+  // error rather than a false green toast. (normalizeWorkingDirectory already
+  // stripped the equivalent \\?\ extended-length prefix.)
   if (isUncPath(workingDir)) {
     return { ok: false, command: "", error: `Network (UNC) folder isn't supported by the terminal: ${workingDir}. Map it to a drive letter and pick that instead.` };
   }
@@ -2297,16 +2304,17 @@ async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   // mirrors how resumeClaudeSession() opens a terminal. Nothing is written, so
   // repeated opens can't collide or leave stale credential files behind.
   const providerEnv = providerTerminalEnv(provider.settingsConfig);
-  const comspec = process.env.ComSpec || "cmd.exe";
-  const { file, args, env } = buildProviderTerminalLaunch(providerEnv, process.env, comspec);
+  const env = mergeTerminalEnv(providerEnv, process.env);
   const command = "claude";
-  // Preflight: confirm `claude` resolves in the exact env the terminal will get
-  // (a missing CLI, a stale inherited PATH, or a provider PATH override would
-  // otherwise spawn cmd.exe fine and only then print "'claude' is not recognized").
-  if (!(await claudeIsAvailable(env))) {
-    return { ok: false, command, error: CLAUDE_NOT_ON_PATH_ERROR };
-  }
-  const result = await launchDetachedTerminal(file, args, { cwd: workingDir, env });
+  // Resolve claude to a trusted absolute path from the merged env's PATH (with any
+  // provider PATH override), never the selected project — cmd.exe searches cwd first
+  // for a bare name, so a project-local claude.cmd could otherwise shadow the real
+  // CLI and run with the provider credentials we pass in `env`. A null result means
+  // claude isn't on PATH (missing, or a stale inherited PATH after install).
+  const claudeExe = resolveClaudeExecutable(env);
+  if (!claudeExe) return { ok: false, command, error: CLAUDE_NOT_ON_PATH_ERROR };
+  const comspec = process.env.ComSpec || "cmd.exe";
+  const result = await launchDetachedTerminal(comspec, ["/K", claudeExe], { cwd: workingDir, env });
   return result.ok ? { ok: true, command } : { ok: false, command, error: result.error };
 }
 

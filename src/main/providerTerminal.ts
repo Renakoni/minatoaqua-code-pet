@@ -8,7 +8,8 @@
 // inlining `$env:X="url"; claude` through cmd/start used to cause (the old bug).
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { win32 as pathWin32 } from "node:path";
 
 /** The provider's env as a plain string map: string values kept, finite
  *  numbers stringified, everything else dropped. */
@@ -26,44 +27,76 @@ export function providerTerminalEnv(settingsConfig: unknown): Record<string, str
   return out;
 }
 
-export interface ProviderTerminalLaunch {
-  file: string;
-  args: string[];
-  env: Record<string, string>;
-}
-
 /**
- * The child-process launch: `cmd.exe /K claude` in a fresh visible console, with
- * the provider's env layered over the inherited environment. Credentials live
- * only in `env` — `args` are constant and never carry provider values, so there
- * is nothing to quote-escape and nothing written to disk. Each call returns a
- * fresh, self-contained launch with no shared temp paths, so repeated opens of
- * the same provider can never collide or delete each other's files.
+ * Merge the provider env over the inherited environment. spawn's `env` replaces
+ * the environment wholesale, so start from the inherited one (PATH, SystemRoot,
+ * ...) and overlay the provider's routing. Windows env vars are case-insensitive,
+ * so an inherited "Path" and a provider "PATH" collapse to a single key with the
+ * provider's value — otherwise the OS would arbitrate between duplicates.
+ * Credentials live only here, never on the command line.
  */
-export function buildProviderTerminalLaunch(
+export function mergeTerminalEnv(
   providerEnv: Record<string, string>,
-  baseEnv: Record<string, string | undefined>,
-  comspec: string
-): ProviderTerminalLaunch {
-  // spawn's `env` replaces the environment wholesale, so start from the inherited
-  // one (PATH, SystemRoot, ...) and overlay the provider's routing on top.
+  baseEnv: Record<string, string | undefined>
+): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(baseEnv)) {
     if (typeof value === "string") env[key] = value;
   }
   for (const [key, value] of Object.entries(providerEnv)) {
-    // Windows env vars are case-insensitive: drop any inherited key that differs
-    // only in case (inherited "Path" vs a provider "PATH") so the provider value
-    // actually overrides, rather than leaving a duplicate the OS chooses between.
     const clash = Object.keys(env).find(existing => existing.toLowerCase() === key.toLowerCase());
     if (clash && clash !== key) delete env[clash];
     env[key] = value;
   }
-  return {
-    file: comspec || "cmd.exe",
-    args: ["/K", "claude"],
-    env
-  };
+  return env;
+}
+
+/**
+ * Normalize a working directory so cmd.exe accepts it. cmd.exe rejects the
+ * extended-length `\\?\` prefix the same way it rejects UNC — it warns and
+ * silently runs from C:\Windows — so strip it: `\\?\C:\p` -> `C:\p`, and
+ * `\\?\UNC\srv\share` -> `\\srv\share` (still UNC, rejected downstream by isUncPath).
+ */
+export function normalizeWorkingDirectory(dir: string): string {
+  const trimmed = dir.trim();
+  if (/^\\\\\?\\unc\\/i.test(trimmed)) return `\\\\${trimmed.slice(8)}`;
+  if (/^\\\\\?\\/.test(trimmed)) return trimmed.slice(4);
+  return trimmed;
+}
+
+/**
+ * Resolve `claude` to a trusted absolute path from PATH + PATHEXT in `env`, NEVER
+ * the working directory. cmd.exe searches the current directory before PATH for an
+ * unqualified name, so launching this resolved absolute path is what stops a
+ * project-local claude.cmd/.bat/.exe from shadowing the real CLI and stealing the
+ * provider credentials we pass in the environment. PATHEXT order matches how cmd
+ * would resolve it. Returns null when claude is not found on PATH.
+ */
+export function resolveClaudeExecutable(
+  env: Record<string, string | undefined>,
+  fileExists: (path: string) => boolean = existsSync
+): string | null {
+  const pathValue = envValue(env, "PATH") ?? "";
+  const pathExt = envValue(env, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD";
+  const exts = pathExt.split(";").map(ext => ext.trim()).filter(Boolean);
+  for (const rawDir of pathValue.split(";")) {
+    const dir = rawDir.trim().replace(/^"|"$/g, "");
+    if (!dir) continue;
+    for (const ext of exts) {
+      // PATHEXT entries are conventionally uppercase; lower-case the extension so
+      // the resolved path is predictable. Windows' filesystem is case-insensitive,
+      // so this still matches a claude.CMD/claude.EXE on disk.
+      const candidate = pathWin32.join(dir, `claude${ext.toLowerCase()}`);
+      if (fileExists(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+/** Read a variable from an env map case-insensitively (Windows keys vary in case). */
+function envValue(env: Record<string, string | undefined>, name: string): string | undefined {
+  const key = Object.keys(env).find(candidate => candidate.toLowerCase() === name.toLowerCase());
+  return key ? env[key] : undefined;
 }
 
 /**
@@ -120,32 +153,4 @@ export async function launchDetachedTerminal(
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
-}
-
-/**
- * True if the `claude` CLI resolves in `env`'s PATH. Runs where.exe — by its
- * absolute path, so a provider PATH override can't hide where.exe itself — with
- * the exact env the terminal will get, so "'claude' is not recognized" is caught
- * before we report success (missing CLI, a PATH the app inherited before claude
- * was installed, or a provider env that overrides PATH). where.exe honors PATHEXT,
- * so it matches what `cmd /K claude` would actually run. Fails open (true) if the
- * probe can't run at all, so a broken probe never blocks a legitimate launch.
- */
-export function claudeIsAvailable(
-  env: Record<string, string | undefined>,
-  spawnFn: typeof spawn = spawn
-): Promise<boolean> {
-  const systemRoot = env.SystemRoot || env.windir || "C:\\Windows";
-  const whereExe = join(systemRoot, "System32", "where.exe");
-  return new Promise(resolve => {
-    let child: ChildProcess;
-    try {
-      child = spawnFn(whereExe, ["claude"], { env, windowsHide: true, stdio: "ignore" });
-    } catch {
-      resolve(true);
-      return;
-    }
-    child.once("error", () => resolve(true));
-    child.once("close", code => resolve(code === 0));
-  });
 }
