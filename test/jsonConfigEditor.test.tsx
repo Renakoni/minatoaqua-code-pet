@@ -40,6 +40,7 @@ describe("JsonConfigEditor theme flip", () => {
     const view = liveView(container);
     expect(view).not.toBeNull();
     if (!view) return;
+    expect(view.state.facet(EditorView.darkTheme)).toBe(false);
 
     // Put the cursor/selection mid-document — this is the editing context a
     // full rebuild would throw away.
@@ -50,11 +51,13 @@ describe("JsonConfigEditor theme flip", () => {
     // Flip the app theme; the component observes data-theme and must
     // reconfigure the theme compartment on the SAME view, not rebuild it.
     document.documentElement.setAttribute("data-theme", "dark");
-    await waitFor(() => expect(liveView(container)).toBe(view));
+    await waitFor(() => expect(view.state.facet(EditorView.darkTheme)).toBe(true));
 
-    // A rebuild would have reset selection to 0 on a brand-new view; the
-    // live view keeps both selection and document intact.
+    // The facet proves the reconfiguration actually ran. A rebuild would
+    // have replaced the view and reset selection to 0; the live view keeps
+    // its identity, selection, and document intact.
     const after = liveView(container)!;
+    expect(after).toBe(view);
     expect(after.state.selection.main.anchor).toBe(10);
     expect(after.state.selection.main.head).toBe(20);
     expect(after.state.doc.toString()).toBe(value);
