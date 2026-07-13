@@ -38,7 +38,7 @@ import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
-import { buildCmdKArgs, isUncPath, launchDetachedTerminal, mergeTerminalEnv, normalizeWorkingDirectory, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd } from "./providerTerminal";
+import { buildPowerShellLaunch, CHARA_DESK_CLAUDE_ENV, CHARA_DESK_RESUME_ID_ENV, launchDetachedTerminal, launchFailedMessage, mergeTerminalEnv, notAFolderMessage, PS_RESUME_CLAUDE, PS_RUN_CLAUDE, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd, sessionFolderUnavailableMessage, trustedPowerShellPath } from "./providerTerminal";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2205,8 +2205,13 @@ function getClaudeSessionDetail(filePath: string) {
   return { session, messages: messages.slice(-240), totalMessages: messages.length };
 }
 
-// Shared by both terminal-launch paths so the wording stays in one place.
-const CLAUDE_NOT_ON_PATH_ERROR = "Claude Code (claude) isn't on PATH. Install it — or restart Chara Desk if you just installed it — then try again.";
+// Actionable errors shared by both PowerShell terminal-launch paths.
+const POWERSHELL_NOT_FOUND_ERROR = "Windows PowerShell wasn't found at System32\\WindowsPowerShell\\v1.0. Is this a standard Windows install?";
+function claudeUnavailableError(reason: "not-found" | "batch-only"): string {
+  return reason === "batch-only"
+    ? "Only a claude.cmd/.bat batch shim is on PATH, and Chara Desk runs PowerShell without cmd.exe. Install the native Claude CLI (claude.exe) or put claude.ps1 on PATH."
+    : "Claude Code (claude.exe or claude.ps1) isn't on PATH. Install it — or restart Chara Desk if you just installed it — then try again.";
+}
 
 async function resumeClaudeSession(sessionId: string, projectPath?: string) {
   const safeSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
@@ -2216,20 +2221,28 @@ async function resumeClaudeSession(sessionId: string, projectPath?: string) {
   if (process.platform !== "win32") {
     return { ok: false, command, error: "Terminal launch is only implemented on Windows in this build" };
   }
-  // Resolve claude to a trusted absolute path from PATH (never the session's cwd),
-  // so a project-local claude.cmd can't shadow the real CLI. A null result is the
-  // clean-machine / stale-PATH case the actionable error is for.
-  const claudeExe = resolveClaudeExecutable(process.env);
-  if (!claudeExe) return { ok: false, command, error: CLAUDE_NOT_ON_PATH_ERROR };
-  // Only fall back to home when the session recorded no cwd; a recorded-but-
-  // unavailable (offline UNC, disconnected share, deleted/moved project) or UNC
-  // cwd fails loudly instead of silently resuming in the home directory. claude
-  // resolved, so the copied command is a real recovery — mark it copyable.
+  const powershell = trustedPowerShellPath(process.env);
+  if (!powershell) return { ok: false, command, error: POWERSHELL_NOT_FOUND_ERROR };
+  // Resolve claude to a trusted native entry point (claude.exe / claude.ps1) from
+  // PATH only, never the session's cwd — so a project-local shim can't shadow it. Not
+  // copyable: if claude can't run here it can't run from the copied command either.
+  const claude = resolveClaudeExecutable(process.env);
+  if (!claude.ok) return { ok: false, command, error: claudeUnavailableError(claude.reason) };
+  // Home only when the session recorded no cwd; a recorded-but-unavailable cwd fails
+  // (never silently resume in home). claude resolved, so the copied command is a real
+  // recovery — mark it copyable. The path is omitted from the message in privacy mode.
   const resolved = resolveSessionCwd(projectPath, homedir());
-  if (!resolved.ok) return { ok: false, command, error: resolved.error, copyable: true };
-  const comspec = process.env.ComSpec || "cmd.exe";
-  const result = await launchDetachedTerminal(comspec, buildCmdKArgs(claudeExe, ["--resume", safeSessionId]), { cwd: resolved.cwd, windowsVerbatimArguments: true });
-  return result.ok ? { ok: true, command, cwd: resolved.cwd } : { ok: false, command, error: result.error, copyable: true };
+  if (!resolved.ok) {
+    return { ok: false, command, error: sessionFolderUnavailableMessage(resolved.path, companionSettings.hideSensitiveContent), copyable: true };
+  }
+  // Trusted claude path + validated id ride in child-only env vars; a fixed PowerShell
+  // call-operator command invokes them, so no value is interpolated into the command.
+  const env = mergeTerminalEnv({ [CHARA_DESK_CLAUDE_ENV]: claude.path, [CHARA_DESK_RESUME_ID_ENV]: safeSessionId }, process.env);
+  const { file, args } = buildPowerShellLaunch(powershell, PS_RESUME_CLAUDE, env);
+  const result = await launchDetachedTerminal(file, args, { cwd: resolved.cwd, env });
+  return result.ok
+    ? { ok: true, command, cwd: resolved.cwd }
+    : { ok: false, command, error: launchFailedMessage(result.error, companionSettings.hideSensitiveContent), copyable: true };
 }
 
 function getCompanionEvents() {
@@ -2273,42 +2286,32 @@ async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   if (process.platform !== "win32") {
     return { ok: false, command: "", error: "Terminal launch is only implemented on Windows in this build" };
   }
-  // Open the terminal in the folder the user picked, exactly like cc-switch: a
-  // provider terminal exists to run `claude` against a project, so the working
-  // directory is the point, not an afterthought. Refuse anything that isn't a
-  // real directory instead of silently falling back to the home folder.
-  const workingDir = normalizeWorkingDirectory(typeof cwd === "string" ? cwd : "");
+  // A provider terminal exists to run `claude` against the project the user picked,
+  // so that working directory is the point. Refuse anything that isn't a real
+  // directory instead of silently falling back to the home folder; the path is
+  // omitted from the message in privacy mode.
+  const workingDir = typeof cwd === "string" ? cwd.trim() : "";
   if (!workingDir || !isDirectoryPath(workingDir)) {
-    return { ok: false, command: "", error: `Not a folder: ${workingDir || "(none selected)"}` };
+    return { ok: false, command: "", error: notAFolderMessage(workingDir, companionSettings.hideSensitiveContent) };
   }
-  // cmd.exe can't use a UNC path (\\server\share) as its working directory — it
-  // warns and silently falls back to C:\Windows, which would launch claude in
-  // the wrong place while still reporting success. Reject it with an actionable
-  // error rather than a false green toast. (normalizeWorkingDirectory already
-  // stripped the equivalent \\?\ extended-length prefix.)
-  if (isUncPath(workingDir)) {
-    return { ok: false, command: "", error: `Network (UNC) folder isn't supported by the terminal: ${workingDir}. Map it to a drive letter and pick that instead.` };
-  }
-  // The provider's env (base URL, tokens) is handed to the child process through
-  // spawn's `env` — never written to disk and never placed on the command line.
-  // That keeps API keys out of %TEMP% (honoring the ccSwitchStore invariant that
-  // they live only in the db and the live settings file), sidesteps the nested-
-  // quote breakage of inlining `$env:` through cmd/start (the old bug), and
-  // mirrors how resumeClaudeSession() opens a terminal. Nothing is written, so
-  // repeated opens can't collide or leave stale credential files behind.
-  const providerEnv = providerTerminalEnv(provider.settingsConfig);
-  const env = mergeTerminalEnv(providerEnv, process.env);
+  const powershell = trustedPowerShellPath(process.env);
+  if (!powershell) return { ok: false, command: "", error: POWERSHELL_NOT_FOUND_ERROR };
+  // The provider's env (base URL, tokens) is handed to the child through spawn's `env`
+  // (never argv, never disk); the case-insensitive merge lets a provider PATH override
+  // the inherited one. claude is resolved to a trusted native entry point (claude.exe /
+  // claude.ps1) from that PATH — never the selected project — and its path rides in a
+  // child-only env var invoked by a fixed PowerShell call-operator command, so a
+  // project-local shim can't shadow it and no value is interpolated into the command.
+  const baseEnv = mergeTerminalEnv(providerTerminalEnv(provider.settingsConfig), process.env);
+  const claude = resolveClaudeExecutable(baseEnv);
+  if (!claude.ok) return { ok: false, command: "", error: claudeUnavailableError(claude.reason) };
   const command = "claude";
-  // Resolve claude to a trusted absolute path from the merged env's PATH (with any
-  // provider PATH override), never the selected project — cmd.exe searches cwd first
-  // for a bare name, so a project-local claude.cmd could otherwise shadow the real
-  // CLI and run with the provider credentials we pass in `env`. A null result means
-  // claude isn't on PATH (missing, or a stale inherited PATH after install).
-  const claudeExe = resolveClaudeExecutable(env);
-  if (!claudeExe) return { ok: false, command, error: CLAUDE_NOT_ON_PATH_ERROR };
-  const comspec = process.env.ComSpec || "cmd.exe";
-  const result = await launchDetachedTerminal(comspec, buildCmdKArgs(claudeExe), { cwd: workingDir, env, windowsVerbatimArguments: true });
-  return result.ok ? { ok: true, command } : { ok: false, command, error: result.error };
+  const env = mergeTerminalEnv({ [CHARA_DESK_CLAUDE_ENV]: claude.path }, baseEnv);
+  const { file, args } = buildPowerShellLaunch(powershell, PS_RUN_CLAUDE, env);
+  const result = await launchDetachedTerminal(file, args, { cwd: workingDir, env });
+  return result.ok
+    ? { ok: true, command }
+    : { ok: false, command, error: launchFailedMessage(result.error, companionSettings.hideSensitiveContent) };
 }
 
 /* ---------- unified Claude provider service (cc-switch db when present) ---------- */

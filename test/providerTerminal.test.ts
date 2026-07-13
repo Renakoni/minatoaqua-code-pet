@@ -1,24 +1,28 @@
 import { spawnSync, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  awaitTerminalLaunch,
-  buildCmdKArgs,
-  isUncPath,
+  CHARA_DESK_CLAUDE_ENV,
+  PS_RESUME_CLAUDE,
+  PS_RUN_CLAUDE,
+  buildPowerShellLaunch,
+  isFullyQualifiedWindowsPath,
   launchDetachedTerminal,
+  launchFailedMessage,
   mergeTerminalEnv,
-  normalizeWorkingDirectory,
+  notAFolderMessage,
   providerTerminalEnv,
   resolveClaudeExecutable,
-  resolveSessionCwd
+  resolveSessionCwd,
+  sessionFolderUnavailableMessage,
+  trustedPowerShellPath
 } from "../src/main/providerTerminal";
 
-// A stand-in for child_process.spawn: returns an EventEmitter (plus the unref the
-// launcher calls) and fires the chosen event on the next microtask, after the code
-// under test has attached its listeners. `capture` sees the spawn options.
+// A stand-in for child_process.spawn: returns an EventEmitter (plus unref) and fires
+// the chosen event on the next microtask, after the launcher attaches its listeners.
 type FakeSpawn = Parameters<typeof launchDetachedTerminal>[3];
 function fakeSpawn(
   act: (child: EventEmitter & { unref(): void }) => void,
@@ -32,231 +36,215 @@ function fakeSpawn(
   }) as unknown as FakeSpawn;
 }
 
+const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+
 describe("providerTerminalEnv", () => {
   it("keeps string and finite-number env entries and drops the rest", () => {
-    expect(providerTerminalEnv({ env: { A: "x", B: 42, C: null, D: {}, E: true, F: NaN } }))
-      .toEqual({ A: "x", B: "42" });
+    expect(providerTerminalEnv({ env: { A: "x", B: 42, C: null, D: {}, E: true, F: NaN } })).toEqual({ A: "x", B: "42" });
   });
-
   it("returns an empty map when env is missing or malformed", () => {
     expect(providerTerminalEnv({})).toEqual({});
     expect(providerTerminalEnv(null)).toEqual({});
     expect(providerTerminalEnv({ env: "nope" })).toEqual({});
-    expect(providerTerminalEnv({ env: ["a"] })).toEqual({});
   });
 });
 
 describe("mergeTerminalEnv", () => {
-  it("layers the provider env over the inherited base env, keeping credentials in env", () => {
+  it("layers the overlay over the inherited env, keeping credentials in env", () => {
     const env = mergeTerminalEnv(
       { ANTHROPIC_BASE_URL: "https://api.example.com", ANTHROPIC_AUTH_TOKEN: "sk-secret-token" },
-      { PATH: "C:\\Windows", SystemRoot: "C:\\Windows", ANTHROPIC_BASE_URL: "https://default" }
+      { PATH: "C:\\Windows", ANTHROPIC_BASE_URL: "https://default" }
     );
     expect(env.PATH).toBe("C:\\Windows");
-    expect(env.SystemRoot).toBe("C:\\Windows");
-    expect(env.ANTHROPIC_BASE_URL).toBe("https://api.example.com"); // provider wins
+    expect(env.ANTHROPIC_BASE_URL).toBe("https://api.example.com");
     expect(env.ANTHROPIC_AUTH_TOKEN).toBe("sk-secret-token");
   });
-
-  it("drops undefined base env values", () => {
+  it("drops undefined base values", () => {
     expect(mergeTerminalEnv({}, { A: "x", B: undefined })).toEqual({ A: "x" });
   });
-
-  it("lets a provider PATH override the inherited one despite case differences", () => {
-    const env = mergeTerminalEnv(
-      { PATH: "C:\\provider\\bin" },
-      { Path: "C:\\Windows;C:\\inherited", SystemRoot: "C:\\Windows" }
-    );
-    const pathKeys = Object.keys(env).filter(key => key.toLowerCase() === "path");
-    expect(pathKeys).toEqual(["PATH"]); // one key, provider's value — not a duplicate
-    expect(env.PATH).toBe("C:\\provider\\bin");
-    expect(env.SystemRoot).toBe("C:\\Windows");
+  it("overrides case-insensitively — provider PATH over inherited Path, and a child var over a spoofed one", () => {
+    const pathEnv = mergeTerminalEnv({ PATH: "C:\\provider" }, { Path: "C:\\Windows" });
+    expect(Object.keys(pathEnv).filter(k => k.toLowerCase() === "path")).toEqual(["PATH"]);
+    expect(pathEnv.PATH).toBe("C:\\provider");
+    // A trusted child-only var wins over any case-variant a provider env might set.
+    const guarded = mergeTerminalEnv({ CHARA_DESK_CLAUDE: "C:\\trusted\\claude.exe" }, { chara_desk_claude: "C:\\evil\\claude.exe" });
+    expect(Object.keys(guarded).filter(k => k.toLowerCase() === "chara_desk_claude")).toEqual(["CHARA_DESK_CLAUDE"]);
+    expect(guarded.CHARA_DESK_CLAUDE).toBe("C:\\trusted\\claude.exe");
   });
 });
 
-describe("normalizeWorkingDirectory", () => {
-  it("strips the \\?\\ extended-length prefix cmd.exe can't use as a cwd", () => {
-    expect(normalizeWorkingDirectory("\\\\?\\C:\\Users\\me\\project")).toBe("C:\\Users\\me\\project");
-    expect(normalizeWorkingDirectory("\\\\?\\c:\\p")).toBe("c:\\p");
+describe("isFullyQualifiedWindowsPath", () => {
+  it("accepts drive-absolute and UNC paths", () => {
+    expect(isFullyQualifiedWindowsPath("C:\\tools")).toBe(true);
+    expect(isFullyQualifiedWindowsPath("c:/tools")).toBe(true);
+    expect(isFullyQualifiedWindowsPath("\\\\server\\share")).toBe(true);
+    expect(isFullyQualifiedWindowsPath("//server/share")).toBe(true);
   });
-
-  it("reduces an extended UNC path to a plain UNC path (still rejected downstream)", () => {
-    expect(normalizeWorkingDirectory("\\\\?\\UNC\\server\\share\\p")).toBe("\\\\server\\share\\p");
+  it("rejects relative, drive-relative and drive-root-relative paths", () => {
+    expect(isFullyQualifiedWindowsPath(".")).toBe(false);
+    expect(isFullyQualifiedWindowsPath("tools")).toBe(false);
+    expect(isFullyQualifiedWindowsPath(".\\bin")).toBe(false);
+    expect(isFullyQualifiedWindowsPath("\\tools")).toBe(false); // drive-root-relative
+    expect(isFullyQualifiedWindowsPath("C:tools")).toBe(false); // drive-relative
+    expect(isFullyQualifiedWindowsPath("")).toBe(false);
   });
+});
 
-  it("leaves ordinary drive and UNC paths untouched, just trimmed", () => {
-    expect(normalizeWorkingDirectory("C:\\project")).toBe("C:\\project");
-    expect(normalizeWorkingDirectory("  C:\\project  ")).toBe("C:\\project");
-    expect(normalizeWorkingDirectory("\\\\server\\share")).toBe("\\\\server\\share");
+describe("trustedPowerShellPath", () => {
+  it("resolves the System32 Windows PowerShell from SystemRoot only (never PATH/cwd)", () => {
+    expect(trustedPowerShellPath({ SystemRoot: "C:\\Windows" }, p => p === POWERSHELL)).toBe(POWERSHELL);
+    expect(trustedPowerShellPath({ systemroot: "D:\\Win" }, p => p === "D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"))
+      .toBe("D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+  });
+  it("returns null when the trusted PowerShell is absent", () => {
+    expect(trustedPowerShellPath({ SystemRoot: "C:\\Windows" }, () => false)).toBeNull();
   });
 });
 
 describe("resolveClaudeExecutable", () => {
-  it("resolves claude from PATH only, so a project-local claude.cmd can't shadow it", () => {
-    // A planted claude.cmd exists in the project AND the real one is on PATH. Because
-    // the resolver never searches the working directory, the trusted PATH copy wins —
-    // cmd.exe runs this absolute path, never the project-local shim, so the provider
-    // credentials we pass in `env` can never reach a planted binary.
-    const planted = "C:\\evil-project\\claude.cmd";
-    const real = "C:\\Program Files\\claude\\claude.cmd";
-    const exists = (p: string) => p === planted || p === real;
-    const resolved = resolveClaudeExecutable({ PATH: "C:\\Program Files\\claude", PATHEXT: ".CMD" }, exists);
-    expect(resolved).toBe(real);
-    expect(resolved).not.toBe(planted);
+  it("resolves a fully-qualified claude.exe or claude.ps1 from PATH (never cwd), .exe first", () => {
+    const both = (p: string) => p === "C:\\cli\\claude.exe" || p === "C:\\cli\\claude.ps1";
+    expect(resolveClaudeExecutable({ PATH: "C:\\cli" }, both)).toEqual({ ok: true, path: "C:\\cli\\claude.exe" });
+    expect(resolveClaudeExecutable({ PATH: "C:\\cli" }, p => p === "C:\\cli\\claude.ps1")).toEqual({ ok: true, path: "C:\\cli\\claude.ps1" });
   });
-
-  it("honors PATH order then PATHEXT order, like cmd.exe", () => {
-    // Everything "exists": first dir + first extension wins.
-    expect(resolveClaudeExecutable({ PATH: "C:\\a;C:\\b", PATHEXT: ".COM;.EXE;.CMD" }, () => true))
-      .toBe("C:\\a\\claude.com");
-    // Only C:\b\claude.exe exists: skips C:\a, resolves the later dir.
-    const only = (p: string) => p === "C:\\b\\claude.exe";
-    expect(resolveClaudeExecutable({ PATH: "C:\\a;C:\\b", PATHEXT: ".EXE" }, only)).toBe("C:\\b\\claude.exe");
+  it("never resolves a batch shim — reports batch-only so we don't delegate to cmd", () => {
+    expect(resolveClaudeExecutable({ PATH: "C:\\cli" }, p => p === "C:\\cli\\claude.cmd")).toEqual({ ok: false, reason: "batch-only" });
+    expect(resolveClaudeExecutable({ PATH: "C:\\cli" }, p => p === "C:\\cli\\claude.bat")).toEqual({ ok: false, reason: "batch-only" });
   });
-
-  it("reads PATH case-insensitively (provider PATH override or inherited Path)", () => {
-    const exists = (p: string) => p === "C:\\provider\\bin\\claude.cmd";
-    expect(resolveClaudeExecutable({ PATH: "C:\\provider\\bin", PATHEXT: ".CMD" }, exists)).toBe("C:\\provider\\bin\\claude.cmd");
-    expect(resolveClaudeExecutable({ Path: "C:\\provider\\bin", PATHEXT: ".CMD" }, exists)).toBe("C:\\provider\\bin\\claude.cmd");
+  it("reports not-found when no claude entry point is on PATH", () => {
+    expect(resolveClaudeExecutable({ PATH: "C:\\cli" }, () => false)).toEqual({ ok: false, reason: "not-found" });
+    expect(resolveClaudeExecutable({}, () => true)).toEqual({ ok: false, reason: "not-found" });
   });
-
-  it("returns null when claude is not found on PATH", () => {
-    expect(resolveClaudeExecutable({ PATH: "C:\\nope", PATHEXT: ".CMD" }, () => false)).toBeNull();
-    expect(resolveClaudeExecutable({ PATHEXT: ".CMD" }, () => true)).toBeNull(); // no PATH at all
+  it("a project-local claude can't shadow it — cwd is never searched", () => {
+    const planted = "C:\\evil-project\\claude.exe";
+    const real = "C:\\Program Files\\claude\\claude.exe";
+    expect(resolveClaudeExecutable({ PATH: "C:\\Program Files\\claude" }, p => p === planted || p === real)).toEqual({ ok: true, path: real });
   });
-
-  it("skips relative PATH entries so it can never return a relative (shadowable) path", () => {
-    // "." or "tools" would join to a relative candidate that passes the existence
-    // check against the app's cwd but gets re-resolved by cmd.exe against the user's
-    // project. Even with every candidate "existing", a relative PATH entry yields nothing.
-    expect(resolveClaudeExecutable({ PATH: ".", PATHEXT: ".CMD" }, () => true)).toBeNull();
-    expect(resolveClaudeExecutable({ PATH: "tools;.\\bin", PATHEXT: ".CMD" }, () => true)).toBeNull();
-    // A relative entry is ignored while an absolute one still resolves (always absolute).
-    expect(resolveClaudeExecutable({ PATH: ".;C:\\real", PATHEXT: ".CMD" }, () => true)).toBe("C:\\real\\claude.cmd");
-  });
-});
-
-describe("awaitTerminalLaunch", () => {
-  it("resolves once the child reports it has spawned", async () => {
-    const child = new EventEmitter();
-    const launched = awaitTerminalLaunch(child as unknown as ChildProcess);
-    child.emit("spawn");
-    await expect(launched).resolves.toBeUndefined();
-  });
-
-  it("rejects with the error when the child fails to launch", async () => {
-    const child = new EventEmitter();
-    const launched = awaitTerminalLaunch(child as unknown as ChildProcess);
-    const failure = new Error("spawn cmd.exe ENOENT");
-    child.emit("error", failure);
-    await expect(launched).rejects.toBe(failure);
-  });
-
-  it("handles the failure as a rejection, never an unhandled 'error' event", () => {
-    const child = new EventEmitter();
-    const launched = awaitTerminalLaunch(child as unknown as ChildProcess);
-    expect(() => child.emit("error", new Error("boom"))).not.toThrow();
-    return expect(launched).rejects.toThrow("boom");
-  });
-});
-
-describe("isUncPath", () => {
-  it("flags UNC network paths so the terminal can't launch in the wrong place", () => {
-    expect(isUncPath("\\\\server\\share\\project")).toBe(true);
-    expect(isUncPath("//server/share")).toBe(true);
-    expect(isUncPath("\\\\?\\UNC\\server\\share\\project")).toBe(true);
-    expect(isUncPath("\\\\?\\unc\\server\\share")).toBe(true);
-    expect(isUncPath("\\\\server")).toBe(true);
-  });
-
-  it("accepts local drive paths", () => {
-    expect(isUncPath("C:\\Users\\me\\project")).toBe(false);
-    expect(isUncPath("D:\\project")).toBe(false);
-    expect(isUncPath("  C:\\trimmed  ")).toBe(false);
-    expect(isUncPath("")).toBe(false);
-  });
-});
-
-describe("launchDetachedTerminal", () => {
-  it("resolves ok once the terminal actually spawns", async () => {
-    const result = await launchDetachedTerminal("cmd.exe", ["/K", "claude"], {}, fakeSpawn(child => child.emit("spawn")));
-    expect(result).toEqual({ ok: true });
-  });
-
-  it("returns { ok:false, error } when the launch fails asynchronously (the resume + provider path)", async () => {
-    const result = await launchDetachedTerminal(
-      "cmd.exe", ["/K", "claude"], {},
-      fakeSpawn(child => child.emit("error", new Error("spawn cmd.exe ENOENT")))
-    );
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("ENOENT");
-  });
-
-  it("spawns a detached, visible console and forwards cwd/env", async () => {
-    let seen: Record<string, unknown> | undefined;
-    await launchDetachedTerminal(
-      "cmd.exe", ["/K", "C:\\real\\claude.cmd"], { cwd: "C:\\proj", env: { PATH: "C:\\x" } },
-      fakeSpawn(child => child.emit("spawn"), options => { seen = options; })
-    );
-    expect(seen).toMatchObject({ cwd: "C:\\proj", env: { PATH: "C:\\x" }, detached: true, windowsHide: false, stdio: "ignore" });
-  });
-});
-
-describe("buildCmdKArgs", () => {
-  it("builds a /D /S /K line with the executable inner-quoted (opaque to cmd metachars)", () => {
-    expect(buildCmdKArgs("C:\\a&b\\claude.cmd")).toEqual(["/d", "/s", "/k", '""C:\\a&b\\claude.cmd""']);
-    expect(buildCmdKArgs("C:\\a\\claude.cmd", ["--resume", "abc123"]))
-      .toEqual(["/d", "/s", "/k", '""C:\\a\\claude.cmd" --resume abc123"']);
-  });
-
-  it.skipIf(process.platform !== "win32")("actually runs a claude.cmd whose path has cmd metacharacters", () => {
-    // Real execution: &, spaces, parentheses and a caret in the directory. If the
-    // path weren't kept opaque to cmd, cmd would split at & (or (), ^) and fail.
-    const base = mkdtempSync(join(tmpdir(), "cdterm-"));
-    const dir = join(base, "probe & (meta)^ dir");
-    mkdirSync(dir);
-    const exe = join(dir, "claude.cmd");
-    writeFileSync(exe, "@echo CLAUDE_MARKER_OK\r\n", "utf8");
-    try {
-      // Same args the launcher builds, but /C so it exits, piped + hidden for the test.
-      const args = buildCmdKArgs(exe).map(arg => (arg === "/k" ? "/c" : arg));
-      const result = spawnSync(process.env.ComSpec || "cmd.exe", args, {
-        windowsVerbatimArguments: true,
-        windowsHide: true,
-        encoding: "utf8"
-      });
-      expect(result.status).toBe(0);
-      expect(result.stdout).toContain("CLAUDE_MARKER_OK");
-    } finally {
-      rmSync(base, { recursive: true, force: true });
-    }
+  it("rejects relative, drive-relative and drive-root-relative PATH entries", () => {
+    const always = () => true;
+    expect(resolveClaudeExecutable({ PATH: "." }, always)).toEqual({ ok: false, reason: "not-found" });
+    expect(resolveClaudeExecutable({ PATH: "tools" }, always)).toEqual({ ok: false, reason: "not-found" });
+    expect(resolveClaudeExecutable({ PATH: ".\\bin" }, always)).toEqual({ ok: false, reason: "not-found" });
+    expect(resolveClaudeExecutable({ PATH: "\\tools" }, always)).toEqual({ ok: false, reason: "not-found" }); // drive-root-relative
+    expect(resolveClaudeExecutable({ PATH: "C:tools" }, always)).toEqual({ ok: false, reason: "not-found" }); // drive-relative
+    // ...and an absolute entry alongside still resolves.
+    expect(resolveClaudeExecutable({ PATH: ".;C:\\real" }, p => p === "C:\\real\\claude.exe")).toEqual({ ok: true, path: "C:\\real\\claude.exe" });
   });
 });
 
 describe("resolveSessionCwd", () => {
-  it("uses the home directory only when the session recorded no cwd", () => {
+  it("uses home only when the session recorded no cwd", () => {
     expect(resolveSessionCwd(undefined, "C:\\home", () => true)).toEqual({ ok: true, cwd: "C:\\home" });
     expect(resolveSessionCwd("", "C:\\home", () => true)).toEqual({ ok: true, cwd: "C:\\home" });
-    expect(resolveSessionCwd("   ", "C:\\home", () => true)).toEqual({ ok: true, cwd: "C:\\home" });
   });
-
-  it("returns the recorded cwd when it is an available local directory (normalizing extended paths)", () => {
+  it("returns the recorded cwd when available — local or UNC, since PowerShell can open both", () => {
     expect(resolveSessionCwd("C:\\project", "C:\\home", () => true)).toEqual({ ok: true, cwd: "C:\\project" });
-    expect(resolveSessionCwd("\\\\?\\C:\\project", "C:\\home", () => true)).toEqual({ ok: true, cwd: "C:\\project" });
+    expect(resolveSessionCwd("\\\\server\\share\\proj", "C:\\home", () => true)).toEqual({ ok: true, cwd: "\\\\server\\share\\proj" });
+  });
+  it("fails (never silently uses home) for an unavailable recorded cwd, returning the path", () => {
+    expect(resolveSessionCwd("C:\\gone", "C:\\home", () => false)).toEqual({ ok: false, path: "C:\\gone" });
+    expect(resolveSessionCwd("\\\\server\\offline", "C:\\home", () => false)).toEqual({ ok: false, path: "\\\\server\\offline" });
+  });
+});
+
+describe("buildPowerShellLaunch", () => {
+  it("launches the trusted PowerShell with -NoExit and the fixed command, and nothing cmd-related", () => {
+    const launch = buildPowerShellLaunch(POWERSHELL, PS_RUN_CLAUDE, { CHARA_DESK_CLAUDE: "C:\\cli\\claude.exe" });
+    expect(launch.file).toBe(POWERSHELL);
+    expect(launch.args).toEqual(["-NoExit", "-Command", "& $env:CHARA_DESK_CLAUDE"]);
+    const serialized = `${launch.file} ${launch.args.join(" ")}`.toLowerCase();
+    expect(serialized).not.toContain("cmd");
+    expect(serialized).not.toContain("comspec");
+    expect(serialized).not.toContain("/k");
+    expect(serialized).not.toContain("start ");
+  });
+  it("keeps the user profile: -NoExit present, no -NoProfile / -NonInteractive / -ExecutionPolicy override", () => {
+    const args = buildPowerShellLaunch(POWERSHELL, PS_RUN_CLAUDE, {}).args.join(" ").toLowerCase();
+    expect(args).toContain("-noexit");
+    expect(args).not.toContain("-noprofile");
+    expect(args).not.toContain("-noninteractive");
+    expect(args).not.toContain("-executionpolicy");
+  });
+  it("keeps provider secrets and the claude path in env only — never in argv, and the id is not interpolated", () => {
+    const launch = buildPowerShellLaunch(POWERSHELL, PS_RESUME_CLAUDE, {
+      CHARA_DESK_CLAUDE: "C:\\cli\\claude.exe",
+      CHARA_DESK_RESUME_ID: "sess-123",
+      ANTHROPIC_AUTH_TOKEN: "sk-secret-token",
+      ANTHROPIC_BASE_URL: "https://api.example.com"
+    });
+    expect(launch.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-secret-token");
+    const argv = JSON.stringify(launch.args);
+    expect(argv).not.toContain("sk-secret-token");
+    expect(argv).not.toContain("https://api.example.com");
+    expect(argv).not.toContain("claude.exe"); // the path rides in the env var
+    expect(argv).not.toContain("sess-123"); // the id rides in the env var
+    expect(launch.args[2]).toBe("& $env:CHARA_DESK_CLAUDE --resume $env:CHARA_DESK_RESUME_ID");
+  });
+});
+
+describe("privacy-aware error messages", () => {
+  it("includes the path normally but omits it when paths are hidden", () => {
+    expect(notAFolderMessage("C:\\proj", false)).toContain("C:\\proj");
+    expect(notAFolderMessage("C:\\proj", true)).not.toContain("C:\\proj");
+    expect(sessionFolderUnavailableMessage("\\\\srv\\share", false)).toContain("srv");
+    expect(sessionFolderUnavailableMessage("\\\\srv\\share", true)).not.toContain("srv");
+    expect(launchFailedMessage("spawn C:\\proj ENOENT", false)).toContain("C:\\proj");
+    expect(launchFailedMessage("spawn C:\\proj ENOENT", true)).not.toContain("C:\\proj");
+  });
+});
+
+describe("launchDetachedTerminal", () => {
+  it("resolves ok once the terminal spawns", async () => {
+    const result = await launchDetachedTerminal(POWERSHELL, ["-NoExit"], {}, fakeSpawn(c => c.emit("spawn")));
+    expect(result).toEqual({ ok: true });
+  });
+  it("returns { ok:false, error } on an async spawn failure (the provider + resume path)", async () => {
+    const result = await launchDetachedTerminal(POWERSHELL, ["-NoExit"], {}, fakeSpawn(c => c.emit("error", new Error("spawn powershell ENOENT"))));
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("ENOENT");
+  });
+  it("spawns a detached, visible window and forwards cwd/env", async () => {
+    let seen: Record<string, unknown> | undefined;
+    await launchDetachedTerminal(POWERSHELL, ["-NoExit"], { cwd: "C:\\proj", env: { ANTHROPIC_AUTH_TOKEN: "x" } }, fakeSpawn(c => c.emit("spawn"), o => { seen = o; }));
+    expect(seen).toMatchObject({ cwd: "C:\\proj", env: { ANTHROPIC_AUTH_TOKEN: "x" }, detached: true, windowsHide: false, stdio: "ignore" });
+  });
+});
+
+describe("PowerShell launch (real Windows execution)", () => {
+  it.skipIf(process.platform !== "win32")("runs the trusted claude via the fixed call-operator command even when its path has metacharacters", () => {
+    const systemRoot = process.env.SystemRoot || "C:\\Windows";
+    const powershell = trustedPowerShellPath(process.env);
+    expect(powershell).not.toBeNull();
+    // A harmless system exe standing in for claude.exe, in a directory with spaces,
+    // &, parentheses and a caret — the kind of path that breaks cmd quoting.
+    const base = mkdtempSync(join(tmpdir(), "cdps-"));
+    const dir = join(base, "probe & (meta)^ dir");
+    mkdirSync(dir);
+    const fakeClaude = join(dir, "claude.exe");
+    copyFileSync(join(systemRoot, "System32", "hostname.exe"), fakeClaude);
+    try {
+      // Same env var + FIXED command the launcher uses; -NoProfile only to keep the
+      // test fast (the product launcher intentionally loads the profile).
+      const env = { ...process.env, [CHARA_DESK_CLAUDE_ENV]: fakeClaude };
+      const result = spawnSync(powershell!, ["-NoProfile", "-Command", PS_RUN_CLAUDE], { env, windowsHide: true, encoding: "utf8" });
+      expect(result.status).toBe(0);
+      expect((result.stdout || "").trim().length).toBeGreaterThan(0); // hostname printed
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 
-  it("fails (never silently uses home) for an inaccessible or unsupported recorded cwd", () => {
-    // Missing/deleted local project: fail rather than resume in the home directory.
-    const missing = resolveSessionCwd("C:\\gone", "C:\\home", () => false);
-    expect(missing.ok).toBe(false);
-    if (!missing.ok) expect(missing.error).toContain("isn't available");
-    // Offline UNC (rejected before the availability check, so isDir=false is fine).
-    const unc = resolveSessionCwd("\\\\server\\share\\proj", "C:\\home", () => false);
-    expect(unc.ok).toBe(false);
-    if (!unc.ok) expect(unc.error).toContain("UNC");
-    // Extended UNC too.
-    const extUnc = resolveSessionCwd("\\\\?\\UNC\\server\\share", "C:\\home", () => true);
-    expect(extUnc.ok).toBe(false);
-    if (!extUnc.ok) expect(extUnc.error).toContain("UNC");
+  it.skipIf(process.platform !== "win32")("starts PowerShell in the exact cwd, including spaces and metacharacters", () => {
+    const powershell = trustedPowerShellPath(process.env)!;
+    const base = mkdtempSync(join(tmpdir(), "cdps-"));
+    const dir = join(base, "work & (dir)^ space");
+    mkdirSync(dir);
+    try {
+      const result = spawnSync(powershell, ["-NoProfile", "-Command", "(Get-Location).Path"], { cwd: dir, windowsHide: true, encoding: "utf8" });
+      expect(result.status).toBe(0);
+      expect((result.stdout || "").trim().toLowerCase()).toBe(dir.toLowerCase());
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
