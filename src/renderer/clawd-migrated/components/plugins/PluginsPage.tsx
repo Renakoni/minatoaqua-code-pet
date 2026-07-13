@@ -1,29 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Code2, Package, PlugZap, RefreshCw, Search, Server } from "lucide-react";
+import type { ClaudeResourceItem, ClaudeResourcesSnapshot } from "../../../../shared/claudeProfiles";
 import type { CompanionSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 
 type ResourceTab = "skills" | "plugins" | "mcp";
-
-type ClaudeResourceItem = {
-  id: string;
-  kind: "skill" | "plugin" | "mcp";
-  name: string;
-  description?: string;
-  path?: string;
-  enabled?: boolean;
-  source: "claude" | "claude-json" | "unknown";
-  detail?: string;
-};
-
-type ClaudeResourcesSnapshot = {
-  summary: { skills: number; plugins: number; mcp: number };
-  skills: ClaudeResourceItem[];
-  plugins: ClaudeResourceItem[];
-  mcp: ClaudeResourceItem[];
-  scannedAt: number;
-  paths: { claudeDir: string; claudeJson: string };
-};
 
 const emptySnapshot: ClaudeResourcesSnapshot = {
   summary: { skills: 0, plugins: 0, mcp: 0 },
@@ -49,7 +30,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     setError(null);
     try {
       const next = await window.companion.getClaudeResources(force);
-      setSnapshot((next as ClaudeResourcesSnapshot | null | undefined) ?? emptySnapshot);
+      setSnapshot(next ?? emptySnapshot);
       setShowScanNote(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

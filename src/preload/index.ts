@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { PetEvent, PetState } from "../shared/events";
+import type { ClaudeProfilesSnapshot, ClaudeResourcesSnapshot } from "../shared/claudeProfiles";
 
 export interface PetSnapshot {
   state: PetState;
@@ -106,7 +107,8 @@ contextBridge.exposeInMainWorld("companion", {
   openDataDirectory: () => ipcRenderer.invoke("companion:open-data-directory"),
   getMonitors: () => ipcRenderer.invoke("companion:get-monitors"),
   getPlugins: () => ipcRenderer.invoke("companion:get-plugins"),
-  getClaudeResources: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-resources", force),
+  getClaudeResources: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-resources", force) as Promise<ClaudeResourcesSnapshot>,
+  getClaudeProfiles: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-profiles", force) as Promise<ClaudeProfilesSnapshot>,
   getClaudeSessions: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-sessions", force),
   getClaudeSessionDetail: (filePath: string) => ipcRenderer.invoke("companion:get-claude-session-detail", filePath),
   resumeClaudeSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke("companion:resume-claude-session", sessionId, projectPath),
