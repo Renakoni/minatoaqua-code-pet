@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld("companion", {
   dragPetTo: (position: unknown) => ipcRenderer.invoke("companion:drag-pet-to", position),
   movePetBy: (delta: unknown) => ipcRenderer.invoke("companion:move-pet-by", delta),
   onPetDragDirection: (callback: (direction: "left" | "right" | null) => void) => onChannel("companion:pet-drag-direction", callback),
+  onPetDoubleClickProbe: (callback: (point: { x: number; y: number }) => void) => onChannel("companion:pet-doubleclick-probe", callback),
   onTrayMenuState: (callback: (state: unknown) => void) => onChannel("companion:tray-menu-state", callback),
   trayMenuReady: () => ipcRenderer.invoke("companion:tray-menu-ready"),
   trayMenuRendered: () => ipcRenderer.invoke("companion:tray-menu-rendered"),

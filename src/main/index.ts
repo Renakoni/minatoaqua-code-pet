@@ -36,6 +36,7 @@ import { PermissionBroker, type PendingPermission, type PermissionPollResult } f
 import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
+import { createDoubleClickDetector, installPetParentNotifyWatcher, readSystemDoubleClickMetrics, type DoubleClickMetrics } from "./petDoubleClick";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
 import { buildPowerShellLaunch, CHARA_DESK_CLAUDE_ENV, CHARA_DESK_RESUME_ID_ENV, launchDetachedTerminal, launchFailedMessage, mergeTerminalEnv, notAFolderMessage, PS_RESUME_CLAUDE, PS_RUN_CLAUDE, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd, sessionFolderUnavailableMessage, trustedPowerShellPath } from "./providerTerminal";
@@ -221,6 +222,15 @@ function applyPetAlwaysOnTopSetting() {
   petWindow.setVisibleOnAllWorkspaces(false);
 }
 
+// The user's Windows double-click settings (speed + rectangle), read once via the
+// trusted System32 reg.exe so the pet's reconstructed double-click matches the user's
+// mouse settings (see readSystemDoubleClickMetrics — never a cwd-local reg.exe).
+let cachedDoubleClickMetrics: DoubleClickMetrics | null = null;
+function systemDoubleClickMetrics(): DoubleClickMetrics {
+  if (cachedDoubleClickMetrics === null) cachedDoubleClickMetrics = readSystemDoubleClickMetrics(process.env);
+  return cachedDoubleClickMetrics;
+}
+
 function createPetWindow() {
   if (!isPetEnabled()) return;
   if (petWindow && !petWindow.isDestroyed()) return;
@@ -268,6 +278,37 @@ function createPetWindow() {
     petDragWatcher?.onMove(x, y);
   });
   petWindow.on("moved", () => petDragWatcher?.onMoveEnd());
+
+  // Double-click the pet to summon the panel. Electron delivers the pet's
+  // drag-region clicks to Chromium's child window, so the outer window only sees
+  // WM_PARENTNOTIFY — reconstruct the double-click from two of those (system timing
+  // + a small distance), then let the renderer hit-test the point against the actual
+  // pet element so the bubble / card / Allow-Deny buttons / transparent background
+  // are excluded and native dragging is preserved (see petDoubleClick.ts +
+  // petHitTest.ts). Registered once per window; the hook is released when the window
+  // is destroyed, so recreations don't stack handlers.
+  if (process.platform === "win32") {
+    // Match Windows' double-click rectangle (SM_CXDOUBLECLK/SM_CYDOUBLECLK): the
+    // registry width/height are logical px, so scale to the window's display and use
+    // the half-extent per axis. WM_PARENTNOTIFY coordinates are physical px.
+    const metrics = systemDoubleClickMetrics();
+    const scale = screen.getDisplayMatching(petWindow.getBounds()).scaleFactor || 1;
+    const doubleClick = createDoubleClickDetector({
+      doubleClickMs: metrics.speedMs,
+      maxDistanceX: (metrics.width * scale) / 2,
+      maxDistanceY: (metrics.height * scale) / 2,
+      now: () => Date.now()
+    });
+    installPetParentNotifyWatcher(petWindow, doubleClick, (x, y) => {
+      if (petWindow && !petWindow.isDestroyed()) {
+        petWindow.webContents.send("companion:pet-doubleclick-probe", { x, y });
+      }
+    });
+    // A native drag moves the window; cancel the pending first click so a post-drag
+    // click isn't mis-paired into a double-click (during a drag the cursor can stay at
+    // the same client-relative point over the moving window).
+    petWindow.on("move", () => doubleClick.reset());
+  }
 
   petWindow.on("closed", () => {
     petDragWatcher?.dispose();
