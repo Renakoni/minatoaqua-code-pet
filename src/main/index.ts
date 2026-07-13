@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, protocol, screen, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
@@ -42,6 +42,7 @@ import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSi
 import { createTrayMenuController } from "./trayMenuController";
 import { buildPowerShellLaunch, CHARA_DESK_CLAUDE_ENV, CHARA_DESK_RESUME_ID_ENV, launchDetachedTerminal, launchFailedMessage, mergeTerminalEnv, normalizeCmdCwd, notAFolderMessage, PS_RESUME_CLAUDE, PS_RUN_CLAUDE, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd, sessionFolderUnavailableMessage, trustedCmdPath, trustedPowerShellPath, uncNotSupportedMessage } from "./providerTerminal";
 import { createClaudeProfilesSnapshot } from "./claudeProfileStore";
+import { backupJsonFile } from "./filePersistence";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2341,14 +2342,6 @@ function readLiveJsonObject(path: string) {
   return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, any> : {} as Record<string, any>;
 }
 
-function backupFile(path: string) {
-  if (!existsSync(path)) return null;
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupPath = path.replace(/\.json$/i, `.clawd-backup-${stamp}.json`);
-  copyFileSync(path, backupPath);
-  return backupPath;
-}
-
 function sanitizeClaudeSettingsConfig(config: Record<string, any>) {
   const next = { ...config };
   delete next.api_format;
@@ -2584,7 +2577,7 @@ function switchUnifiedProvider(id: string) {
   let backupPath: string | null = null;
   try {
     mkdirSync(join(homedir(), ".claude"), { recursive: true });
-    backupPath = backupFile(livePath);
+    backupPath = backupJsonFile(livePath);
     const effective = sanitizeClaudeSettingsConfig((target.settingsConfig ?? {}) as Record<string, any>);
     writeFileSync(livePath, `${JSON.stringify(effective, null, 2)}\n`, "utf-8");
   } catch (error) {
@@ -3094,7 +3087,7 @@ function installHooks(): HookOperationResult {
     }
     mkdirSync(join(homedir(), ".claude"), { recursive: true });
     const settings = readLiveJsonObject(path);
-    backupFile(path);
+    backupJsonFile(path);
     const hooks = settings.hooks && typeof settings.hooks === "object" && !Array.isArray(settings.hooks) ? { ...settings.hooks } : {};
 
     for (const eventName of requiredClaudeHookEvents) {
@@ -3132,7 +3125,7 @@ function removeHooks(): HookOperationResult {
     const path = getClaudeSettingsPath();
     if (!existsSync(path)) return { success: true, removed: 0, status: getHooksStatus() };
     const settings = readLiveJsonObject(path);
-    backupFile(path);
+    backupJsonFile(path);
     let removed = 0;
     const hooks = settings.hooks && typeof settings.hooks === "object" && !Array.isArray(settings.hooks) ? { ...settings.hooks } : {};
 
