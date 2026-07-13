@@ -1,6 +1,6 @@
 import { spawnSync, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -242,7 +242,9 @@ describe("PowerShell launch (real Windows execution)", () => {
     try {
       const result = spawnSync(powershell, ["-NoProfile", "-Command", "(Get-Location).Path"], { cwd: dir, windowsHide: true, encoding: "utf8" });
       expect(result.status).toBe(0);
-      expect((result.stdout || "").trim().toLowerCase()).toBe(dir.toLowerCase());
+      // Compare canonical (long-form) paths: os.tmpdir() can return an 8.3 short
+      // path (e.g. RUNNER~1) while PowerShell reports the expanded long name.
+      expect((result.stdout || "").trim().toLowerCase()).toBe(realpathSync.native(dir).toLowerCase());
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
