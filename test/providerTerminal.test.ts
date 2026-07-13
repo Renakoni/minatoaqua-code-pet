@@ -1,14 +1,19 @@
+import { spawnSync, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import type { ChildProcess } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   awaitTerminalLaunch,
+  buildCmdKArgs,
   isUncPath,
   launchDetachedTerminal,
   mergeTerminalEnv,
   normalizeWorkingDirectory,
   providerTerminalEnv,
-  resolveClaudeExecutable
+  resolveClaudeExecutable,
+  resolveSessionCwd
 } from "../src/main/providerTerminal";
 
 // A stand-in for child_process.spawn: returns an EventEmitter (plus the unref the
@@ -119,6 +124,16 @@ describe("resolveClaudeExecutable", () => {
     expect(resolveClaudeExecutable({ PATH: "C:\\nope", PATHEXT: ".CMD" }, () => false)).toBeNull();
     expect(resolveClaudeExecutable({ PATHEXT: ".CMD" }, () => true)).toBeNull(); // no PATH at all
   });
+
+  it("skips relative PATH entries so it can never return a relative (shadowable) path", () => {
+    // "." or "tools" would join to a relative candidate that passes the existence
+    // check against the app's cwd but gets re-resolved by cmd.exe against the user's
+    // project. Even with every candidate "existing", a relative PATH entry yields nothing.
+    expect(resolveClaudeExecutable({ PATH: ".", PATHEXT: ".CMD" }, () => true)).toBeNull();
+    expect(resolveClaudeExecutable({ PATH: "tools;.\\bin", PATHEXT: ".CMD" }, () => true)).toBeNull();
+    // A relative entry is ignored while an absolute one still resolves (always absolute).
+    expect(resolveClaudeExecutable({ PATH: ".;C:\\real", PATHEXT: ".CMD" }, () => true)).toBe("C:\\real\\claude.cmd");
+  });
 });
 
 describe("awaitTerminalLaunch", () => {
@@ -184,5 +199,64 @@ describe("launchDetachedTerminal", () => {
       fakeSpawn(child => child.emit("spawn"), options => { seen = options; })
     );
     expect(seen).toMatchObject({ cwd: "C:\\proj", env: { PATH: "C:\\x" }, detached: true, windowsHide: false, stdio: "ignore" });
+  });
+});
+
+describe("buildCmdKArgs", () => {
+  it("builds a /D /S /K line with the executable inner-quoted (opaque to cmd metachars)", () => {
+    expect(buildCmdKArgs("C:\\a&b\\claude.cmd")).toEqual(["/d", "/s", "/k", '""C:\\a&b\\claude.cmd""']);
+    expect(buildCmdKArgs("C:\\a\\claude.cmd", ["--resume", "abc123"]))
+      .toEqual(["/d", "/s", "/k", '""C:\\a\\claude.cmd" --resume abc123"']);
+  });
+
+  it.skipIf(process.platform !== "win32")("actually runs a claude.cmd whose path has cmd metacharacters", () => {
+    // Real execution: &, spaces, parentheses and a caret in the directory. If the
+    // path weren't kept opaque to cmd, cmd would split at & (or (), ^) and fail.
+    const base = mkdtempSync(join(tmpdir(), "cdterm-"));
+    const dir = join(base, "probe & (meta)^ dir");
+    mkdirSync(dir);
+    const exe = join(dir, "claude.cmd");
+    writeFileSync(exe, "@echo CLAUDE_MARKER_OK\r\n", "utf8");
+    try {
+      // Same args the launcher builds, but /C so it exits, piped + hidden for the test.
+      const args = buildCmdKArgs(exe).map(arg => (arg === "/k" ? "/c" : arg));
+      const result = spawnSync(process.env.ComSpec || "cmd.exe", args, {
+        windowsVerbatimArguments: true,
+        windowsHide: true,
+        encoding: "utf8"
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("CLAUDE_MARKER_OK");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("resolveSessionCwd", () => {
+  it("uses the home directory only when the session recorded no cwd", () => {
+    expect(resolveSessionCwd(undefined, "C:\\home", () => true)).toEqual({ ok: true, cwd: "C:\\home" });
+    expect(resolveSessionCwd("", "C:\\home", () => true)).toEqual({ ok: true, cwd: "C:\\home" });
+    expect(resolveSessionCwd("   ", "C:\\home", () => true)).toEqual({ ok: true, cwd: "C:\\home" });
+  });
+
+  it("returns the recorded cwd when it is an available local directory (normalizing extended paths)", () => {
+    expect(resolveSessionCwd("C:\\project", "C:\\home", () => true)).toEqual({ ok: true, cwd: "C:\\project" });
+    expect(resolveSessionCwd("\\\\?\\C:\\project", "C:\\home", () => true)).toEqual({ ok: true, cwd: "C:\\project" });
+  });
+
+  it("fails (never silently uses home) for an inaccessible or unsupported recorded cwd", () => {
+    // Missing/deleted local project: fail rather than resume in the home directory.
+    const missing = resolveSessionCwd("C:\\gone", "C:\\home", () => false);
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error).toContain("isn't available");
+    // Offline UNC (rejected before the availability check, so isDir=false is fine).
+    const unc = resolveSessionCwd("\\\\server\\share\\proj", "C:\\home", () => false);
+    expect(unc.ok).toBe(false);
+    if (!unc.ok) expect(unc.error).toContain("UNC");
+    // Extended UNC too.
+    const extUnc = resolveSessionCwd("\\\\?\\UNC\\server\\share", "C:\\home", () => true);
+    expect(extUnc.ok).toBe(false);
+    if (!extUnc.ok) expect(extUnc.error).toContain("UNC");
   });
 });

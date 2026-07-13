@@ -8,7 +8,7 @@
 // inlining `$env:X="url"; claude` through cmd/start used to cause (the old bug).
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { win32 as pathWin32 } from "node:path";
 
 /** The provider's env as a plain string map: string values kept, finite
@@ -65,12 +65,46 @@ export function normalizeWorkingDirectory(dir: string): string {
 }
 
 /**
+ * Decide the working directory for a session resume. Only fall back to the home
+ * directory when the session recorded NO cwd at all; a recorded-but-unavailable
+ * (offline UNC / disconnected share / deleted-or-moved project) or unsupported
+ * (UNC) cwd fails loudly with a copyable command instead of silently resuming in
+ * the home directory and reporting that the session's terminal opened.
+ */
+export function resolveSessionCwd(
+  projectPath: string | undefined,
+  homeDir: string,
+  isDir: (path: string) => boolean = isExistingDirectory
+): { ok: true; cwd: string } | { ok: false; error: string } {
+  const requested = typeof projectPath === "string" ? projectPath.trim() : "";
+  if (!requested) return { ok: true, cwd: homeDir };
+  const normalized = normalizeWorkingDirectory(requested);
+  if (isUncPath(normalized)) {
+    return { ok: false, error: `This session's folder is a network (UNC) path the terminal can't open in (${normalized}). Run the copied command from a local folder instead.` };
+  }
+  if (!isDir(normalized)) {
+    return { ok: false, error: `This session's folder isn't available (${normalized}). Reconnect or reopen the project, or run the copied command there.` };
+  }
+  return { ok: true, cwd: normalized };
+}
+
+function isExistingDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Resolve `claude` to a trusted absolute path from PATH + PATHEXT in `env`, NEVER
  * the working directory. cmd.exe searches the current directory before PATH for an
  * unqualified name, so launching this resolved absolute path is what stops a
  * project-local claude.cmd/.bat/.exe from shadowing the real CLI and stealing the
  * provider credentials we pass in the environment. PATHEXT order matches how cmd
- * would resolve it. Returns null when claude is not found on PATH.
+ * would resolve it. Relative PATH entries (".", "tools", ...) are skipped so the
+ * result is always absolute; returns null when claude is not found on an absolute
+ * PATH entry.
  */
 export function resolveClaudeExecutable(
   env: Record<string, string | undefined>,
@@ -81,13 +115,18 @@ export function resolveClaudeExecutable(
   const exts = pathExt.split(";").map(ext => ext.trim()).filter(Boolean);
   for (const rawDir of pathValue.split(";")) {
     const dir = rawDir.trim().replace(/^"|"$/g, "");
-    if (!dir) continue;
+    // Skip relative PATH entries (".", "tools", ...): win32.join would yield a
+    // relative candidate that passes the existence check against the app's cwd but
+    // is re-resolved by cmd.exe against the user-selected project — reopening the
+    // shadowing hole. Only a fully-qualified entry can yield a trusted path.
+    if (!dir || !pathWin32.isAbsolute(dir)) continue;
     for (const ext of exts) {
       // PATHEXT entries are conventionally uppercase; lower-case the extension so
       // the resolved path is predictable. Windows' filesystem is case-insensitive,
       // so this still matches a claude.CMD/claude.EXE on disk.
       const candidate = pathWin32.join(dir, `claude${ext.toLowerCase()}`);
-      if (fileExists(candidate)) return candidate;
+      // Never return anything but an absolute path (belt and suspenders).
+      if (pathWin32.isAbsolute(candidate) && fileExists(candidate)) return candidate;
     }
   }
   return null;
@@ -142,7 +181,7 @@ export interface TerminalLaunchResult {
 export async function launchDetachedTerminal(
   file: string,
   args: string[],
-  options: { cwd?: string; env?: Record<string, string | undefined> },
+  options: { cwd?: string; env?: Record<string, string | undefined>; windowsVerbatimArguments?: boolean },
   spawnFn: typeof spawn = spawn
 ): Promise<TerminalLaunchResult> {
   try {
@@ -153,4 +192,23 @@ export async function launchDetachedTerminal(
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/**
+ * Build the args for `cmd.exe /D /S /K` that run `executable` (a resolved absolute
+ * path) plus `extraArgs` and keep the console open. MUST be spawned with
+ * `windowsVerbatimArguments: true`.
+ *
+ * cmd re-parses the serialized command line, and Node only quotes an arg that
+ * contains whitespace — so a path with a cmd metacharacter but no space (e.g.
+ * `E:\tools&ops\claude.cmd`) would be split at `&` and the prefix run as its own
+ * command. `/S` makes cmd strip only the outer quote pair and treat the rest
+ * literally, so the inner-quoted path stays opaque to cmd's `& | < > ( ) ^`
+ * parsing. This mirrors how Node's own .cmd launcher builds its `/D /S /C` line.
+ */
+export function buildCmdKArgs(executable: string, extraArgs: string[] = []): string[] {
+  // Windows paths can't contain a double quote, so wrapping the executable is
+  // lossless; extraArgs are literal flags / a validated session id.
+  const inner = [`"${executable}"`, ...extraArgs].join(" ");
+  return ["/d", "/s", "/k", `"${inner}"`];
 }

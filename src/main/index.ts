@@ -38,7 +38,7 @@ import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
-import { isUncPath, launchDetachedTerminal, mergeTerminalEnv, normalizeWorkingDirectory, providerTerminalEnv, resolveClaudeExecutable } from "./providerTerminal";
+import { buildCmdKArgs, isUncPath, launchDetachedTerminal, mergeTerminalEnv, normalizeWorkingDirectory, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd } from "./providerTerminal";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2205,11 +2205,6 @@ function getClaudeSessionDetail(filePath: string) {
   return { session, messages: messages.slice(-240), totalMessages: messages.length };
 }
 
-function getSessionResumeCwd(projectPath?: string) {
-  const requested = typeof projectPath === "string" ? projectPath.trim() : "";
-  return requested && isDirectoryPath(requested) ? requested : homedir();
-}
-
 // Shared by both terminal-launch paths so the wording stays in one place.
 const CLAUDE_NOT_ON_PATH_ERROR = "Claude Code (claude) isn't on PATH. Install it — or restart Chara Desk if you just installed it — then try again.";
 
@@ -2226,17 +2221,15 @@ async function resumeClaudeSession(sessionId: string, projectPath?: string) {
   // clean-machine / stale-PATH case the actionable error is for.
   const claudeExe = resolveClaudeExecutable(process.env);
   if (!claudeExe) return { ok: false, command, error: CLAUDE_NOT_ON_PATH_ERROR };
-  // cmd.exe can't run in a UNC / extended-length working directory (it warns and
-  // silently falls back to C:\Windows), so normalize the session cwd and reject
-  // genuine UNC instead of resuming in the wrong place. claude resolved, so the
-  // copied command is a real recovery — mark it copyable.
-  const cwd = normalizeWorkingDirectory(getSessionResumeCwd(projectPath));
-  if (isUncPath(cwd)) {
-    return { ok: false, command, error: `This session's folder is a network (UNC) path the terminal can't open in (${cwd}). Run the copied command from a local folder instead.`, copyable: true };
-  }
+  // Only fall back to home when the session recorded no cwd; a recorded-but-
+  // unavailable (offline UNC, disconnected share, deleted/moved project) or UNC
+  // cwd fails loudly instead of silently resuming in the home directory. claude
+  // resolved, so the copied command is a real recovery — mark it copyable.
+  const resolved = resolveSessionCwd(projectPath, homedir());
+  if (!resolved.ok) return { ok: false, command, error: resolved.error, copyable: true };
   const comspec = process.env.ComSpec || "cmd.exe";
-  const result = await launchDetachedTerminal(comspec, ["/K", claudeExe, "--resume", safeSessionId], { cwd });
-  return result.ok ? { ok: true, command, cwd } : { ok: false, command, error: result.error, copyable: true };
+  const result = await launchDetachedTerminal(comspec, buildCmdKArgs(claudeExe, ["--resume", safeSessionId]), { cwd: resolved.cwd, windowsVerbatimArguments: true });
+  return result.ok ? { ok: true, command, cwd: resolved.cwd } : { ok: false, command, error: result.error, copyable: true };
 }
 
 function getCompanionEvents() {
@@ -2314,7 +2307,7 @@ async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   const claudeExe = resolveClaudeExecutable(env);
   if (!claudeExe) return { ok: false, command, error: CLAUDE_NOT_ON_PATH_ERROR };
   const comspec = process.env.ComSpec || "cmd.exe";
-  const result = await launchDetachedTerminal(comspec, ["/K", claudeExe], { cwd: workingDir, env });
+  const result = await launchDetachedTerminal(comspec, buildCmdKArgs(claudeExe), { cwd: workingDir, env, windowsVerbatimArguments: true });
   return result.ok ? { ok: true, command } : { ok: false, command, error: result.error };
 }
 
