@@ -123,14 +123,29 @@ export function saveClaudeProfileStore(filePath: string, data: ClaudeProfileStor
   }
 }
 
+function preserveInvalidClaudeProfileStore(filePath: string, now: number) {
+  const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
+  const basePath = filePath.toLowerCase().endsWith(".json") ? filePath.slice(0, -5) : filePath;
+  const preservedPath = `${basePath}.invalid-${stamp}-${randomUUID()}.json`;
+  renameSync(filePath, preservedPath);
+  console.warn(`Invalid Claude profile store preserved at ${preservedPath}`);
+}
+
 export function loadOrCreateClaudeProfileStore(
   filePath: string,
   inventory: ClaudeProfileInventory,
   now = Date.now()
 ): ClaudeProfileStoreData {
   if (existsSync(filePath)) {
-    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as unknown;
-    return parseClaudeProfileStore(parsed);
+    try {
+      const parsed = JSON.parse(readFileSync(filePath, "utf8")) as unknown;
+      return parseClaudeProfileStore(parsed);
+    } catch {
+      // Never overwrite an unreadable, invalid, or unsupported-version store.
+      // Preserve it for inspection or a future migration, then recover with a
+      // fresh Default captured from the current live Claude inventory.
+      preserveInvalidClaudeProfileStore(filePath, now);
+    }
   }
   const initial = createInitialClaudeProfileStore(inventory, now);
   saveClaudeProfileStore(filePath, initial);

@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildClaudeProfileInventory,
@@ -128,12 +128,31 @@ describe("Claude profile store", () => {
     expect(JSON.parse(readFileSync(filePath, "utf8"))).toEqual(updated);
   });
 
-  it("rejects malformed persisted data without overwriting it", () => {
+  it("preserves malformed JSON and recreates Default from the live inventory", () => {
     const filePath = tempFile();
-    const malformed = '{"schemaVersion":1,"profiles":[],"appliedProfileId":"default"}\n';
+    const malformed = '{"schemaVersion":';
     writeFileSync(filePath, malformed, "utf8");
-    expect(() => loadOrCreateClaudeProfileStore(filePath, inventory())).toThrow("Protected Default");
-    expect(readFileSync(filePath, "utf8")).toBe(malformed);
+    const recovered = loadOrCreateClaudeProfileStore(filePath, inventory(), 456);
+    const root = dirname(filePath);
+    const preserved = readdirSync(root).filter(name => name.startsWith("claude-profiles.invalid-") && name.endsWith(".json"));
+
+    expect(recovered).toEqual(createInitialClaudeProfileStore(inventory(), 456));
+    expect(preserved).toHaveLength(1);
+    expect(readFileSync(join(root, preserved[0]), "utf8")).toBe(malformed);
+    expect(parseClaudeProfileStore(JSON.parse(readFileSync(filePath, "utf8")))).toEqual(recovered);
+  });
+
+  it("preserves an unsupported schema version before recreating Default", () => {
+    const filePath = tempFile();
+    const futureStore = '{"schemaVersion":2,"profiles":[{"future":true}]}\n';
+    writeFileSync(filePath, futureStore, "utf8");
+    const recovered = loadOrCreateClaudeProfileStore(filePath, inventory(), 789);
+    const root = dirname(filePath);
+    const preserved = readdirSync(root).filter(name => name.startsWith("claude-profiles.invalid-") && name.endsWith(".json"));
+
+    expect(recovered).toEqual(createInitialClaudeProfileStore(inventory(), 789));
+    expect(preserved).toHaveLength(1);
+    expect(readFileSync(join(root, preserved[0]), "utf8")).toBe(futureStore);
   });
 
   it("rejects duplicate resource membership", () => {
