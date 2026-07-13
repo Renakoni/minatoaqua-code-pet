@@ -37,6 +37,7 @@ import { PermissionBroker, type PendingPermission, type PermissionPollResult } f
 import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
+import { installPetDoubleClickToOpenPanel } from "./petDoubleClick";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
 
@@ -268,6 +269,16 @@ function createPetWindow() {
     petDragWatcher?.onMove(x, y);
   });
   petWindow.on("moved", () => petDragWatcher?.onMoveEnd());
+
+  // Double-click the pet to summon the panel. Uses the OS non-client double-click
+  // message so it fires only on the pet's drag region — never the bubble, card,
+  // Allow/Deny buttons, or transparent background — and follows the OS double-click
+  // timing (see petDoubleClick.ts). Registered once per window; the hook is released
+  // when this window is destroyed, so recreations don't accumulate handlers.
+  // resizable:false means the OS won't try to maximize the window on the gesture.
+  if (process.platform === "win32") {
+    installPetDoubleClickToOpenPanel(petWindow, () => showPanelWindow());
+  }
 
   petWindow.on("closed", () => {
     petDragWatcher?.dispose();
