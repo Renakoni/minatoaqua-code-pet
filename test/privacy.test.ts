@@ -53,14 +53,14 @@ describe("redactSensitiveText", () => {
 
   it("strips common POSIX roots the old implementation missed", () => {
     // These were reproduced as leaks in review — /opt, /tmp, /usr/local, /Applications.
-    expect(redactSensitiveText("Missing: /opt/Clawd Companion/resources/hook-forwarder.js")).toBe("Missing: [path hidden]");
+    expect(redactSensitiveText("Missing: /opt/Chara Desk/resources/hook-forwarder.js")).toBe("Missing: [path hidden]");
     expect(redactSensitiveText("Wrote /tmp/clawd/hook-forwarder.js")).toBe("Wrote [path hidden]");
     expect(redactSensitiveText("node /usr/local/bin/node")).toBe("node [path hidden]");
-    expect(redactSensitiveText("/Applications/Clawd Companion.app/hook-forwarder.js")).toBe("[path hidden]");
+    expect(redactSensitiveText("/Applications/Chara Desk.app/hook-forwarder.js")).toBe("[path hidden]");
   });
 
   it("strips Windows paths that contain spaces", () => {
-    expect(redactSensitiveText("Missing: C:\\Program Files\\Clawd Companion\\hook-forwarder.js")).toBe("Missing: [path hidden]");
+    expect(redactSensitiveText("Missing: C:\\Program Files\\Chara Desk\\hook-forwarder.js")).toBe("Missing: [path hidden]");
     expect(redactSensitiveText("Missing: C:\\Users\\Jane Doe\\AppData\\hook-forwarder.js")).toBe("Missing: [path hidden]");
   });
 

@@ -1,4 +1,4 @@
-# Claude Codex Pet
+# Chara Desk
 
 Anime pixel desktop companion for Claude Code and Codex.
 

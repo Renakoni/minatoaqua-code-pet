@@ -26,7 +26,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
         <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
           <div className="panel-group-card" style={{ maxWidth: 520 }}>
             <h2 className="panel-title">界面渲染失败</h2>
-            <p className="note">请重启 Clawd Companion。如果问题持续出现，请查看开发者控制台日志。</p>
+            <p className="note">请重启 Chara Desk。如果问题持续出现，请查看开发者控制台日志。</p>
             <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 12 }}>
               {this.state.error.message}
             </pre>

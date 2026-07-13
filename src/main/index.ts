@@ -286,7 +286,7 @@ function createPanelWindow() {
     minHeight: 620,
     show: false,
     paintWhenInitiallyHidden: true,
-    title: "Minato Aqua Code Pet",
+    title: "Chara Desk",
     frame: false,
     backgroundColor: "#f5efe3",
     autoHideMenuBar: true,
@@ -538,7 +538,7 @@ function createTray() {
   const trayIcon = getAppIcon().resize({ width: 16, height: 16 });
 
   tray = new Tray(trayIcon);
-  tray.setToolTip("Claude Codex Pet is running");
+  tray.setToolTip("Chara Desk");
 
   tray.on("click", () => {
     // A left-click while the menu is open (its deferred blur-hide pending)
@@ -700,7 +700,11 @@ function applyLaunchAtLoginSetting() {
 
 function runStartupBehaviors() {
   if (process.platform === "win32") {
-    app.setAppUserModelId("ClaudeCodexPet.ClawdCompanion");
+    // Windows shell / taskbar / notification identity. When packaging is
+    // configured, the installer's shortcut AppUserModelID (electron-builder
+    // `appId`) MUST match this string, or toast notifications won't group
+    // under the app.
+    app.setAppUserModelId("CharaDesk");
   }
   applyLaunchAtLoginSetting();
   if (companionSettings.openSettingsOnStart) showPanelWindow();
@@ -841,7 +845,7 @@ function toCompanionEvent(event: PetEvent): CompanionEvent {
     event: mappedEvent,
     sessionId,
     clientType: "desktop",
-    clientLabel: "Minato Aqua Code Pet",
+    clientLabel: "Chara Desk",
     tool: event.tool ? normalizeTool(event.tool) : undefined,
     notificationKind: event.notificationKind,
     title: event.title ?? event.event,
@@ -980,7 +984,7 @@ function notificationBody(event: CompanionEvent): string {
 function showWindowsNotification(event: CompanionEvent) {
   if (process.platform !== "win32" || !Notification.isSupported()) return;
   new Notification({
-    title: event.title || "Clawd Companion",
+    title: event.title || "Chara Desk",
     body: notificationBody(event),
     icon: getAppIcon(),
     silent: true
@@ -2516,7 +2520,7 @@ function getConnectionStatus() {
     serverListening: Boolean(eventServer?.listening),
     activeSessionId: sessionId,
     activeClientType: "desktop",
-    activeClientLabel: "Minato Aqua Code Pet",
+    activeClientLabel: "Chara Desk",
     lastEventAt: latest?.timestamp,
     lastEventTitle: latest?.title,
     lastEventType: latest?.event,
@@ -2847,8 +2851,8 @@ function getSessionHistory() {
   const events = getCompanionEvents().map(event => ({ id: event.id, event, timestamp: event.timestamp })).reverse();
   return [{
     sessionId,
-    title: "Minato Aqua Code Pet",
-    clientLabel: "Minato Aqua Code Pet",
+    title: "Chara Desk",
+    clientLabel: "Chara Desk",
     startedAt: appStartedAt,
     lastEventAt: eventHistory[0]?.timestamp ?? appStartedAt,
     eventCount: events.length,

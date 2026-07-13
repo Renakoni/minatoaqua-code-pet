@@ -489,7 +489,7 @@
     "onboardingWelcome": "欢迎",
     "onboardingConnect": "连接",
     "onboardingDone": "完成",
-    "welcomeTitle": "欢迎使用 Clawd Companion",
+    "welcomeTitle": "欢迎使用 Chara Desk",
     "welcomeDesc": "Clawd 是 Claude Code 的桌面宠物伴侣，会在你使用 Claude Code 时实时显示工具调用、会话状态和动画反馈。",
     "welcomeNote": "接下来只需 2 步即可开始使用。",
     "connectTitle": "连接 Claude Code",
@@ -791,6 +791,6 @@
     "removeDone": "已移除所有 Clawd hooks。",
     "removeFailed": "移除失败: {error}",
     "removeFailedHidden": "Hook 移除失败，详情已隐藏。",
-    "note": "安装 hooks 后，Claude Code 会自动将事件发送到 Clawd Companion。备份文件保存在 ~/.claude/settings.clawd-backup.json"
+    "note": "安装 hooks 后，Claude Code 会自动将事件发送到 Chara Desk。备份文件保存在 ~/.claude/settings.clawd-backup.json"
   }
 }
