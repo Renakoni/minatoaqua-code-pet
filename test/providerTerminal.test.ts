@@ -1,7 +1,23 @@
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { awaitTerminalLaunch, buildProviderTerminalLaunch, isUncPath, providerTerminalEnv } from "../src/main/providerTerminal";
+import { awaitTerminalLaunch, buildProviderTerminalLaunch, claudeIsAvailable, isUncPath, launchDetachedTerminal, providerTerminalEnv } from "../src/main/providerTerminal";
+
+// A stand-in for child_process.spawn: returns an EventEmitter (plus the unref the
+// launcher calls) and fires the chosen event on the next microtask, after the code
+// under test has attached its listeners. `capture` sees the spawn options.
+type FakeSpawn = Parameters<typeof launchDetachedTerminal>[3];
+function fakeSpawn(
+  act: (child: EventEmitter & { unref(): void }) => void,
+  capture?: (options: Record<string, unknown>) => void
+): FakeSpawn {
+  return ((_file: string, _args: string[], options: Record<string, unknown>) => {
+    capture?.(options);
+    const child = Object.assign(new EventEmitter(), { unref() {} });
+    queueMicrotask(() => act(child));
+    return child;
+  }) as unknown as FakeSpawn;
+}
 
 describe("providerTerminalEnv", () => {
   it("keeps string and finite-number env entries and drops the rest", () => {
@@ -73,6 +89,21 @@ describe("buildProviderTerminalLaunch", () => {
     expect(second.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-secret-token");
     expect(second.args).toEqual(["/K", "claude"]);
   });
+
+  it("lets a provider PATH override the inherited one despite case differences", () => {
+    // Windows env is case-insensitive, so an inherited "Path" and a provider
+    // "PATH" must collapse to one key with the provider's value — otherwise the
+    // OS could pick the inherited one and claude would resolve against the wrong PATH.
+    const launch = buildProviderTerminalLaunch(
+      { PATH: "C:\\provider\\bin" },
+      { Path: "C:\\Windows;C:\\inherited", SystemRoot: "C:\\Windows" },
+      "cmd.exe"
+    );
+    const pathKeys = Object.keys(launch.env).filter(key => key.toLowerCase() === "path");
+    expect(pathKeys).toEqual(["PATH"]);
+    expect(launch.env.PATH).toBe("C:\\provider\\bin");
+    expect(launch.env.SystemRoot).toBe("C:\\Windows");
+  });
 });
 
 describe("awaitTerminalLaunch", () => {
@@ -118,5 +149,50 @@ describe("isUncPath", () => {
     expect(isUncPath("\\\\?\\C:\\Users\\me\\project")).toBe(false);
     expect(isUncPath("  C:\\trimmed  ")).toBe(false);
     expect(isUncPath("")).toBe(false);
+  });
+});
+
+describe("launchDetachedTerminal", () => {
+  it("resolves ok once the terminal actually spawns", async () => {
+    const result = await launchDetachedTerminal("cmd.exe", ["/K", "claude"], {}, fakeSpawn(child => child.emit("spawn")));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("returns { ok:false, error } when the launch fails asynchronously (the resume + provider path)", async () => {
+    const result = await launchDetachedTerminal(
+      "cmd.exe", ["/K", "claude"], {},
+      fakeSpawn(child => child.emit("error", new Error("spawn cmd.exe ENOENT")))
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("ENOENT");
+  });
+
+  it("spawns a detached, visible console and forwards cwd/env", async () => {
+    let seen: Record<string, unknown> | undefined;
+    await launchDetachedTerminal(
+      "cmd.exe", ["/K", "claude"], { cwd: "C:\\proj", env: { PATH: "C:\\x" } },
+      fakeSpawn(child => child.emit("spawn"), options => { seen = options; })
+    );
+    expect(seen).toMatchObject({ cwd: "C:\\proj", env: { PATH: "C:\\x" }, detached: true, windowsHide: false, stdio: "ignore" });
+  });
+});
+
+describe("claudeIsAvailable", () => {
+  it("reports available when where.exe resolves claude (exit 0)", async () => {
+    expect(await claudeIsAvailable({ PATH: "C:\\cli" }, fakeSpawn(child => child.emit("close", 0)))).toBe(true);
+  });
+
+  it("reports unavailable when where.exe can't find claude (exit 1)", async () => {
+    expect(await claudeIsAvailable({ PATH: "C:\\nope" }, fakeSpawn(child => child.emit("close", 1)))).toBe(false);
+  });
+
+  it("fails open when the probe itself can't run", async () => {
+    expect(await claudeIsAvailable({}, fakeSpawn(child => child.emit("error", new Error("no where.exe"))))).toBe(true);
+  });
+
+  it("probes with the effective env, so a provider PATH override is what claude is checked against", async () => {
+    let seen: Record<string, unknown> | undefined;
+    await claudeIsAvailable({ PATH: "C:\\provider\\bin" }, fakeSpawn(child => child.emit("close", 0), options => { seen = options; }));
+    expect(seen).toMatchObject({ env: { PATH: "C:\\provider\\bin" } });
   });
 });

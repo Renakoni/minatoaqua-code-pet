@@ -7,7 +7,8 @@
 // live Claude settings file; and it sidesteps the nested-quote breakage that
 // inlining `$env:X="url"; claude` through cmd/start used to cause (the old bug).
 
-import type { ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
+import { join } from "node:path";
 
 /** The provider's env as a plain string map: string values kept, finite
  *  numbers stringified, everything else dropped. */
@@ -51,6 +52,11 @@ export function buildProviderTerminalLaunch(
     if (typeof value === "string") env[key] = value;
   }
   for (const [key, value] of Object.entries(providerEnv)) {
+    // Windows env vars are case-insensitive: drop any inherited key that differs
+    // only in case (inherited "Path" vs a provider "PATH") so the provider value
+    // actually overrides, rather than leaving a duplicate the OS chooses between.
+    const clash = Object.keys(env).find(existing => existing.toLowerCase() === key.toLowerCase());
+    if (clash && clash !== key) delete env[clash];
     env[key] = value;
   }
   return {
@@ -86,4 +92,60 @@ export function isUncPath(dir: string): boolean {
   const path = dir.trim();
   if (/^\\\\\?\\/.test(path)) return /^\\\\\?\\unc\\/i.test(path);
   return /^[\\/]{2}/.test(path);
+}
+
+export interface TerminalLaunchResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Spawn a detached terminal and resolve only once it has actually launched. Both
+ * the provider terminal and session resume go through here so a launch failure
+ * (spawn reports these asynchronously via 'error', not by throwing) becomes a
+ * clean { ok:false, error } for the renderer instead of a false success plus an
+ * unhandled ChildProcess 'error' that could take down the main process.
+ */
+export async function launchDetachedTerminal(
+  file: string,
+  args: string[],
+  options: { cwd?: string; env?: Record<string, string | undefined> },
+  spawnFn: typeof spawn = spawn
+): Promise<TerminalLaunchResult> {
+  try {
+    const child = spawnFn(file, args, { ...options, detached: true, windowsHide: false, stdio: "ignore" });
+    await awaitTerminalLaunch(child);
+    child.unref();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * True if the `claude` CLI resolves in `env`'s PATH. Runs where.exe — by its
+ * absolute path, so a provider PATH override can't hide where.exe itself — with
+ * the exact env the terminal will get, so "'claude' is not recognized" is caught
+ * before we report success (missing CLI, a PATH the app inherited before claude
+ * was installed, or a provider env that overrides PATH). where.exe honors PATHEXT,
+ * so it matches what `cmd /K claude` would actually run. Fails open (true) if the
+ * probe can't run at all, so a broken probe never blocks a legitimate launch.
+ */
+export function claudeIsAvailable(
+  env: Record<string, string | undefined>,
+  spawnFn: typeof spawn = spawn
+): Promise<boolean> {
+  const systemRoot = env.SystemRoot || env.windir || "C:\\Windows";
+  const whereExe = join(systemRoot, "System32", "where.exe");
+  return new Promise(resolve => {
+    let child: ChildProcess;
+    try {
+      child = spawnFn(whereExe, ["claude"], { env, windowsHide: true, stdio: "ignore" });
+    } catch {
+      resolve(true);
+      return;
+    }
+    child.once("error", () => resolve(true));
+    child.once("close", code => resolve(code === 0));
+  });
 }

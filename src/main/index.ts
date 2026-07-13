@@ -1,6 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, protocol, screen, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
-import { spawn } from "node:child_process";
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
@@ -39,7 +38,7 @@ import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
-import { awaitTerminalLaunch, buildProviderTerminalLaunch, isUncPath, providerTerminalEnv } from "./providerTerminal";
+import { buildProviderTerminalLaunch, claudeIsAvailable, isUncPath, launchDetachedTerminal, providerTerminalEnv } from "./providerTerminal";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2211,29 +2210,27 @@ function getSessionResumeCwd(projectPath?: string) {
   return requested && isDirectoryPath(requested) ? requested : homedir();
 }
 
-function resumeClaudeSession(sessionId: string, projectPath?: string) {
+// Shared by both terminal-launch paths so the wording stays in one place.
+const CLAUDE_NOT_ON_PATH_ERROR = "Claude Code (claude) isn't on PATH. Install it — or restart Chara Desk if you just installed it — then try again.";
+
+async function resumeClaudeSession(sessionId: string, projectPath?: string) {
   const safeSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
   if (!/^[a-zA-Z0-9._:-]{6,200}$/.test(safeSessionId)) return { ok: false, command: "", error: "Invalid session id" };
   const command = `claude --resume ${safeSessionId}`;
   const cwd = getSessionResumeCwd(projectPath);
 
-  if (process.platform === "win32") {
-    try {
-      const comspec = process.env.ComSpec || "cmd.exe";
-      const child = spawn(comspec, ["/K", command], {
-        cwd,
-        detached: true,
-        windowsHide: false,
-        stdio: "ignore"
-      });
-      child.unref();
-      return { ok: true, command, cwd };
-    } catch (error) {
-      return { ok: false, command, error: error instanceof Error ? error.message : String(error) };
-    }
+  if (process.platform !== "win32") {
+    return { ok: false, command, error: "Terminal launch is only implemented on Windows in this build" };
   }
-
-  return { ok: false, command, error: "Terminal launch is only implemented on Windows in this build" };
+  const comspec = process.env.ComSpec || "cmd.exe";
+  // Same preflight + async launch handling as the provider terminal: confirm the
+  // claude CLI resolves before opening a window, and turn an async spawn failure
+  // into { ok:false, error } instead of a false success plus an unhandled event.
+  if (!(await claudeIsAvailable(process.env))) {
+    return { ok: false, command, error: CLAUDE_NOT_ON_PATH_ERROR };
+  }
+  const result = await launchDetachedTerminal(comspec, ["/K", command], { cwd });
+  return result.ok ? { ok: true, command, cwd } : { ok: false, command, error: result.error };
 }
 
 function getCompanionEvents() {
@@ -2303,24 +2300,14 @@ async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   const comspec = process.env.ComSpec || "cmd.exe";
   const { file, args, env } = buildProviderTerminalLaunch(providerEnv, process.env, comspec);
   const command = "claude";
-  try {
-    const child = spawn(file, args, {
-      cwd: workingDir,
-      detached: true,
-      windowsHide: false,
-      stdio: "ignore",
-      env
-    });
-    // spawn signals launch failure asynchronously via 'error', not by throwing,
-    // so wait for the real outcome before claiming success — otherwise a failed
-    // launch returns ok:true (a false green toast) and the unhandled 'error'
-    // event crashes the main process.
-    await awaitTerminalLaunch(child);
-    child.unref();
-  } catch (error) {
-    return { ok: false, command, error: error instanceof Error ? error.message : String(error) };
+  // Preflight: confirm `claude` resolves in the exact env the terminal will get
+  // (a missing CLI, a stale inherited PATH, or a provider PATH override would
+  // otherwise spawn cmd.exe fine and only then print "'claude' is not recognized").
+  if (!(await claudeIsAvailable(env))) {
+    return { ok: false, command, error: CLAUDE_NOT_ON_PATH_ERROR };
   }
-  return { ok: true, command };
+  const result = await launchDetachedTerminal(file, args, { cwd: workingDir, env });
+  return result.ok ? { ok: true, command } : { ok: false, command, error: result.error };
 }
 
 /* ---------- unified Claude provider service (cc-switch db when present) ---------- */
