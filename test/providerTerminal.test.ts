@@ -42,6 +42,12 @@ function fakeSpawn(
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 const CMD = "C:\\Windows\\System32\\cmd.exe";
 
+// `cmd /c start` opens a real console window; on a headless CI runner (Session 0, no
+// interactive desktop) the launched PowerShell doesn't reliably run in time, which makes
+// these end-to-end tests flaky there. So they run LOCALLY only — the deterministic unit
+// tests (buildPowerShellLaunch shape, normalizeCmdCwd, etc.) cover the same logic on CI.
+const SKIP_WINDOW_SPAWN = process.platform !== "win32" || Boolean(process.env.CI);
+
 // Poll until the marker has CONTENT (not just exists) — the launched PowerShell's `>`
 // redirect creates the file before the command's output lands, so "exists" alone is too
 // eager under load. Reads defensively (the file may be briefly locked mid-write). Used
@@ -313,7 +319,7 @@ describe("PowerShell launch (real Windows execution)", () => {
     }
   });
 
-  it.skipIf(process.platform !== "win32")("opens PowerShell via cmd /c start, which actually runs the fixed command IN PowerShell", async () => {
+  it.skipIf(SKIP_WINDOW_SPAWN)("opens PowerShell via cmd /c start, which actually runs the fixed command IN PowerShell", async () => {
     const powershell = trustedPowerShellPath(process.env)!;
     const cmdExe = trustedCmdPath(process.env)!;
     expect(cmdExe).not.toBeNull();
@@ -341,7 +347,7 @@ describe("PowerShell launch (real Windows execution)", () => {
     }
   }, 15000);
 
-  it.skipIf(process.platform !== "win32")("normalizes an extended-length cwd so cmd/start lands PowerShell in the real folder (raw \\\\?\\ drops to the system dir)", async () => {
+  it.skipIf(SKIP_WINDOW_SPAWN)("normalizes an extended-length cwd so cmd/start lands PowerShell in the real folder (raw \\\\?\\ drops to the system dir)", async () => {
     const powershell = trustedPowerShellPath(process.env)!;
     const cmdExe = trustedCmdPath(process.env)!;
     const base = realpathSync.native(mkdtempSync(join(tmpdir(), "cdps-")));
