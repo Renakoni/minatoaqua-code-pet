@@ -7,7 +7,7 @@ const { homedir } = require("node:os");
 const { join, resolve } = require("node:path");
 
 const cli = parseArgs(process.argv.slice(2));
-const eventPort = Number(cli.port ?? process.env.MINATO_AQUA_PET_PORT ?? 17321);
+const eventPort = Number(cli.port ?? process.env.CHARA_DESK_PORT ?? 17321);
 const hookName = cli.hookName;
 
 function parseArgs(args) {
@@ -161,7 +161,7 @@ function formatPermissionDecision(decision, reason) {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: decision,
-      permissionDecisionReason: reason ?? (decision === "allow" ? "Approved via Minato Aqua Code Pet" : "Denied via Minato Aqua Code Pet")
+      permissionDecisionReason: reason ?? (decision === "allow" ? "Approved via Chara Desk" : "Denied via Chara Desk")
     },
     continue: true
   });
@@ -415,8 +415,9 @@ function unique(values) {
 }
 
 function candidateSettingsPaths() {
-  const appNames = ["claude-codex-pet", "Claude Codex Pet", "Clawd Companion", "Minato Aqua Code Pet"];
-  const candidates = [cli.settingsPath, process.env.CLAWD_COMPANION_SETTINGS_PATH];
+  // The app's userData folder (productName). Settings live under this name.
+  const appNames = ["Chara Desk"];
+  const candidates = [cli.settingsPath, process.env.CHARA_DESK_SETTINGS_PATH];
 
   if (process.env.APPDATA) {
     for (const appName of appNames) candidates.push(join(process.env.APPDATA, appName, "companion-settings.json"));
@@ -459,7 +460,7 @@ function directoryIfUsable(candidate) {
 }
 
 function appRoot() {
-  return directoryIfUsable(cli.appRoot || process.env.CLAWD_COMPANION_APP_ROOT) || directoryIfUsable(resolve(__dirname, "..")) || process.cwd();
+  return directoryIfUsable(cli.appRoot || process.env.CHARA_DESK_APP_ROOT) || directoryIfUsable(resolve(__dirname, "..")) || process.cwd();
 }
 
 function isElectronBinary(command) {
@@ -468,7 +469,7 @@ function isElectronBinary(command) {
 }
 
 function launcherFromAppPath(root) {
-  const command = cli.appPath || process.env.CLAWD_COMPANION_APP_PATH;
+  const command = cli.appPath || process.env.CHARA_DESK_APP_PATH;
   if (!command || !existsSync(command)) return null;
 
   return {
@@ -531,7 +532,7 @@ function startCompanionApp() {
     const child = spawn(launcher.command, launcher.args, {
       cwd: launcher.cwd,
       detached: true,
-      env: { ...process.env, MINATO_AQUA_PET_PORT: String(eventPort) },
+      env: { ...process.env, CHARA_DESK_PORT: String(eventPort) },
       shell: launcher.shell,
       stdio: "ignore",
       windowsHide: true

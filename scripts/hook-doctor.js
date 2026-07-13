@@ -5,8 +5,8 @@ const net = require("node:net");
 const path = require("node:path");
 
 const projectRoot = path.resolve(__dirname, "..");
-const eventHost = process.env.MINATO_AQUA_PET_HOST || "127.0.0.1";
-const eventPort = Number(process.env.MINATO_AQUA_PET_PORT || 17321);
+const eventHost = process.env.CHARA_DESK_HOST || "127.0.0.1";
+const eventPort = Number(process.env.CHARA_DESK_PORT || 17321);
 
 const checks = [];
 let hasFailure = false;
@@ -51,7 +51,7 @@ function checkTcpPort(host, port, timeoutMs = 700) {
 }
 
 function printReport() {
-  console.log("Minato Aqua Code Pet hook doctor");
+  console.log("Chara Desk hook doctor");
   console.log("");
 
   for (const check of checks) {

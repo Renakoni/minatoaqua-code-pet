@@ -6,8 +6,8 @@ import { PermissionBroker, type PermissionPollResult } from "../src/main/permiss
 // REAL production class through its public API only — no Electron, no network,
 // no timers beyond vitest's fake clock.
 
-const DEFAULT_ALLOW_REASON = "Approved via Minato Aqua Code Pet";
-const DEFAULT_DENY_REASON = "Denied via Minato Aqua Code Pet";
+const DEFAULT_ALLOW_REASON = "Approved via Chara Desk";
+const DEFAULT_DENY_REASON = "Denied via Chara Desk";
 const POLL_TIMEOUT: PermissionPollResult = { status: "expired", reason: "Poll timeout" };
 
 // Brokers created by the running test, so teardown can always drain pending

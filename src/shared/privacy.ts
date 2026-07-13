@@ -44,7 +44,7 @@ export function redactDisplayEvent<T extends DisplayEvent>(event: T, language: D
 // Filesystem paths inside free-form status/error strings still leak the home
 // directory (and therefore the username) even when the rest of the UI is
 // redacted. These patterns strip absolute paths — INCLUDING ones with spaces
-// such as "C:\Program Files\.." or "/opt/Clawd Companion/.." — while leaving
+// such as "C:\Program Files\.." or "/opt/Chara Desk/.." — while leaving
 // status words, counts, event names, and versions intact.
 //
 // This is a best-effort fallback for arbitrary error text: the path-bearing hook

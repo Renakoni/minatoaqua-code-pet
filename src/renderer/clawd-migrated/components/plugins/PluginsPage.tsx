@@ -67,9 +67,9 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   }, [showScanNote, snapshot.scannedAt]);
 
   const tabs = [
-    { id: "skills" as const, label: "Skills", caption: zh ? "当前加载" : "Loaded", icon: Code2, count: snapshot.summary.skills },
-    { id: "plugins" as const, label: "Plugins", caption: zh ? "安装记录" : "Installed", icon: Package, count: snapshot.summary.plugins },
-    { id: "mcp" as const, label: "MCP", caption: zh ? "连接配置" : "Configured", icon: Server, count: snapshot.summary.mcp }
+    { id: "skills" as const, label: "Skills", icon: Code2, count: snapshot.summary.skills },
+    { id: "plugins" as const, label: "Plugins", icon: Package, count: snapshot.summary.plugins },
+    { id: "mcp" as const, label: "MCP", icon: Server, count: snapshot.summary.mcp }
   ];
   const activeTabLabel = tabs.find(tab => tab.id === activeTab)?.label ?? activeTab;
 
@@ -92,7 +92,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
           return (
             <button key={tab.id} className={`claude-resource-subtab ${activeTab === tab.id ? "active" : ""}`} onClick={() => setActiveTab(tab.id)}>
               <Icon size={16} />
-              <span><b>{tab.label}</b><em>{tab.caption}</em></span>
+              <span><b>{tab.label}</b></span>
               <small>{tab.count}</small>
             </button>
           );
