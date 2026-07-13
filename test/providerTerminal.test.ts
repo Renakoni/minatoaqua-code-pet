@@ -1,5 +1,7 @@
+import { EventEmitter } from "node:events";
+import type { ChildProcess } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { buildProviderTerminalLaunch, providerTerminalEnv } from "../src/main/providerTerminal";
+import { awaitTerminalLaunch, buildProviderTerminalLaunch, providerTerminalEnv } from "../src/main/providerTerminal";
 
 describe("providerTerminalEnv", () => {
   it("keeps string and finite-number env entries and drops the rest", () => {
@@ -70,5 +72,31 @@ describe("buildProviderTerminalLaunch", () => {
     first.args.push("injected");
     expect(second.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-secret-token");
     expect(second.args).toEqual(["/K", "claude"]);
+  });
+});
+
+describe("awaitTerminalLaunch", () => {
+  it("resolves once the child reports it has spawned", async () => {
+    const child = new EventEmitter();
+    const launched = awaitTerminalLaunch(child as unknown as ChildProcess);
+    child.emit("spawn");
+    await expect(launched).resolves.toBeUndefined();
+  });
+
+  it("rejects with the error when the child fails to launch", async () => {
+    const child = new EventEmitter();
+    const launched = awaitTerminalLaunch(child as unknown as ChildProcess);
+    const failure = new Error("spawn cmd.exe ENOENT");
+    child.emit("error", failure);
+    await expect(launched).rejects.toBe(failure);
+  });
+
+  it("handles the failure as a rejection, never an unhandled 'error' event", () => {
+    // A listener is attached synchronously, so a launch failure rejects the
+    // promise instead of throwing an uncaught exception that would crash main.
+    const child = new EventEmitter();
+    const launched = awaitTerminalLaunch(child as unknown as ChildProcess);
+    expect(() => child.emit("error", new Error("boom"))).not.toThrow();
+    return expect(launched).rejects.toThrow("boom");
   });
 });

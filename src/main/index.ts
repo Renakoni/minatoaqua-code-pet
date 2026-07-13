@@ -39,7 +39,7 @@ import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
-import { buildProviderTerminalLaunch, providerTerminalEnv } from "./providerTerminal";
+import { awaitTerminalLaunch, buildProviderTerminalLaunch, providerTerminalEnv } from "./providerTerminal";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2270,12 +2270,20 @@ function sanitizeClaudeSettingsConfig(config: Record<string, any>) {
   return next;
 }
 
-function openClaudeProviderTerminal(providerId: string) {
+async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   const listed = listUnifiedProviders();
   const provider = listed.providers.find(item => item.id === providerId);
   if (!provider) return { ok: false, command: "", error: `Provider ${providerId} not found` };
   if (process.platform !== "win32") {
     return { ok: false, command: "", error: "Terminal launch is only implemented on Windows in this build" };
+  }
+  // Open the terminal in the folder the user picked, exactly like cc-switch: a
+  // provider terminal exists to run `claude` against a project, so the working
+  // directory is the point, not an afterthought. Refuse anything that isn't a
+  // real directory instead of silently falling back to the home folder.
+  const workingDir = typeof cwd === "string" ? cwd.trim() : "";
+  if (!workingDir || !isDirectoryPath(workingDir)) {
+    return { ok: false, command: "", error: `Not a folder: ${workingDir || "(none selected)"}` };
   }
   // The provider's env (base URL, tokens) is handed to the child process through
   // spawn's `env` — never written to disk and never placed on the command line.
@@ -2290,12 +2298,17 @@ function openClaudeProviderTerminal(providerId: string) {
   const command = "claude";
   try {
     const child = spawn(file, args, {
-      cwd: homedir(),
+      cwd: workingDir,
       detached: true,
       windowsHide: false,
       stdio: "ignore",
       env
     });
+    // spawn signals launch failure asynchronously via 'error', not by throwing,
+    // so wait for the real outcome before claiming success — otherwise a failed
+    // launch returns ok:true (a false green toast) and the unhandled 'error'
+    // event crashes the main process.
+    await awaitTerminalLaunch(child);
     child.unref();
   } catch (error) {
     return { ok: false, command, error: error instanceof Error ? error.message : String(error) };
@@ -3245,7 +3258,15 @@ app.whenReady().then(() => {
     // windows, and unblocks the waiting hook so Claude Code gets the decision.
     return respondPermission(response.id, response.decision, response.reason);
   });
-  ipcMain.handle("companion:open-claude-provider-terminal", (_, providerId: string) => openClaudeProviderTerminal(providerId));
+  ipcMain.handle("companion:open-claude-provider-terminal", (_, providerId: string, cwd: string) => openClaudeProviderTerminal(providerId, cwd));
+  ipcMain.handle("companion:pick-terminal-directory", async () => {
+    const options: Electron.OpenDialogOptions = { properties: ["openDirectory"] };
+    const result = panelWindow && !panelWindow.isDestroyed()
+      ? await dialog.showOpenDialog(panelWindow, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
   ipcMain.handle("companion:providers-list", () => {
     try { return listUnifiedProviders(); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
   });

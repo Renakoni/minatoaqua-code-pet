@@ -7,6 +7,8 @@
 // live Claude settings file; and it sidesteps the nested-quote breakage that
 // inlining `$env:X="url"; claude` through cmd/start used to cause (the old bug).
 
+import type { ChildProcess } from "node:child_process";
+
 /** The provider's env as a plain string map: string values kept, finite
  *  numbers stringified, everything else dropped. */
 export function providerTerminalEnv(settingsConfig: unknown): Record<string, string> {
@@ -56,4 +58,18 @@ export function buildProviderTerminalLaunch(
     args: ["/K", "claude"],
     env
   };
+}
+
+/**
+ * Resolve once the terminal process has actually spawned; reject if it fails to
+ * launch. child_process.spawn reports launch failures asynchronously through the
+ * 'error' event instead of throwing, so a caller that returns right after spawn()
+ * would claim a false success — and the unhandled 'error' event would crash the
+ * main process. Awaiting this collapses both outcomes into a normal resolve/reject.
+ */
+export function awaitTerminalLaunch(child: ChildProcess): Promise<void> {
+  return new Promise((resolve, reject) => {
+    child.once("spawn", () => resolve());
+    child.once("error", (error) => reject(error));
+  });
 }

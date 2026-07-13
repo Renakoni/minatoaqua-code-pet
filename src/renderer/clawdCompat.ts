@@ -107,7 +107,8 @@ type CompanionApi = {
   reorderClaudeProviders: (orderedIds: string[]) => Promise<{ ok: boolean; error?: string }>;
   switchClaudeProvider: (id: string) => Promise<ClaudeProviderSwitchResult>;
   testClaudeProvider: (payload: { id?: string; baseUrl?: string }) => Promise<ClaudeProviderTestResult>;
-  openClaudeProviderTerminal: (providerId: string) => Promise<{ ok: boolean; command: string; error?: string }>;
+  openClaudeProviderTerminal: (providerId: string, cwd: string) => Promise<{ ok: boolean; command: string; error?: string }>;
+  pickTerminalDirectory: () => Promise<string | null>;
   onCcSwitchChanged: (callback: Listener<unknown>) => Unsubscribe;
   pickPetPackFile: () => Promise<string | null>;
   inspectPetPack: (zipPath: string) => Promise<PetPackInspectResult>;
@@ -518,6 +519,7 @@ export function installClawdCompat() {
       message: "Connectivity tests are only available in the desktop app."
     }),
     openClaudeProviderTerminal: async () => ({ ok: false, command: "", error: "Terminal launch is only available in the desktop app." }),
+    pickTerminalDirectory: async () => null,
     onCcSwitchChanged: () => () => undefined,
     pickPetPackFile: async () => null,
     inspectPetPack: async () => ({ ok: false, problems: [{ field: "app", message: "Pet import is only available in the desktop app." }] }),
