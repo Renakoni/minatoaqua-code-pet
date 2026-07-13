@@ -1256,8 +1256,9 @@ function scanClaudePlugins(claudeDir: string, enabledPluginsInput?: Record<strin
         const first = entries[0] ?? {};
         const version = entries.find(entry => typeof entry.version === "string")?.version;
         const scopes = Array.from(new Set(entries.map(entry => normalizePluginScope(entry.scope))));
-        const userEntries = entries.filter(entry => entry.scope === "user");
-        const userEnabled = enabledPlugins?.[name] === true;
+        const visibleScopes = scopes.filter(scope => scope !== "unknown");
+        const hasUserScope = entries.some(entry => entry.scope === "user");
+        const enabledAtUserScope = enabledPlugins?.[name] === true;
         const path = typeof first.installPath === "string" ? first.installPath : typeof first.path === "string" ? first.path : pluginsDir;
         return {
           id: `plugin:${name}`,
@@ -1265,13 +1266,12 @@ function scanClaudePlugins(claudeDir: string, enabledPluginsInput?: Record<strin
           name,
           description: typeof first.description === "string" ? first.description : undefined,
           path,
-          enabled: userEntries.length > 0
-            ? userEnabled
+          enabled: hasUserScope
+            ? enabledAtUserScope
             : (enabledPlugins ? enabledPlugins[name] === true : entries.every(entry => entry.enabled !== false)),
           source: "claude" as const,
-          detail: [version ? `version ${version}` : "installed_plugins.json", scopes.join("/")].filter(Boolean).join(" · "),
-          scopes,
-          userEnabled
+          detail: [version ? `version ${version}` : "installed_plugins.json", visibleScopes.join("/")].filter(Boolean).join(" · "),
+          scopes
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));

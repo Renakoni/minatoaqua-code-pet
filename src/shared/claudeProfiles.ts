@@ -14,7 +14,6 @@ export type ClaudeResourceItem = {
   skillSource?: ClaudeSkillSource;
   pluginId?: string;
   scopes?: ClaudePluginScope[];
-  userEnabled?: boolean;
 };
 
 export type ClaudeResourcesSnapshot = {

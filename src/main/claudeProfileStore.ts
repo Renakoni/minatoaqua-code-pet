@@ -59,21 +59,21 @@ export function parseClaudeProfileStore(value: unknown): ClaudeProfileStoreData 
   if (ids.size !== profiles.length) throw new Error("Duplicate Claude profile id");
   const defaultProfile = profiles.find(profile => profile.id === DEFAULT_CLAUDE_PROFILE_ID);
   if (!defaultProfile || !defaultProfile.isProtected) throw new Error("Protected Default Claude profile is missing");
-  const appliedProfileId = value.appliedProfileId;
+  const appliedProfileId = value.appliedProfileId ?? null;
   if (appliedProfileId !== null && (typeof appliedProfileId !== "string" || !ids.has(appliedProfileId))) {
     throw new Error("Applied Claude profile does not exist");
   }
   return { schemaVersion: CLAUDE_PROFILE_SCHEMA_VERSION, profiles, appliedProfileId };
 }
 
-function profileResource(item: ClaudeResourceItem, includeDetail = true, enabled = item.enabled !== false) {
+function profileResource(item: ClaudeResourceItem, includeDetail = true) {
   return {
     id: item.id,
     kind: item.kind,
     name: item.name,
     ...(item.description ? { description: item.description } : {}),
     ...(includeDetail && item.detail ? { detail: item.detail } : {}),
-    enabled
+    enabled: item.enabled !== false
   };
 }
 
@@ -84,7 +84,7 @@ export function buildClaudeProfileInventory(resources: ClaudeResourcesSnapshot):
       .map(item => profileResource(item)),
     plugins: resources.plugins
       .filter(item => item.scopes?.includes("user"))
-      .map(item => profileResource(item, true, item.userEnabled === true)),
+      .map(item => profileResource(item)),
     // MCP definitions may contain credentials. The profile inventory exposes
     // only the server identity and generic description, never config details.
     mcpServers: resources.mcp.map(item => profileResource(item, false)),
@@ -137,11 +137,12 @@ export function loadOrCreateClaudeProfileStore(
   now = Date.now()
 ): ClaudeProfileStoreData {
   if (existsSync(filePath)) {
+    const raw = readFileSync(filePath, "utf8");
     try {
-      const parsed = JSON.parse(readFileSync(filePath, "utf8")) as unknown;
+      const parsed = JSON.parse(raw) as unknown;
       return parseClaudeProfileStore(parsed);
     } catch {
-      // Never overwrite an unreadable, invalid, or unsupported-version store.
+      // Never overwrite an invalid or unsupported-version store.
       // Preserve it for inspection or a future migration, then recover with a
       // fresh Default captured from the current live Claude inventory.
       preserveInvalidClaudeProfileStore(filePath, now);

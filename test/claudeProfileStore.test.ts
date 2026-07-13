@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -50,7 +50,7 @@ function resources(): ClaudeResourcesSnapshot {
       { id: "skill:plugin-owned", kind: "skill", name: "plugin-owned", enabled: true, source: "claude", skillSource: "plugin", pluginId: "review@market" }
     ],
     plugins: [
-      { id: "plugin:review@market", kind: "plugin", name: "review@market", enabled: true, userEnabled: false, source: "claude", scopes: ["user"], detail: "version 1" },
+      { id: "plugin:review@market", kind: "plugin", name: "review@market", enabled: false, source: "claude", scopes: ["user"], detail: "version 1" },
       { id: "plugin:project@market", kind: "plugin", name: "project@market", enabled: true, source: "claude", scopes: ["project"], detail: "version 2" }
     ],
     mcp: [
@@ -116,6 +116,14 @@ describe("Claude profile store", () => {
     expect(readFileSync(filePath, "utf8")).toBe(persistedText);
   });
 
+  it("treats an omitted applied-profile pointer as not applied", () => {
+    const store = createInitialClaudeProfileStore(inventory(), 456);
+    const withoutPointer: Record<string, unknown> = { ...store };
+    delete withoutPointer.appliedProfileId;
+
+    expect(parseClaudeProfileStore(withoutPointer)).toEqual({ ...store, appliedProfileId: null });
+  });
+
   it("atomically replaces a valid existing store", () => {
     const filePath = tempFile();
     const initial = createInitialClaudeProfileStore(inventory(), 456);
@@ -153,6 +161,15 @@ describe("Claude profile store", () => {
     expect(recovered).toEqual(createInitialClaudeProfileStore(inventory(), 789));
     expect(preserved).toHaveLength(1);
     expect(readFileSync(join(root, preserved[0]), "utf8")).toBe(futureStore);
+  });
+
+  it("propagates read failures without quarantining the store path", () => {
+    const filePath = tempFile();
+    mkdirSync(filePath);
+
+    expect(() => loadOrCreateClaudeProfileStore(filePath, inventory(), 456)).toThrow();
+    expect(statSync(filePath).isDirectory()).toBe(true);
+    expect(readdirSync(dirname(filePath)).filter(name => name.startsWith("claude-profiles.invalid-"))).toEqual([]);
   });
 
   it("rejects duplicate resource membership", () => {
