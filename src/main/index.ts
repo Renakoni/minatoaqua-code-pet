@@ -9,7 +9,7 @@ import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
 import { PET_IMAGE_SIZE, getPetWindowHeight, getPetWindowWidth, normalizePetDisplaySettings } from "../shared/petDisplaySettings";
-import { packIdFromThemeId } from "../shared/petThemeCatalog";
+import { BUILTIN_PET_THEME_ID, BUILTIN_PET_THEME_NAME, packIdFromThemeId, petPackThemeId } from "../shared/petThemeCatalog";
 import { displayedSpriteHeight } from "../shared/spriteFrame";
 import { createDefaultCompanionSettings, pickCanonicalSettings } from "./companionSettingsSchema";
 import { applyThemeAnimationProfileSwitch } from "./themeProfiles";
@@ -37,7 +37,7 @@ import { PermissionBroker, type PendingPermission, type PermissionPollResult } f
 import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
-import { pointInBounds, trayMenuPosition } from "./trayMenuPosition";
+import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
 
 type DailyRuntimeStats = {
@@ -391,8 +391,15 @@ function togglePetWindow() {
 // as glitchy dead space next to two-character labels — and Electron exposes
 // no control over any of it. This window is app-styled, localized, and reads
 // its state fresh each time it opens.
-const TRAY_MENU_WIDTH = 208;
-const TRAY_MENU_HEIGHT = 148;
+// The window holds the main menu column plus a submenu column beside it (the
+// Switch pet flyout). Sized generously and laid out with flexbox inside — the
+// spare area is transparent + dismiss-on-click, so these needn't be pixel
+// exact. The submenu scrolls within the fixed height rather than growing it.
+const TRAY_MENU_METRICS: TrayMenuMetrics = { mainWidth: 184, submenuWidth: 184, height: 160 };
+
+// The horizontal side the submenu opened on, chosen per-present by
+// trayMenuLayout and forwarded to the renderer so its flyout matches.
+let traySubmenuSide: TraySubmenuSide = "left";
 
 // Electron-owned timers behind the tray popup's presentation state machine
 // (trayMenuController). The controller holds the boolean state; these are the
@@ -414,13 +421,29 @@ function clearTrayMenuPresentFallback() {
   }
 }
 
+// The switchable pets for the tray submenu: the built-in theme plus every
+// installed codex-pet pack, in registry order, with the active one flagged.
+function trayMenuPets(): Array<{ id: string; name: string; active: boolean }> {
+  const active = typeof companionSettings.petTheme === "string" ? companionSettings.petTheme : BUILTIN_PET_THEME_ID;
+  const pets = [
+    { id: BUILTIN_PET_THEME_ID, name: BUILTIN_PET_THEME_NAME },
+    ...listPetPacks(petPacksDir()).map(pack => ({ id: petPackThemeId(pack.id), name: pack.displayName }))
+  ];
+  // If the stored theme no longer resolves (pack removed), the built-in is the
+  // effective active one — mirror resolveThemeCatalog's fallback.
+  const activeExists = pets.some(pet => pet.id === active);
+  return pets.map(pet => ({ ...pet, active: activeExists ? pet.id === active : pet.id === BUILTIN_PET_THEME_ID }));
+}
+
 function trayMenuState() {
   return {
     petVisible: Boolean(petWindow && !petWindow.isDestroyed() && petWindow.isVisible()),
     panelVisible: Boolean(panelWindow && !panelWindow.isDestroyed() && panelWindow.isVisible()),
     petEnabled: isPetEnabled(),
     dark: nativeTheme.shouldUseDarkColors,
-    language: companionSettings.language
+    language: companionSettings.language,
+    pets: trayMenuPets(),
+    submenuSide: traySubmenuSide
   };
 }
 
@@ -442,8 +465,9 @@ const trayMenuController = createTrayMenuController({
     if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
     const cursor = screen.getCursorScreenPoint();
     const workArea = screen.getDisplayNearestPoint(cursor).workArea;
-    const position = trayMenuPosition(cursor, { width: TRAY_MENU_WIDTH, height: TRAY_MENU_HEIGHT }, workArea);
-    trayMenuWindow.setPosition(position.x, position.y);
+    const layout = trayMenuLayout(cursor, TRAY_MENU_METRICS, workArea);
+    traySubmenuSide = layout.submenuSide;
+    trayMenuWindow.setBounds(layout.bounds);
     clearTrayMenuPresentFallback();
     trayMenuPresentFallback = setTimeout(completeTrayMenuPresent, 150);
     trayMenuWindow.webContents.send("companion:tray-menu-state", trayMenuState());
@@ -469,8 +493,8 @@ function createTrayMenuWindow() {
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) return;
 
   trayMenuWindow = new BrowserWindow({
-    width: TRAY_MENU_WIDTH,
-    height: TRAY_MENU_HEIGHT,
+    width: TRAY_MENU_METRICS.mainWidth + TRAY_MENU_METRICS.submenuWidth,
+    height: TRAY_MENU_METRICS.height,
     show: false,
     frame: false,
     transparent: true,

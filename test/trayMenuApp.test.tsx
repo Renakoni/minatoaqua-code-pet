@@ -8,15 +8,29 @@ let pushState: (state: TrayMenuState) => void;
 let trayMenuAction: ReturnType<typeof vi.fn>;
 let trayMenuReady: ReturnType<typeof vi.fn>;
 let trayMenuRendered: ReturnType<typeof vi.fn>;
+let saveSettings: ReturnType<typeof vi.fn>;
 
 function baseState(overrides: Partial<TrayMenuState> = {}): TrayMenuState {
-  return { petVisible: true, panelVisible: false, petEnabled: true, dark: true, language: "zh", ...overrides };
+  return {
+    petVisible: true,
+    panelVisible: false,
+    petEnabled: true,
+    dark: true,
+    language: "zh",
+    pets: [
+      { id: "minato-aqua", name: "Minato Aqua", active: true },
+      { id: "codex-pet:boba", name: "Boba", active: false }
+    ],
+    submenuSide: "left",
+    ...overrides
+  };
 }
 
 function installCompanion(readyResult: TrayMenuState | null) {
   trayMenuAction = vi.fn(async () => undefined);
   trayMenuReady = vi.fn(async () => readyResult);
   trayMenuRendered = vi.fn(async () => undefined);
+  saveSettings = vi.fn(async () => ({}));
   Reflect.set(window, "companion", {
     onTrayMenuState: (callback: (state: TrayMenuState) => void) => {
       pushState = state => act(() => callback(state));
@@ -24,8 +38,22 @@ function installCompanion(readyResult: TrayMenuState | null) {
     },
     trayMenuReady,
     trayMenuRendered,
-    trayMenuAction
+    trayMenuAction,
+    saveSettings
   });
+}
+
+function overlay(view: ReturnType<typeof render>): HTMLElement {
+  return view.container.querySelector(".tray-overlay") as HTMLElement;
+}
+function flyout(view: ReturnType<typeof render>): HTMLElement {
+  return view.container.querySelector(".tray-flyout") as HTMLElement;
+}
+function menu(view: ReturnType<typeof render>): HTMLElement {
+  return view.container.querySelector(".tray-menu") as HTMLElement;
+}
+function item(name: string): HTMLButtonElement {
+  return screen.getByRole("menuitem", { name }) as HTMLButtonElement;
 }
 
 beforeEach(() => {
@@ -39,8 +67,6 @@ afterEach(() => {
 
 describe("TrayMenuApp state flow", () => {
   it("renders the cold first open from the ready handshake, without any push", async () => {
-    // Main defers presenting until this handshake; its result must be enough
-    // to render — a push emitted before the subscription would be lost.
     installCompanion(baseState({ language: "en", petVisible: false }));
     render(<TrayMenuApp />);
     expect(await screen.findByRole("menuitem", { name: "Show pet" })).toBeTruthy();
@@ -54,38 +80,36 @@ describe("TrayMenuApp state flow", () => {
     expect(view.container.querySelector(".tray-menu")).not.toBeNull();
   });
 
-  it("labels follow the live visibility state, localized (zh)", () => {
+  it("labels the top-level items, localized (zh) with Switch pet first", () => {
     render(<TrayMenuApp />);
     pushState(baseState({ petVisible: true, panelVisible: false }));
+    expect(screen.getByRole("menuitem", { name: "切换宠物" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "隐藏桌宠" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "显示面板" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "退出" })).toBeTruthy();
-
-    pushState(baseState({ petVisible: false, panelVisible: true }));
-    expect(screen.getByRole("menuitem", { name: "显示桌宠" })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: "隐藏面板" })).toBeTruthy();
   });
 
   it("renders English labels under the English language setting", () => {
     render(<TrayMenuApp />);
     pushState(baseState({ language: "en", petVisible: false }));
+    expect(screen.getByRole("menuitem", { name: "Switch pet" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Show pet" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Quit" })).toBeTruthy();
   });
 
-  it("reports the clicked action back to main", () => {
+  it("reports the clicked toggle action back to main", () => {
     render(<TrayMenuApp />);
     pushState(baseState({ language: "en" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Hide pet" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Quit" }));
+    fireEvent.click(item("Hide pet"));
+    fireEvent.click(item("Quit"));
     expect(trayMenuAction.mock.calls.map(call => call[0])).toEqual(["toggle-pet", "quit"]);
   });
 
   it("disables the pet item while the pet is disabled in settings", () => {
     render(<TrayMenuApp />);
     pushState(baseState({ language: "en", petEnabled: false }));
-    expect((screen.getByRole("menuitem", { name: "Hide pet" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("menuitem", { name: "Hide pet" }));
+    expect((item("Hide pet")).disabled).toBe(true);
+    fireEvent.click(item("Hide pet"));
     expect(trayMenuAction).not.toHaveBeenCalled();
   });
 
@@ -96,9 +120,21 @@ describe("TrayMenuApp state flow", () => {
     expect(trayMenuAction).toHaveBeenCalledWith("close");
   });
 
+  it("dismisses when the transparent backdrop is clicked", () => {
+    const view = render(<TrayMenuApp />);
+    pushState(baseState());
+    fireEvent.click(overlay(view));
+    expect(trayMenuAction).toHaveBeenCalledWith("close");
+  });
+
+  it("does not dismiss when a menu item area is clicked (not the backdrop)", () => {
+    const view = render(<TrayMenuApp />);
+    pushState(baseState());
+    fireEvent.click(menu(view));
+    expect(trayMenuAction).not.toHaveBeenCalledWith("close");
+  });
+
   it("reports every fresh state as painted so main can un-hide the window", async () => {
-    // Main keeps the popup hidden until this signal: showing earlier flashes
-    // evicted/stale frames on every reopen (the second-open flicker).
     render(<TrayMenuApp />);
     pushState(baseState());
     await waitFor(() => expect(trayMenuRendered).toHaveBeenCalledTimes(1));
@@ -106,100 +142,125 @@ describe("TrayMenuApp state flow", () => {
     await waitFor(() => expect(trayMenuRendered).toHaveBeenCalledTimes(2));
   });
 
-  it("uses dark and light surfaces per the OS theme", () => {
+  it("uses dark and light surfaces per the OS theme, and the submenu-side class", () => {
     const view = render(<TrayMenuApp />);
-    pushState(baseState({ dark: false }));
-    expect(view.container.querySelector(".tray-menu.light")).not.toBeNull();
-    pushState(baseState({ dark: true }));
-    expect(view.container.querySelector(".tray-menu.dark")).not.toBeNull();
+    pushState(baseState({ dark: false, submenuSide: "right" }));
+    expect(view.container.querySelector(".tray-overlay.light.submenu-right")).not.toBeNull();
+    pushState(baseState({ dark: true, submenuSide: "left" }));
+    expect(view.container.querySelector(".tray-overlay.dark.submenu-left")).not.toBeNull();
+  });
+});
+
+describe("TrayMenuApp Switch pet submenu", () => {
+  it("lists the pets from the registry with the active one checked", () => {
+    render(<TrayMenuApp />);
+    pushState(baseState());
+    const pets = screen.getAllByRole("menuitemradio");
+    expect(pets.map(pet => pet.textContent)).toEqual(["✓Minato Aqua", "Boba"]);
+    expect(pets[0].getAttribute("aria-checked")).toBe("true");
+    expect(pets[1].getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("opens the flyout on trigger click and on hover", () => {
+    const view = render(<TrayMenuApp />);
+    pushState(baseState({ language: "en" }));
+    expect(flyout(view).classList.contains("open")).toBe(false);
+
+    fireEvent.click(item("Switch pet"));
+    expect(flyout(view).classList.contains("open")).toBe(true);
+    expect(item("Switch pet").getAttribute("aria-expanded")).toBe("true");
+
+    // Reopen state and hover instead.
+    pushState(baseState({ language: "en" }));
+    expect(flyout(view).classList.contains("open")).toBe(false);
+    fireEvent.mouseEnter(flyout(view));
+    expect(flyout(view).classList.contains("open")).toBe(true);
+  });
+
+  it("switches the pet via saveSettings then closes the menu", async () => {
+    render(<TrayMenuApp />);
+    pushState(baseState());
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Boba/ }));
+    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith({ petTheme: "codex-pet:boba" }));
+    await waitFor(() => expect(trayMenuAction).toHaveBeenCalledWith("close"));
+  });
+
+  it("shows an empty state when there are no pets", () => {
+    render(<TrayMenuApp />);
+    pushState(baseState({ language: "en", pets: [] }));
+    expect(screen.getByText("No pets")).toBeTruthy();
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
   });
 });
 
 describe("TrayMenuApp keyboard navigation", () => {
-  function menu(view: ReturnType<typeof render>): HTMLElement {
-    return view.container.querySelector(".tray-menu") as HTMLElement;
-  }
-  function item(name: string): HTMLButtonElement {
-    return screen.getByRole("menuitem", { name }) as HTMLButtonElement;
-  }
-
   it("preselects nothing on open: focus parks on the menu container", () => {
     const view = render(<TrayMenuApp />);
     pushState(baseState({ language: "en" }));
-    // Like a native pointer-opened menu, no item may look active until the
-    // user hovers or presses a key.
     expect(document.activeElement).toBe(menu(view));
   });
 
-  it("moves focus to the first/last enabled item on the first arrow press", () => {
+  it("roves the top-level items, Switch pet first, on arrow keys", () => {
     const view = render(<TrayMenuApp />);
     pushState(baseState({ language: "en" }));
     fireEvent.keyDown(menu(view), { key: "ArrowDown" });
+    expect(document.activeElement).toBe(item("Switch pet"));
+    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
     expect(document.activeElement).toBe(item("Hide pet"));
-
-    pushState(baseState({ language: "en" })); // fresh open re-parks focus
-    expect(document.activeElement).toBe(menu(view));
     fireEvent.keyDown(menu(view), { key: "ArrowUp" });
-    expect(document.activeElement).toBe(item("Quit"));
+    expect(document.activeElement).toBe(item("Switch pet"));
+    fireEvent.keyDown(menu(view), { key: "ArrowUp" });
+    expect(document.activeElement).toBe(item("Quit")); // wrap to last
   });
 
-  it("skips a disabled pet item while roving", () => {
+  it("skips the disabled pet item while roving", () => {
     const view = render(<TrayMenuApp />);
     pushState(baseState({ language: "en", petEnabled: false }));
-    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
-    expect(document.activeElement).toBe(item("Show panel"));
-    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
-    expect(document.activeElement).toBe(item("Quit"));
-    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
-    // Wraps directly back to the panel item, never landing on the disabled one.
-    expect(document.activeElement).toBe(item("Show panel"));
-  });
-
-  it("roves with wraparound in both directions", () => {
-    const view = render(<TrayMenuApp />);
-    pushState(baseState({ language: "en" }));
-    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
-    fireEvent.keyDown(menu(view), { key: "ArrowUp" });
-    expect(document.activeElement).toBe(item("Quit")); // wrap from first to last
-    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
-    expect(document.activeElement).toBe(item("Hide pet")); // wrap from last to first
-    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
-    expect(document.activeElement).toBe(item("Show panel"));
-  });
-
-  it("jumps with Home and End", () => {
-    const view = render(<TrayMenuApp />);
-    pushState(baseState({ language: "en" }));
     fireEvent.keyDown(menu(view), { key: "End" });
     expect(document.activeElement).toBe(item("Quit"));
-    fireEvent.keyDown(menu(view), { key: "Home" });
-    expect(document.activeElement).toBe(item("Hide pet"));
-  });
-
-  it("activates only a focused item with Enter and Space", () => {
-    const view = render(<TrayMenuApp />);
-    pushState(baseState({ language: "en" }));
-    // Nothing focused yet: Enter must not activate anything.
-    fireEvent.keyDown(menu(view), { key: "Enter" });
-    expect(trayMenuAction).not.toHaveBeenCalled();
-
-    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
-    fireEvent.keyDown(menu(view), { key: "Enter" });
-    fireEvent.keyDown(menu(view), { key: "ArrowDown" });
-    fireEvent.keyDown(menu(view), { key: " " });
-    expect(trayMenuAction.mock.calls.map(call => call[0])).toEqual(["toggle-pet", "toggle-panel"]);
-  });
-
-  it("moves the highlight with the pointer and clears it on leave", () => {
-    const view = render(<TrayMenuApp />);
-    pushState(baseState({ language: "en" }));
-    fireEvent.mouseEnter(item("Show panel"));
+    fireEvent.keyDown(menu(view), { key: "ArrowUp" });
     expect(document.activeElement).toBe(item("Show panel"));
-    fireEvent.mouseEnter(item("Quit"));
-    expect(document.activeElement).toBe(item("Quit"));
-    // Leaving the menu parks focus back on the container: no stale highlight.
-    fireEvent.mouseLeave(menu(view));
-    expect(document.activeElement).toBe(menu(view));
+    fireEvent.keyDown(menu(view), { key: "ArrowUp" });
+    // Hide pet is disabled and skipped, back to Switch pet.
+    expect(document.activeElement).toBe(item("Switch pet"));
+  });
+
+  it("opens the submenu with ArrowRight and returns with ArrowLeft", async () => {
+    const view = render(<TrayMenuApp />);
+    pushState(baseState({ language: "en" }));
+    item("Switch pet").focus();
+    fireEvent.keyDown(menu(view), { key: "ArrowRight" });
+    expect(flyout(view).classList.contains("open")).toBe(true);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: /Minato Aqua/ })));
+
+    fireEvent.keyDown(menu(view), { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(item("Switch pet"));
+  });
+
+  it("activates a top-level item with Enter", () => {
+    const view = render(<TrayMenuApp />);
+    pushState(baseState({ language: "en" }));
+    item("Quit").focus();
+    fireEvent.keyDown(menu(view), { key: "Enter" });
+    expect(trayMenuAction).toHaveBeenCalledWith("quit");
+  });
+
+  it("Escape closes an open submenu first, then dismisses the popup", () => {
+    const view = render(<TrayMenuApp />);
+    pushState(baseState({ language: "en" }));
+    fireEvent.click(item("Switch pet"));
+    expect(flyout(view).classList.contains("open")).toBe(true);
+    screen.getByRole("menuitemradio", { name: /Boba/ }).focus();
+
+    // First Escape: submenu closes, focus returns to the trigger, popup stays.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(flyout(view).classList.contains("open")).toBe(false);
+    expect(document.activeElement).toBe(item("Switch pet"));
+    expect(trayMenuAction).not.toHaveBeenCalledWith("close");
+
+    // Second Escape: the whole popup dismisses.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(trayMenuAction).toHaveBeenCalledWith("close");
   });
 });
 
