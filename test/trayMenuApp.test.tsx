@@ -152,11 +152,18 @@ describe("TrayMenuApp state flow", () => {
 });
 
 describe("TrayMenuApp Switch pet submenu", () => {
-  it("lists the pets from the registry with the active one checked", () => {
+  it("leads with the active pet (at the cursor row) with the rest below, checked", () => {
     render(<TrayMenuApp />);
-    pushState(baseState());
+    // Registry order is Minato then Boba, but Boba is the active one.
+    pushState(baseState({
+      pets: [
+        { id: "minato-aqua", name: "Minato Aqua", active: false },
+        { id: "codex-pet:boba", name: "Boba", active: true }
+      ]
+    }));
     const pets = screen.getAllByRole("menuitemradio");
-    expect(pets.map(pet => pet.textContent)).toEqual(["✓Minato Aqua", "Boba"]);
+    // Active pet leads so it lands on the trigger row; the rest keep order.
+    expect(pets.map(pet => pet.textContent)).toEqual(["✓Boba", "Minato Aqua"]);
     expect(pets[0].getAttribute("aria-checked")).toBe("true");
     expect(pets[1].getAttribute("aria-checked")).toBe("false");
   });
