@@ -1,7 +1,10 @@
-// Placement for the custom tray popup: centered above the cursor (the tray
-// lives at the bottom edge on the default taskbar), clamped into the work
-// area so the card never clips at a screen edge, never covers the taskbar,
-// and still lands sensibly for top/side taskbar layouts.
+// Placement for the custom tray popup. The window holds the main menu column
+// plus a submenu column beside it (Switch pet flyout); it is sized to contain
+// both, positioned so the main menu sits above the cursor, and the submenu
+// opens to whichever horizontal side has room — for a bottom-right tray that
+// is almost always the left. Exact pixels aren't load-bearing: the renderer
+// lays the cards out with flexbox inside the (possibly larger) window and the
+// spare area is transparent + dismiss-on-click.
 
 export interface TrayMenuPoint {
   x: number;
@@ -15,9 +18,27 @@ export interface TrayMenuWorkArea {
   height: number;
 }
 
+export interface TrayMenuMetrics {
+  /** Width of the main menu column. */
+  mainWidth: number;
+  /** Width of the submenu column beside it. */
+  submenuWidth: number;
+  /** Window height (holds the main menu; the submenu scrolls within it). */
+  height: number;
+}
+
+export type TraySubmenuSide = "left" | "right";
+
+export interface TrayMenuLayoutResult {
+  bounds: { x: number; y: number; width: number; height: number };
+  submenuSide: TraySubmenuSide;
+}
+
 const EDGE_MARGIN_PX = 4;
 
 function clamp(value: number, min: number, max: number): number {
+  // When the window is wider/taller than the work area, min wins (keeps the
+  // top-left on-screen rather than clamping it off the far edge).
   return Math.min(Math.max(value, min), max);
 }
 
@@ -33,20 +54,38 @@ export function pointInBounds(point: TrayMenuPoint, bounds: TrayMenuWorkArea): b
   );
 }
 
-export function trayMenuPosition(
+/**
+ * Window bounds + the side the submenu opens on. The main menu column is
+ * centered on the cursor horizontally and sits just above it; the submenu
+ * takes the free side, flipping to the left when the right would overflow the
+ * work area (the usual case near a bottom-right tray). The whole window is
+ * then clamped on-screen.
+ */
+export function trayMenuLayout(
   cursor: TrayMenuPoint,
-  size: { width: number; height: number },
+  metrics: TrayMenuMetrics,
   workArea: TrayMenuWorkArea
-): TrayMenuPoint {
-  const x = clamp(
-    cursor.x - size.width / 2,
-    workArea.x + EDGE_MARGIN_PX,
-    workArea.x + workArea.width - size.width - EDGE_MARGIN_PX
-  );
+): TrayMenuLayoutResult {
+  const width = metrics.mainWidth + metrics.submenuWidth;
+  const height = metrics.height;
+
+  const mainLeftIfRight = cursor.x - metrics.mainWidth / 2;
+  const fitsRight = mainLeftIfRight + metrics.mainWidth + metrics.submenuWidth
+    <= workArea.x + workArea.width - EDGE_MARGIN_PX;
+  const submenuSide: TraySubmenuSide = fitsRight ? "right" : "left";
+
+  // Keep the main menu column centered on the cursor; the submenu extends to
+  // its chosen side, so a left-side submenu shifts the window origin left.
+  const rawX = submenuSide === "right"
+    ? cursor.x - metrics.mainWidth / 2
+    : cursor.x - metrics.mainWidth / 2 - metrics.submenuWidth;
+
+  const x = clamp(rawX, workArea.x + EDGE_MARGIN_PX, workArea.x + workArea.width - width - EDGE_MARGIN_PX);
   const y = clamp(
-    cursor.y - size.height - EDGE_MARGIN_PX,
+    cursor.y - EDGE_MARGIN_PX - height,
     workArea.y + EDGE_MARGIN_PX,
-    workArea.y + workArea.height - size.height - EDGE_MARGIN_PX
+    workArea.y + workArea.height - height - EDGE_MARGIN_PX
   );
-  return { x: Math.round(x), y: Math.round(y) };
+
+  return { bounds: { x: Math.round(x), y: Math.round(y), width, height }, submenuSide };
 }

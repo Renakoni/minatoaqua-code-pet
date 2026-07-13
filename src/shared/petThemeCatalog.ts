@@ -37,6 +37,8 @@ export interface PetThemeCatalog {
 }
 
 export const BUILTIN_PET_THEME_ID = "minato-aqua";
+/** Display name of the built-in theme (shared by the theme registry and the tray). */
+export const BUILTIN_PET_THEME_NAME = "Minato Aqua";
 
 /**
  * Theme-identity namespace for imported packs. Pack ids are sanitized slugs
