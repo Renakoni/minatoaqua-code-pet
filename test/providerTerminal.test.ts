@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { awaitTerminalLaunch, buildProviderTerminalLaunch, providerTerminalEnv } from "../src/main/providerTerminal";
+import { awaitTerminalLaunch, buildProviderTerminalLaunch, isUncPath, providerTerminalEnv } from "../src/main/providerTerminal";
 
 describe("providerTerminalEnv", () => {
   it("keeps string and finite-number env entries and drops the rest", () => {
@@ -98,5 +98,25 @@ describe("awaitTerminalLaunch", () => {
     const launched = awaitTerminalLaunch(child as unknown as ChildProcess);
     expect(() => child.emit("error", new Error("boom"))).not.toThrow();
     return expect(launched).rejects.toThrow("boom");
+  });
+});
+
+describe("isUncPath", () => {
+  it("flags UNC network paths so the terminal can't launch in the wrong place", () => {
+    // cmd.exe rejects these as a cwd and falls back to C:\Windows, so they must
+    // never reach spawn — a valid-but-unsupported UNC dir would be a false success.
+    expect(isUncPath("\\\\server\\share\\project")).toBe(true);
+    expect(isUncPath("//server/share")).toBe(true);
+    expect(isUncPath("\\\\?\\UNC\\server\\share\\project")).toBe(true);
+    expect(isUncPath("\\\\?\\unc\\server\\share")).toBe(true); // case-insensitive
+    expect(isUncPath("\\\\server")).toBe(true);
+  });
+
+  it("accepts local drive paths, including extended-length local paths", () => {
+    expect(isUncPath("C:\\Users\\me\\project")).toBe(false);
+    expect(isUncPath("D:\\project")).toBe(false);
+    expect(isUncPath("\\\\?\\C:\\Users\\me\\project")).toBe(false);
+    expect(isUncPath("  C:\\trimmed  ")).toBe(false);
+    expect(isUncPath("")).toBe(false);
   });
 });

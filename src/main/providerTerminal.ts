@@ -73,3 +73,17 @@ export function awaitTerminalLaunch(child: ChildProcess): Promise<void> {
     child.once("error", (error) => reject(error));
   });
 }
+
+/**
+ * True if `dir` is a UNC network path — `\\server\share`, `//server/share`, or
+ * the extended `\\?\UNC\...` form. cmd.exe can't use a UNC path as its working
+ * directory: it warns "UNC paths are not supported" and silently falls back to
+ * C:\Windows, so a network folder the user picked would launch the terminal in
+ * the wrong place while still reporting success. Callers reject these instead.
+ * (`\\?\C:\...` is a local extended-length path, not UNC.)
+ */
+export function isUncPath(dir: string): boolean {
+  const path = dir.trim();
+  if (/^\\\\\?\\/.test(path)) return /^\\\\\?\\unc\\/i.test(path);
+  return /^[\\/]{2}/.test(path);
+}

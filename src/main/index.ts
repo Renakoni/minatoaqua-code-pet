@@ -39,7 +39,7 @@ import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
-import { awaitTerminalLaunch, buildProviderTerminalLaunch, providerTerminalEnv } from "./providerTerminal";
+import { awaitTerminalLaunch, buildProviderTerminalLaunch, isUncPath, providerTerminalEnv } from "./providerTerminal";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2284,6 +2284,13 @@ async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   const workingDir = typeof cwd === "string" ? cwd.trim() : "";
   if (!workingDir || !isDirectoryPath(workingDir)) {
     return { ok: false, command: "", error: `Not a folder: ${workingDir || "(none selected)"}` };
+  }
+  // cmd.exe can't use a UNC path (\\server\share) as its working directory — it
+  // warns and silently falls back to C:\Windows, which would launch claude in
+  // the wrong place while still reporting success. Reject it with an actionable
+  // error rather than a false green toast.
+  if (isUncPath(workingDir)) {
+    return { ok: false, command: "", error: `Network (UNC) folder isn't supported by the terminal: ${workingDir}. Map it to a drive letter and pick that instead.` };
   }
   // The provider's env (base URL, tokens) is handed to the child process through
   // spawn's `env` — never written to disk and never placed on the command line.
