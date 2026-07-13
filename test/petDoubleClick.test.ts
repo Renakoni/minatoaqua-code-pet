@@ -4,7 +4,10 @@ import {
   WM_PARENTNOTIFY,
   createDoubleClickDetector,
   decodeParentNotify,
-  installPetParentNotifyWatcher
+  installPetParentNotifyWatcher,
+  parseDoubleClickSpeed,
+  readSystemDoubleClickMs,
+  trustedRegExePath
 } from "../src/main/petDoubleClick";
 
 // Build the (wParam, lParam) Buffers Windows delivers for a WM_PARENTNOTIFY carrying
@@ -100,5 +103,51 @@ describe("installPetParentNotifyWatcher", () => {
     fire(...parentNotify(WM_CREATE, 10, 10)); // child created, not a click
     fire(...parentNotify(WM_CREATE, 10, 10));
     expect(opened).toBe(0);
+  });
+});
+
+describe("trustedRegExePath", () => {
+  it("resolves the System32 reg.exe from SystemRoot only (never a bare name / cwd)", () => {
+    const found = (p: string) => p === "C:\\Windows\\System32\\reg.exe";
+    expect(trustedRegExePath({ SystemRoot: "C:\\Windows" }, found)).toBe("C:\\Windows\\System32\\reg.exe");
+    // Reads SystemRoot case-insensitively and falls back to C:\Windows.
+    expect(trustedRegExePath({ systemroot: "D:\\Win" }, p => p === "D:\\Win\\System32\\reg.exe")).toBe("D:\\Win\\System32\\reg.exe");
+  });
+  it("returns null when reg.exe is absent", () => {
+    expect(trustedRegExePath({ SystemRoot: "C:\\Windows" }, () => false)).toBeNull();
+  });
+});
+
+describe("parseDoubleClickSpeed", () => {
+  it("parses the value and clamps out-of-range or missing to the fallback", () => {
+    expect(parseDoubleClickSpeed("    DoubleClickSpeed    REG_SZ    350\r\n", 500)).toBe(350);
+    expect(parseDoubleClickSpeed("DoubleClickSpeed REG_DWORD 900", 500)).toBe(900);
+    expect(parseDoubleClickSpeed("DoubleClickSpeed REG_SZ 50", 500)).toBe(500); // too low
+    expect(parseDoubleClickSpeed("DoubleClickSpeed REG_SZ 9999", 500)).toBe(500); // too high
+    expect(parseDoubleClickSpeed("no value here", 500)).toBe(500);
+  });
+});
+
+describe("readSystemDoubleClickMs", () => {
+  it("reads via the TRUSTED absolute reg.exe, never a bare name — so a cwd-local reg.exe can't win", () => {
+    let invokedWith: string | null = null;
+    const ms = readSystemDoubleClickMs(
+      { SystemRoot: "C:\\Windows" },
+      regExe => { invokedWith = regExe; return "  DoubleClickSpeed  REG_SZ  350\r\n"; },
+      () => true
+    );
+    expect(ms).toBe(350);
+    // The regression guard: the runner is handed the fully-qualified System32 path.
+    expect(invokedWith).toBe("C:\\Windows\\System32\\reg.exe");
+    expect(invokedWith).not.toBe("reg");
+  });
+
+  it("falls back to 500ms when reg.exe is absent or returns nothing usable", () => {
+    expect(readSystemDoubleClickMs({ SystemRoot: "C:\\Windows" }, () => "nope", () => true)).toBe(500);
+    expect(readSystemDoubleClickMs({ SystemRoot: "C:\\Windows" }, () => null, () => true)).toBe(500);
+    // reg.exe absent: the runner is never invoked.
+    let invoked = false;
+    expect(readSystemDoubleClickMs({ SystemRoot: "C:\\Windows" }, () => { invoked = true; return "DoubleClickSpeed REG_SZ 350"; }, () => false)).toBe(500);
+    expect(invoked).toBe(false);
   });
 });

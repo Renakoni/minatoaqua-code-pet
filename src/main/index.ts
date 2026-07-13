@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, protocol, screen, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
@@ -37,7 +37,7 @@ import { PermissionBroker, type PendingPermission, type PermissionPollResult } f
 import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
-import { createDoubleClickDetector, installPetParentNotifyWatcher } from "./petDoubleClick";
+import { createDoubleClickDetector, installPetParentNotifyWatcher, readSystemDoubleClickMs } from "./petDoubleClick";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
 
@@ -222,24 +222,13 @@ function applyPetAlwaysOnTopSetting() {
   petWindow.setVisibleOnAllWorkspaces(false);
 }
 
-// The system double-click time (GetDoubleClickTime), read once from the registry so
-// the pet's reconstructed double-click matches the user's mouse settings.
+// The system double-click time (GetDoubleClickTime), read once via the trusted
+// System32 reg.exe so the pet's reconstructed double-click matches the user's mouse
+// settings (see readSystemDoubleClickMs — it never invokes a cwd-local reg.exe).
 let cachedDoubleClickMs: number | null = null;
 function systemDoubleClickMs(): number {
-  if (cachedDoubleClickMs !== null) return cachedDoubleClickMs;
-  let ms = 500; // GetDoubleClickTime default
-  try {
-    const out = spawnSync("reg", ["query", "HKCU\\Control Panel\\Mouse", "/v", "DoubleClickSpeed"], { encoding: "utf8", windowsHide: true });
-    const match = out.stdout ? out.stdout.match(/DoubleClickSpeed\s+REG_[A-Z_]+\s+(\d+)/i) : null;
-    if (match) {
-      const value = Number(match[1]);
-      if (Number.isFinite(value) && value >= 100 && value <= 2000) ms = value;
-    }
-  } catch {
-    // Registry read is best-effort; keep the default.
-  }
-  cachedDoubleClickMs = ms;
-  return ms;
+  if (cachedDoubleClickMs === null) cachedDoubleClickMs = readSystemDoubleClickMs(process.env);
+  return cachedDoubleClickMs;
 }
 
 function createPetWindow() {
