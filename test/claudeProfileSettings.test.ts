@@ -122,6 +122,24 @@ describe("Claude profile settings preview", () => {
     });
   });
 
+  it("preserves non-off visibility states for selected Skills", () => {
+    const liveSettings = { skillOverrides: { alpha: "name" } };
+    const result = previewClaudeProfileSettings({
+      profileId: "focused",
+      store: store({ skills: ["skill:alpha", "skill:beta"], plugins: [] }),
+      inventory: { ...inventory(), plugins: [] },
+      liveSettings
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      profileId: "focused",
+      nextSettings: liveSettings,
+      nextSkillOverrides: { alpha: "name" },
+      nextEnabledPlugins: {}
+    });
+  });
+
   it("reports an invalid profile reference", () => {
     const result = previewClaudeProfileSettings({
       profileId: "missing",

@@ -101,8 +101,11 @@ export function previewClaudeProfileSettings(
   };
   const selectedSkills = new Set(profile.skills);
   for (const resource of input.inventory.skills) {
-    if (selectedSkills.has(resource.id)) delete nextSkillOverrides[resource.name];
-    else nextSkillOverrides[resource.name] = "off";
+    if (selectedSkills.has(resource.id)) {
+      if (nextSkillOverrides[resource.name] === "off") delete nextSkillOverrides[resource.name];
+    } else {
+      nextSkillOverrides[resource.name] = "off";
+    }
   }
 
   const nextEnabledPlugins = {
