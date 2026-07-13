@@ -39,7 +39,7 @@ import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { createDoubleClickDetector, installPetParentNotifyWatcher, readSystemDoubleClickMetrics, type DoubleClickMetrics } from "./petDoubleClick";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
-import { buildPowerShellLaunch, CHARA_DESK_CLAUDE_ENV, CHARA_DESK_RESUME_ID_ENV, launchDetachedTerminal, launchFailedMessage, mergeTerminalEnv, notAFolderMessage, PS_RESUME_CLAUDE, PS_RUN_CLAUDE, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd, sessionFolderUnavailableMessage, trustedCmdPath, trustedPowerShellPath } from "./providerTerminal";
+import { buildPowerShellLaunch, CHARA_DESK_CLAUDE_ENV, CHARA_DESK_RESUME_ID_ENV, launchDetachedTerminal, launchFailedMessage, mergeTerminalEnv, normalizeCmdCwd, notAFolderMessage, PS_RESUME_CLAUDE, PS_RUN_CLAUDE, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd, sessionFolderUnavailableMessage, trustedCmdPath, trustedPowerShellPath, uncNotSupportedMessage } from "./providerTerminal";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2282,11 +2282,17 @@ async function resumeClaudeSession(sessionId: string, projectPath?: string) {
   if (!resolved.ok) {
     return { ok: false, command, error: sessionFolderUnavailableMessage(resolved.path, companionSettings.hideSensitiveContent), copyable: true };
   }
+  // cmd can't take a UNC/extended-length cwd — it silently drops to C:\Windows yet exits 0.
+  // Normalize an extended local path; reject UNC so we never launch in the wrong folder.
+  const launchCwd = normalizeCmdCwd(resolved.cwd);
+  if (!launchCwd.ok) {
+    return { ok: false, command, error: uncNotSupportedMessage(resolved.cwd, companionSettings.hideSensitiveContent), copyable: true };
+  }
   // Trusted claude path + validated id ride in child-only env vars; a fixed PowerShell
   // call-operator command invokes them, so no value is interpolated into the command.
   const env = mergeTerminalEnv({ [CHARA_DESK_CLAUDE_ENV]: claude.path, [CHARA_DESK_RESUME_ID_ENV]: safeSessionId }, process.env);
   const { file, args } = buildPowerShellLaunch(cmd, powershell, PS_RESUME_CLAUDE, env);
-  const result = await launchDetachedTerminal(file, args, { cwd: resolved.cwd, env });
+  const result = await launchDetachedTerminal(file, args, { cwd: launchCwd.cwd, env });
   return result.ok
     ? { ok: true, command, cwd: resolved.cwd }
     : { ok: false, command, error: launchFailedMessage(result.error, companionSettings.hideSensitiveContent), copyable: true };
@@ -2341,6 +2347,12 @@ async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   if (!workingDir || !isDirectoryPath(workingDir)) {
     return { ok: false, command: "", error: notAFolderMessage(workingDir, companionSettings.hideSensitiveContent) };
   }
+  // cmd can't take a UNC/extended-length cwd — it silently drops to C:\Windows yet exits 0.
+  // Normalize an extended local path; reject UNC so we never launch in the wrong folder.
+  const launchCwd = normalizeCmdCwd(workingDir);
+  if (!launchCwd.ok) {
+    return { ok: false, command: "", error: uncNotSupportedMessage(workingDir, companionSettings.hideSensitiveContent) };
+  }
   const powershell = trustedPowerShellPath(process.env);
   if (!powershell) return { ok: false, command: "", error: POWERSHELL_NOT_FOUND_ERROR };
   // cmd is only the launcher: `cmd /c start` opens a normal, visible PowerShell window
@@ -2360,7 +2372,7 @@ async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   const command = "claude";
   const env = mergeTerminalEnv({ [CHARA_DESK_CLAUDE_ENV]: claude.path }, baseEnv);
   const { file, args } = buildPowerShellLaunch(cmd, powershell, PS_RUN_CLAUDE, env);
-  const result = await launchDetachedTerminal(file, args, { cwd: workingDir, env });
+  const result = await launchDetachedTerminal(file, args, { cwd: launchCwd.cwd, env });
   return result.ok
     ? { ok: true, command }
     : { ok: false, command, error: launchFailedMessage(result.error, companionSettings.hideSensitiveContent) };

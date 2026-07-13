@@ -13,13 +13,15 @@ import {
   launchDetachedTerminal,
   launchFailedMessage,
   mergeTerminalEnv,
+  normalizeCmdCwd,
   notAFolderMessage,
   providerTerminalEnv,
   resolveClaudeExecutable,
   resolveSessionCwd,
   sessionFolderUnavailableMessage,
   trustedCmdPath,
-  trustedPowerShellPath
+  trustedPowerShellPath,
+  uncNotSupportedMessage
 } from "../src/main/providerTerminal";
 
 // A stand-in for child_process.spawn: returns an EventEmitter (plus unref) and fires
@@ -181,6 +183,28 @@ describe("resolveSessionCwd", () => {
   });
 });
 
+describe("normalizeCmdCwd", () => {
+  it("keeps an ordinary local drive-absolute path unchanged", () => {
+    expect(normalizeCmdCwd("C:\\Users\\me\\proj")).toEqual({ ok: true, cwd: "C:\\Users\\me\\proj" });
+    expect(normalizeCmdCwd("E:\\project")).toEqual({ ok: true, cwd: "E:\\project" });
+  });
+  it("normalizes an extended-length local drive path by stripping \\\\?\\ (cmd can't use the prefix)", () => {
+    expect(normalizeCmdCwd("\\\\?\\E:\\claude-plugins\\pet")).toEqual({ ok: true, cwd: "E:\\claude-plugins\\pet" });
+    expect(normalizeCmdCwd("\\\\?\\C:\\Users\\me")).toEqual({ ok: true, cwd: "C:\\Users\\me" });
+  });
+  // The whole point: an existing-but-cmd-unsupported directory must NEVER pass through —
+  // cmd would silently drop to C:\Windows and exit 0, launching the terminal in the wrong
+  // folder while we report success. So every UNC form is rejected before we spawn.
+  it("rejects a plain UNC path (backslash or forward-slash)", () => {
+    expect(normalizeCmdCwd("\\\\localhost\\C$\\Users\\me")).toEqual({ ok: false });
+    expect(normalizeCmdCwd("\\\\server\\share\\proj")).toEqual({ ok: false });
+    expect(normalizeCmdCwd("//server/share/proj")).toEqual({ ok: false });
+  });
+  it("rejects an extended-length UNC path", () => {
+    expect(normalizeCmdCwd("\\\\?\\UNC\\server\\share\\proj")).toEqual({ ok: false });
+  });
+});
+
 describe("buildPowerShellLaunch", () => {
   it("opens a standalone PowerShell window via cmd /c start, with claude running inside PowerShell", () => {
     const launch = buildPowerShellLaunch(CMD, POWERSHELL, PS_RUN_CLAUDE, { CHARA_DESK_CLAUDE: "C:\\cli\\claude.exe" });
@@ -225,6 +249,8 @@ describe("privacy-aware error messages", () => {
     expect(sessionFolderUnavailableMessage("\\\\srv\\share", true)).not.toContain("srv");
     expect(launchFailedMessage("spawn C:\\proj ENOENT", false)).toContain("C:\\proj");
     expect(launchFailedMessage("spawn C:\\proj ENOENT", true)).not.toContain("C:\\proj");
+    expect(uncNotSupportedMessage("\\\\srv\\share", false)).toContain("srv");
+    expect(uncNotSupportedMessage("\\\\srv\\share", true)).not.toContain("srv");
   });
 });
 
@@ -314,4 +340,34 @@ describe("PowerShell launch (real Windows execution)", () => {
       try { rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* harmless temp-dir residue */ }
     }
   }, 15000);
+
+  it.skipIf(process.platform !== "win32")("normalizes an extended-length cwd so cmd/start lands PowerShell in the real folder (raw \\\\?\\ drops to the system dir)", async () => {
+    const powershell = trustedPowerShellPath(process.env)!;
+    const cmdExe = trustedCmdPath(process.env)!;
+    const base = realpathSync.native(mkdtempSync(join(tmpdir(), "cdps-")));
+    const extended = `\\\\?\\${base}`; // extended-length form of the SAME directory
+    try {
+      // normalizeCmdCwd must strip the prefix back to the plain drive path cmd can use.
+      expect(normalizeCmdCwd(extended)).toEqual({ ok: true, cwd: base });
+
+      // Launch PowerShell via the real builder with a given cwd; report where PS landed
+      // (MARKER_OUT is absolute, so it's captured even if cmd falls back elsewhere).
+      const landedIn = async (cwd: string, tag: string) => {
+        const marker = join(base, `${tag}.txt`);
+        const { file, args } = buildPowerShellLaunch(cmdExe, powershell, "(Get-Location).Path > $env:MARKER_OUT", {});
+        try {
+          spawn(file, args.map(a => (a === "-NoExit" ? "-NoProfile" : a)),
+            { cwd, env: { ...process.env, MARKER_OUT: marker }, detached: true, windowsHide: true, stdio: "ignore" }).unref();
+        } catch { return ""; } // a rejected cwd is also "did not land in our folder"
+        return (await waitForFileContent(marker, 10000)).toLowerCase();
+      };
+
+      // Raw extended cwd: cmd can't use it and silently drops to the system dir — NOT ours.
+      expect(await landedIn(extended, "raw")).not.toBe(base.toLowerCase());
+      // Normalized cwd (== base, asserted above): cmd/start lands PowerShell in the folder.
+      expect(await landedIn(base, "fixed")).toBe(base.toLowerCase());
+    } finally {
+      try { rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* harmless temp-dir residue */ }
+    }
+  }, 25000);
 });

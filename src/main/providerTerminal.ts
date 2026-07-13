@@ -175,6 +175,32 @@ function isExistingDirectory(path: string): boolean {
   }
 }
 
+/**
+ * Make a working directory usable by the `cmd /c start` launcher, or reject it. cmd.exe
+ * CANNOT take a UNC or extended-length cwd: handed `\\server\share` or `\\?\...` it prints
+ * "UNC paths are not supported. Defaulting to Windows directory.", silently switches its
+ * cwd to C:\Windows, and STILL exits 0 — so `start` would open PowerShell in C:\Windows
+ * while we report success in the wrong folder. So, before spawning:
+ *  - normalize an extended-length LOCAL drive path (`\\?\E:\proj` → `E:\proj`), which cmd
+ *    handles fine once the `\\?\` prefix is gone; and
+ *  - reject any UNC path — plain (`\\server\share`) or extended (`\\?\UNC\server\share`) —
+ *    so the caller can surface an actionable error instead of a silent C:\Windows launch.
+ * Ordinary drive-absolute paths pass through unchanged. (Minimal for v0.1.0 — no pushd /
+ * drive-mapping / broader `\\?\` support.)
+ */
+export function normalizeCmdCwd(cwd: string): { ok: true; cwd: string } | { ok: false } {
+  const value = cwd.trim();
+  // Extended-length LOCAL drive path: strip `\\?\`, keeping `X:\...` (cmd can use that).
+  const extendedLocal = value.match(/^\\\\\?\\([a-zA-Z]:(?:[\\/].*)?)$/);
+  if (extendedLocal) return { ok: true, cwd: extendedLocal[1] };
+  // Any remaining extended-length form (incl. `\\?\UNC\...`, device paths) — reject.
+  if (/^\\\\\?\\/.test(value)) return { ok: false };
+  // Plain UNC (`\\server\share` or `//server/share`) — cmd can't use it. Reject.
+  if (/^[\\/]{2}/.test(value)) return { ok: false };
+  // Ordinary local drive-absolute path — cmd can use it as-is.
+  return { ok: true, cwd: value };
+}
+
 // Child-only env vars carrying the trusted Claude path and validated session id.
 export const CHARA_DESK_CLAUDE_ENV = "CHARA_DESK_CLAUDE";
 export const CHARA_DESK_RESUME_ID_ENV = "CHARA_DESK_RESUME_ID";
@@ -225,6 +251,12 @@ export function sessionFolderUnavailableMessage(path: string, hidePaths: boolean
 export function launchFailedMessage(reason: string | undefined, hidePaths: boolean): string {
   if (hidePaths) return "Couldn't open the terminal — check the folder and try again.";
   return `Couldn't open the terminal: ${reason ?? "unknown error"}`;
+}
+
+/** UNC-cwd rejection message (cmd can't open a terminal there), path omitted when hidden. */
+export function uncNotSupportedMessage(path: string, hidePaths: boolean): string {
+  if (hidePaths) return "That folder is a network (UNC) path, which can't be used to open a terminal here. Use a folder on a local drive, or map it to a drive letter first.";
+  return `Network (UNC) folders can't be used to open a terminal here (${path}). Use a folder on a local drive, or map it to a drive letter first.`;
 }
 
 /**
