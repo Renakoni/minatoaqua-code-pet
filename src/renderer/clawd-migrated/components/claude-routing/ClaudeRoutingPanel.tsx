@@ -169,7 +169,12 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
   }
 
   async function handleTerminal(provider: ClaudeProvider) {
-    const result = await companion.openClaudeProviderTerminal(provider.id);
+    // Ask which folder to open the terminal in first, like cc-switch: the terminal
+    // runs `claude` against that project, so the folder is the point. Cancelling
+    // the picker cancels the whole action — no toast, nothing launched.
+    const cwd = await companion.pickTerminalDirectory();
+    if (!cwd) return;
+    const result = await companion.openClaudeProviderTerminal(provider.id, cwd);
     if (result.ok) toast.success(t("routing.terminalOpened", "终端已打开"));
     else toast.error(result.error ?? t("routing.terminalFailed", "打开终端失败"));
   }
