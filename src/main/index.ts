@@ -38,6 +38,7 @@ import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolve
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { pointInBounds, trayMenuPosition } from "./trayMenuPosition";
+import { createTrayMenuController } from "./trayMenuController";
 
 type DailyRuntimeStats = {
   events: number;
@@ -393,25 +394,11 @@ function togglePetWindow() {
 const TRAY_MENU_WIDTH = 208;
 const TRAY_MENU_HEIGHT = 148;
 
-// Renderer-driven readiness: sends to a renderer are not buffered, and
-// did-finish-load fires before the dynamically imported TrayMenuApp has
-// subscribed — so main never presents the popup until the renderer's ready
-// handshake, and a right-click that lands earlier is queued.
-let trayMenuRendererReady = false;
-let trayMenuShowPending = false;
+// Electron-owned timers behind the tray popup's presentation state machine
+// (trayMenuController). The controller holds the boolean state; these are the
+// side-effect resources it cannot.
 let trayMenuBlurHideTimer: ReturnType<typeof setTimeout> | null = null;
-// Present-on-painted: the window is only revealed once the renderer reports
-// the fresh state committed AND painted, so it can never appear with evicted
-// or stale pixels. The fallback timer guarantees a reveal even if the paint
-// signal is lost — worst case equals the old behavior, never a stuck menu.
-let trayMenuPresentPending = false;
 let trayMenuPresentFallback: ReturnType<typeof setTimeout> | null = null;
-// Logical open state. After its first show the window is never OS-hidden
-// again — "closed" is opacity 0 + click-through. hide() lets Chromium mark
-// the window occluded and evict its GPU surface, and the next show() then
-// presents a blank/stale surface for a frame (the reopen flicker); an
-// alpha-hidden window keeps compositing, so reopening is an atomic reveal.
-let trayMenuOpen = false;
 
 function cancelTrayMenuBlurHide() {
   if (trayMenuBlurHideTimer !== null) {
@@ -420,23 +407,11 @@ function cancelTrayMenuBlurHide() {
   }
 }
 
-function cancelTrayMenuPresent() {
-  trayMenuPresentPending = false;
+function clearTrayMenuPresentFallback() {
   if (trayMenuPresentFallback !== null) {
     clearTimeout(trayMenuPresentFallback);
     trayMenuPresentFallback = null;
   }
-}
-
-function completeTrayMenuPresent() {
-  if (!trayMenuPresentPending) return;
-  cancelTrayMenuPresent();
-  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
-  trayMenuOpen = true;
-  trayMenuWindow.setIgnoreMouseEvents(false);
-  trayMenuWindow.setOpacity(1);
-  if (!trayMenuWindow.isVisible()) trayMenuWindow.show();
-  trayMenuWindow.focus();
 }
 
 function trayMenuState() {
@@ -448,6 +423,47 @@ function trayMenuState() {
     language: companionSettings.language
   };
 }
+
+// Both the renderer's paint handshake and the fallback timer settle a pending
+// presentation through here.
+function completeTrayMenuPresent() {
+  trayMenuController.onPresentSettled();
+}
+
+// Presentation state machine (src/main/trayMenuController.ts). Effects:
+//  - present: position at the cursor, push fresh state, and arm the fallback
+//    that reveals the window even if the renderer's paint signal is lost. The
+//    window stays hidden here (present-on-painted) so a reopen never flashes
+//    an evicted GPU surface.
+//  - reveal / conceal: alpha the already-composited window in / out; conceal
+//    never calls hide(), which would let Chromium evict the surface.
+const trayMenuController = createTrayMenuController({
+  present: () => {
+    if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+    const cursor = screen.getCursorScreenPoint();
+    const workArea = screen.getDisplayNearestPoint(cursor).workArea;
+    const position = trayMenuPosition(cursor, { width: TRAY_MENU_WIDTH, height: TRAY_MENU_HEIGHT }, workArea);
+    trayMenuWindow.setPosition(position.x, position.y);
+    clearTrayMenuPresentFallback();
+    trayMenuPresentFallback = setTimeout(completeTrayMenuPresent, 150);
+    trayMenuWindow.webContents.send("companion:tray-menu-state", trayMenuState());
+  },
+  reveal: () => {
+    if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+    trayMenuWindow.setIgnoreMouseEvents(false);
+    trayMenuWindow.setOpacity(1);
+    if (!trayMenuWindow.isVisible()) trayMenuWindow.show();
+    trayMenuWindow.focus();
+  },
+  conceal: () => {
+    if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+    trayMenuWindow.setOpacity(0);
+    trayMenuWindow.setIgnoreMouseEvents(true);
+    trayMenuWindow.blur();
+  },
+  clearPresentFallback: clearTrayMenuPresentFallback,
+  clearBlurHide: cancelTrayMenuBlurHide
+});
 
 function createTrayMenuWindow() {
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) return;
@@ -484,7 +500,7 @@ function createTrayMenuWindow() {
   // Any (re)load invalidates the renderer's subscription until it hands
   // shakes again.
   trayMenuWindow.webContents.on("did-start-loading", () => {
-    trayMenuRendererReady = false;
+    trayMenuController.notifyReloading();
   });
   // A popup menu's contract: clicking anywhere else dismisses it. But a blur
   // caused by clicking the app's OWN tray icon is not "clicking away" — the
@@ -503,57 +519,19 @@ function createTrayMenuWindow() {
     hideTrayMenu();
   });
   trayMenuWindow.on("closed", () => {
-    cancelTrayMenuBlurHide();
-    cancelTrayMenuPresent();
+    trayMenuController.reset();
     trayMenuWindow = null;
-    trayMenuOpen = false;
-    trayMenuRendererReady = false;
-    trayMenuShowPending = false;
   });
 }
 
 function hideTrayMenu() {
-  cancelTrayMenuBlurHide();
-  // A hide always wins over an in-flight presentation: a late paint signal
-  // must not pop the menu back open.
-  cancelTrayMenuPresent();
-  if (!trayMenuOpen) return;
-  trayMenuOpen = false;
-  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
-  // Alpha-hide, never hide(): see trayMenuOpen. Click-through while
-  // invisible, and hand focus back in case we still hold it (Escape path).
-  trayMenuWindow.setOpacity(0);
-  trayMenuWindow.setIgnoreMouseEvents(true);
-  trayMenuWindow.blur();
-}
-
-// Position at the CURRENT cursor, push fresh state — the window becomes
-// visible in the rendered handshake, once those pixels exist. When the menu
-// is already visible (right-click while open), the refresh happens in place
-// and the show is a no-op, so the menu never disappears.
-function presentTrayMenu() {
-  cancelTrayMenuBlurHide();
-  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
-  const cursor = screen.getCursorScreenPoint();
-  const workArea = screen.getDisplayNearestPoint(cursor).workArea;
-  const position = trayMenuPosition(cursor, { width: TRAY_MENU_WIDTH, height: TRAY_MENU_HEIGHT }, workArea);
-  trayMenuWindow.setPosition(position.x, position.y);
-  trayMenuPresentPending = true;
-  if (trayMenuPresentFallback !== null) clearTimeout(trayMenuPresentFallback);
-  trayMenuPresentFallback = setTimeout(completeTrayMenuPresent, 150);
-  trayMenuWindow.webContents.send("companion:tray-menu-state", trayMenuState());
+  trayMenuController.dismiss();
 }
 
 function showTrayMenu() {
   createTrayMenuWindow();
   if (!trayMenuWindow) return;
-  if (!trayMenuRendererReady) {
-    // Cold first open (or mid-reload): present as soon as the renderer's
-    // ready handshake lands instead of showing an empty transparent window.
-    trayMenuShowPending = true;
-    return;
-  }
-  presentTrayMenu();
+  trayMenuController.requestShow();
 }
 
 function createTray() {
@@ -3200,11 +3178,7 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("companion:close-settings", () => hidePanelWindow());
   ipcMain.handle("companion:tray-menu-ready", () => {
-    trayMenuRendererReady = true;
-    if (trayMenuShowPending) {
-      trayMenuShowPending = false;
-      presentTrayMenu();
-    }
+    trayMenuController.notifyRendererReady();
     // The handshake doubles as the pull path: the renderer renders from this
     // result even if a push was emitted before it subscribed.
     return trayMenuState();
