@@ -1,6 +1,6 @@
-import { spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -18,6 +18,7 @@ import {
   resolveClaudeExecutable,
   resolveSessionCwd,
   sessionFolderUnavailableMessage,
+  trustedCmdPath,
   trustedPowerShellPath
 } from "../src/main/providerTerminal";
 
@@ -37,6 +38,28 @@ function fakeSpawn(
 }
 
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+const CMD = "C:\\Windows\\System32\\cmd.exe";
+
+// Poll until the marker has CONTENT (not just exists) — the launched PowerShell's `>`
+// redirect creates the file before the command's output lands, so "exists" alone is too
+// eager under load. Reads defensively (the file may be briefly locked mid-write). Used
+// by the real Windows integration test; the shell launch is async.
+function waitForFileContent(path: string, timeoutMs: number): Promise<string> {
+  return new Promise(resolve => {
+    const start = Date.now();
+    const tick = () => {
+      try {
+        if (existsSync(path)) {
+          const text = readFileSync(path, "utf16le").trim();
+          if (text.length > 0) return resolve(text);
+        }
+      } catch { /* briefly locked mid-write; keep polling */ }
+      if (Date.now() - start >= timeoutMs) return resolve("");
+      setTimeout(tick, 150);
+    };
+    tick();
+  });
+}
 
 describe("providerTerminalEnv", () => {
   it("keeps string and finite-number env entries and drops the rest", () => {
@@ -101,6 +124,17 @@ describe("trustedPowerShellPath", () => {
   });
 });
 
+describe("trustedCmdPath", () => {
+  it("resolves System32\\cmd.exe from SystemRoot only (never PATH/cwd)", () => {
+    expect(trustedCmdPath({ SystemRoot: "C:\\Windows" }, p => p === CMD)).toBe(CMD);
+    expect(trustedCmdPath({ systemroot: "D:\\Win" }, p => p === "D:\\Win\\System32\\cmd.exe"))
+      .toBe("D:\\Win\\System32\\cmd.exe");
+  });
+  it("returns null when cmd.exe is absent", () => {
+    expect(trustedCmdPath({ SystemRoot: "C:\\Windows" }, () => false)).toBeNull();
+  });
+});
+
 describe("resolveClaudeExecutable", () => {
   it("resolves a fully-qualified claude.exe or claude.ps1 from PATH (never cwd), .exe first", () => {
     const both = (p: string) => p === "C:\\cli\\claude.exe" || p === "C:\\cli\\claude.ps1";
@@ -148,37 +182,38 @@ describe("resolveSessionCwd", () => {
 });
 
 describe("buildPowerShellLaunch", () => {
-  it("launches the trusted PowerShell with -NoExit and the fixed command, and nothing cmd-related", () => {
-    const launch = buildPowerShellLaunch(POWERSHELL, PS_RUN_CLAUDE, { CHARA_DESK_CLAUDE: "C:\\cli\\claude.exe" });
-    expect(launch.file).toBe(POWERSHELL);
-    expect(launch.args).toEqual(["-NoExit", "-Command", "& $env:CHARA_DESK_CLAUDE"]);
-    const serialized = `${launch.file} ${launch.args.join(" ")}`.toLowerCase();
-    expect(serialized).not.toContain("cmd");
-    expect(serialized).not.toContain("comspec");
-    expect(serialized).not.toContain("/k");
-    expect(serialized).not.toContain("start ");
+  it("opens a standalone PowerShell window via cmd /c start, with claude running inside PowerShell", () => {
+    const launch = buildPowerShellLaunch(CMD, POWERSHELL, PS_RUN_CLAUDE, { CHARA_DESK_CLAUDE: "C:\\cli\\claude.exe" });
+    expect(launch.file).toBe(CMD); // cmd is ONLY the launcher (`start` opens the window)
+    expect(launch.args).toEqual(["/c", "start", "Chara Desk", POWERSHELL, "-NoExit", "-Command", "& $env:CHARA_DESK_CLAUDE"]);
+    // The shell that actually runs the command is PowerShell — claude never runs in cmd.
+    expect(launch.args[3]).toBe(POWERSHELL);
+    expect(launch.args[launch.args.length - 1]).toBe("& $env:CHARA_DESK_CLAUDE");
   });
   it("keeps the user profile: -NoExit present, no -NoProfile / -NonInteractive / -ExecutionPolicy override", () => {
-    const args = buildPowerShellLaunch(POWERSHELL, PS_RUN_CLAUDE, {}).args.join(" ").toLowerCase();
+    const args = buildPowerShellLaunch(CMD, POWERSHELL, PS_RUN_CLAUDE, {}).args.join(" ").toLowerCase();
     expect(args).toContain("-noexit");
     expect(args).not.toContain("-noprofile");
     expect(args).not.toContain("-noninteractive");
     expect(args).not.toContain("-executionpolicy");
   });
-  it("keeps provider secrets and the claude path in env only — never in argv, and the id is not interpolated", () => {
-    const launch = buildPowerShellLaunch(POWERSHELL, PS_RESUME_CLAUDE, {
+  it("keeps provider secrets, the claude path and the session id in env only — never in argv", () => {
+    const launch = buildPowerShellLaunch(CMD, POWERSHELL, PS_RESUME_CLAUDE, {
       CHARA_DESK_CLAUDE: "C:\\cli\\claude.exe",
       CHARA_DESK_RESUME_ID: "sess-123",
       ANTHROPIC_AUTH_TOKEN: "sk-secret-token",
       ANTHROPIC_BASE_URL: "https://api.example.com"
     });
+    expect(launch.file).toBe(CMD);
+    expect(launch.args[3]).toBe(POWERSHELL); // claude runs in PowerShell, not cmd
     expect(launch.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-secret-token");
     const argv = JSON.stringify(launch.args);
     expect(argv).not.toContain("sk-secret-token");
     expect(argv).not.toContain("https://api.example.com");
     expect(argv).not.toContain("claude.exe"); // the path rides in the env var
     expect(argv).not.toContain("sess-123"); // the id rides in the env var
-    expect(launch.args[2]).toBe("& $env:CHARA_DESK_CLAUDE --resume $env:CHARA_DESK_RESUME_ID");
+    // the fixed resume command is still a pure env-ref — the id/path are not interpolated
+    expect(launch.args[launch.args.length - 1]).toBe("& $env:CHARA_DESK_CLAUDE --resume $env:CHARA_DESK_RESUME_ID");
   });
 });
 
@@ -203,9 +238,11 @@ describe("launchDetachedTerminal", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("ENOENT");
   });
-  it("spawns a detached, visible window and forwards cwd/env", async () => {
+  it("spawns a detached launcher with ignored stdio and forwards cwd/env", async () => {
     let seen: Record<string, unknown> | undefined;
-    await launchDetachedTerminal(POWERSHELL, ["-NoExit"], { cwd: "C:\\proj", env: { ANTHROPIC_AUTH_TOKEN: "x" } }, fakeSpawn(c => c.emit("spawn"), o => { seen = o; }));
+    await launchDetachedTerminal(CMD, ["/c", "start", "Chara Desk", POWERSHELL, "-NoExit"], { cwd: "C:\\proj", env: { ANTHROPIC_AUTH_TOKEN: "x" } }, fakeSpawn(c => c.emit("spawn"), o => { seen = o; }));
+    // `start` gives the launched PowerShell its own console, so this short-lived cmd needs
+    // no std handles — stdio "ignore" is correct (cmd just fires `start` and exits).
     expect(seen).toMatchObject({ cwd: "C:\\proj", env: { ANTHROPIC_AUTH_TOKEN: "x" }, detached: true, windowsHide: false, stdio: "ignore" });
   });
 });
@@ -249,4 +286,32 @@ describe("PowerShell launch (real Windows execution)", () => {
       rmSync(base, { recursive: true, force: true });
     }
   });
+
+  it.skipIf(process.platform !== "win32")("opens PowerShell via cmd /c start, which actually runs the fixed command IN PowerShell", async () => {
+    const powershell = trustedPowerShellPath(process.env)!;
+    const cmdExe = trustedCmdPath(process.env)!;
+    expect(cmdExe).not.toBeNull();
+    const systemRoot = process.env.SystemRoot || "C:\\Windows";
+    const base = mkdtempSync(join(tmpdir(), "cdps-"));
+    const marker = join(base, "ran.txt");
+    try {
+      const env = { ...process.env, [CHARA_DESK_CLAUDE_ENV]: join(systemRoot, "System32", "hostname.exe"), MARKER_OUT: marker };
+      // Derive argv from the REAL production builder, so the "Chara Desk" title, arg order
+      // and cmd/start structure stay in lockstep with the launcher. Adapt only for CI:
+      // swap -NoExit -> -NoProfile so the window self-closes, and redirect the "claude"
+      // (hostname) output — the marker appears only if `start` truly launched PowerShell
+      // AND PowerShell ran the command, proving cmd is only a launcher (it passed the
+      // `&`/`>` through verbatim) and claude runs INSIDE PowerShell.
+      const { file, args } = buildPowerShellLaunch(cmdExe, powershell, "& $env:CHARA_DESK_CLAUDE > $env:MARKER_OUT", {});
+      const child = spawn(file, args.map(a => (a === "-NoExit" ? "-NoProfile" : a)),
+        { env, detached: true, windowsHide: true, stdio: "ignore" });
+      child.unref();
+      const printed = await waitForFileContent(marker, 10000);
+      expect(printed.length).toBeGreaterThan(0); // PowerShell ran `& $env:CHARA_DESK_CLAUDE` (hostname) and captured its output
+    } finally {
+      // The `start`-launched PowerShell may still hold the redirected file for a moment as
+      // it exits; retry the unlink and never let cleanup of a temp dir fail the test.
+      try { rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* harmless temp-dir residue */ }
+    }
+  }, 15000);
 });

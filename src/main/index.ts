@@ -39,7 +39,7 @@ import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { createDoubleClickDetector, installPetParentNotifyWatcher, readSystemDoubleClickMetrics, type DoubleClickMetrics } from "./petDoubleClick";
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
-import { buildPowerShellLaunch, CHARA_DESK_CLAUDE_ENV, CHARA_DESK_RESUME_ID_ENV, launchDetachedTerminal, launchFailedMessage, mergeTerminalEnv, notAFolderMessage, PS_RESUME_CLAUDE, PS_RUN_CLAUDE, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd, sessionFolderUnavailableMessage, trustedPowerShellPath } from "./providerTerminal";
+import { buildPowerShellLaunch, CHARA_DESK_CLAUDE_ENV, CHARA_DESK_RESUME_ID_ENV, launchDetachedTerminal, launchFailedMessage, mergeTerminalEnv, notAFolderMessage, PS_RESUME_CLAUDE, PS_RUN_CLAUDE, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd, sessionFolderUnavailableMessage, trustedCmdPath, trustedPowerShellPath } from "./providerTerminal";
 
 type DailyRuntimeStats = {
   events: number;
@@ -2248,9 +2248,10 @@ function getClaudeSessionDetail(filePath: string) {
 
 // Actionable errors shared by both PowerShell terminal-launch paths.
 const POWERSHELL_NOT_FOUND_ERROR = "Windows PowerShell wasn't found at System32\\WindowsPowerShell\\v1.0. Is this a standard Windows install?";
+const CMD_NOT_FOUND_ERROR = "The Windows command processor (System32\\cmd.exe) wasn't found, so a PowerShell window can't be opened. Is this a standard Windows install?";
 function claudeUnavailableError(reason: "not-found" | "batch-only"): string {
   return reason === "batch-only"
-    ? "Only a claude.cmd/.bat batch shim is on PATH, and Chara Desk runs PowerShell without cmd.exe. Install the native Claude CLI (claude.exe) or put claude.ps1 on PATH."
+    ? "Only a claude.cmd/.bat batch shim is on PATH. Chara Desk runs Claude as a native PowerShell command, so install the native Claude CLI (claude.exe) or put claude.ps1 on PATH."
     : "Claude Code (claude.exe or claude.ps1) isn't on PATH. Install it — or restart Chara Desk if you just installed it — then try again.";
 }
 
@@ -2264,6 +2265,11 @@ async function resumeClaudeSession(sessionId: string, projectPath?: string) {
   }
   const powershell = trustedPowerShellPath(process.env);
   if (!powershell) return { ok: false, command, error: POWERSHELL_NOT_FOUND_ERROR };
+  // cmd is only the launcher: `cmd /c start` opens a normal, visible PowerShell window
+  // and Claude runs inside PowerShell, never inside cmd. A bare detached powershell.exe
+  // gets no console and runs windowless (a false success), so we go through `start`.
+  const cmd = trustedCmdPath(process.env);
+  if (!cmd) return { ok: false, command, error: CMD_NOT_FOUND_ERROR };
   // Resolve claude to a trusted native entry point (claude.exe / claude.ps1) from
   // PATH only, never the session's cwd — so a project-local shim can't shadow it. Not
   // copyable: if claude can't run here it can't run from the copied command either.
@@ -2279,7 +2285,7 @@ async function resumeClaudeSession(sessionId: string, projectPath?: string) {
   // Trusted claude path + validated id ride in child-only env vars; a fixed PowerShell
   // call-operator command invokes them, so no value is interpolated into the command.
   const env = mergeTerminalEnv({ [CHARA_DESK_CLAUDE_ENV]: claude.path, [CHARA_DESK_RESUME_ID_ENV]: safeSessionId }, process.env);
-  const { file, args } = buildPowerShellLaunch(powershell, PS_RESUME_CLAUDE, env);
+  const { file, args } = buildPowerShellLaunch(cmd, powershell, PS_RESUME_CLAUDE, env);
   const result = await launchDetachedTerminal(file, args, { cwd: resolved.cwd, env });
   return result.ok
     ? { ok: true, command, cwd: resolved.cwd }
@@ -2337,6 +2343,11 @@ async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   }
   const powershell = trustedPowerShellPath(process.env);
   if (!powershell) return { ok: false, command: "", error: POWERSHELL_NOT_FOUND_ERROR };
+  // cmd is only the launcher: `cmd /c start` opens a normal, visible PowerShell window
+  // and Claude runs inside PowerShell, never inside cmd. A bare detached powershell.exe
+  // gets no console and runs windowless (a false success), so we go through `start`.
+  const cmd = trustedCmdPath(process.env);
+  if (!cmd) return { ok: false, command: "", error: CMD_NOT_FOUND_ERROR };
   // The provider's env (base URL, tokens) is handed to the child through spawn's `env`
   // (never argv, never disk); the case-insensitive merge lets a provider PATH override
   // the inherited one. claude is resolved to a trusted native entry point (claude.exe /
@@ -2348,7 +2359,7 @@ async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   if (!claude.ok) return { ok: false, command: "", error: claudeUnavailableError(claude.reason) };
   const command = "claude";
   const env = mergeTerminalEnv({ [CHARA_DESK_CLAUDE_ENV]: claude.path }, baseEnv);
-  const { file, args } = buildPowerShellLaunch(powershell, PS_RUN_CLAUDE, env);
+  const { file, args } = buildPowerShellLaunch(cmd, powershell, PS_RUN_CLAUDE, env);
   const result = await launchDetachedTerminal(file, args, { cwd: workingDir, env });
   return result.ok
     ? { ok: true, command }

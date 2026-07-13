@@ -1,12 +1,16 @@
 // PowerShell terminal launch for a Claude provider or a session resume.
 //
-// Chara Desk opens a real, direct Windows PowerShell — never cmd.exe. The user's
-// provider env (ANTHROPIC_BASE_URL, tokens, ...) is passed through spawn's `env`
-// (never argv, never disk). The trusted Claude executable path and the validated
-// session id are passed as dedicated child-only env vars and invoked with a FIXED
-// PowerShell call-operator command, so no dynamic value is ever interpolated into a
-// PowerShell source string or the argv. PowerShell loads the user's normal profile
-// (so Conda init etc. work) and stays open after Claude exits (-NoExit).
+// Chara Desk opens a normal, standalone Windows PowerShell window and Claude runs
+// INSIDE PowerShell — never inside cmd. `cmd /c start` is used ONLY as the launcher
+// (how Windows opens a new console): `start` gives PowerShell its own visible,
+// interactive console and returns, then cmd exits. The user's provider env
+// (ANTHROPIC_BASE_URL, tokens, ...) is passed through spawn's `env` (never argv, never
+// disk). The trusted Claude executable path and the validated session id ride in
+// dedicated child-only env vars, invoked by a FIXED PowerShell call-operator command,
+// so no dynamic value is ever interpolated into a command string or the argv — cmd's
+// static command line likewise holds no secret or dynamic value. PowerShell loads the
+// user's normal profile (so Conda init etc. work) and stays open after Claude exits
+// (-NoExit).
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
@@ -45,8 +49,11 @@ export function mergeTerminalEnv(
     if (typeof value === "string") env[key] = value;
   }
   for (const [key, value] of Object.entries(overlay)) {
-    const clash = Object.keys(env).find(existing => existing.toLowerCase() === key.toLowerCase());
-    if (clash && clash !== key) delete env[clash];
+    // Drop every case-variant of this key (the OS normally collapses e.g. Path/PATH, but
+    // be robust if the inherited env ever holds more than one) before setting the winner.
+    for (const existing of Object.keys(env)) {
+      if (existing !== key && existing.toLowerCase() === key.toLowerCase()) delete env[existing];
+    }
     env[key] = value;
   }
   return env;
@@ -82,6 +89,25 @@ export function trustedPowerShellPath(
 ): string | null {
   const systemRoot = envValue(env, "SystemRoot") || envValue(env, "windir") || "C:\\Windows";
   const candidate = pathWin32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  return fileExists(candidate) ? candidate : null;
+}
+
+/**
+ * The trusted Windows command processor (`%SystemRoot%\System32\cmd.exe`), resolved
+ * from SystemRoot only — never PATH or the selected project — so a project-local
+ * `cmd.exe` can never shadow it. It is used ONLY as `cmd /c start` to open a normal,
+ * standalone PowerShell console window (the way Windows shells always have): `start`
+ * gives PowerShell its own visible, interactive console and returns immediately, then
+ * cmd exits. The command line is fully static — `start "Chara Desk" <powershell>
+ * -NoExit -Command <fixed call-operator command>` — so cmd/start never parse any
+ * dynamic or secret value (see buildPowerShellLaunch). Returns null if it is absent.
+ */
+export function trustedCmdPath(
+  env: Record<string, string | undefined>,
+  fileExists: (path: string) => boolean = existsSync
+): string | null {
+  const systemRoot = envValue(env, "SystemRoot") || envValue(env, "windir") || "C:\\Windows";
+  const candidate = pathWin32.join(systemRoot, "System32", "cmd.exe");
   return fileExists(candidate) ? candidate : null;
 }
 
@@ -166,13 +192,21 @@ export interface PowerShellLaunch {
 }
 
 /**
- * Build the direct PowerShell launch: `powershell.exe -NoExit -Command <fixed>`.
- * `-NoExit` keeps the window open after Claude exits; the user's normal profile
- * loads (no `-NoProfile` / `-NonInteractive` / `-ExecutionPolicy` override), so the
- * shell behaves like a normal user session (Conda etc.).
+ * Build the launch: `cmd /c start "Chara Desk" <powershell> -NoExit -Command <fixed>`.
+ * cmd is ONLY the launcher — `start` opens a normal, standalone Windows PowerShell
+ * console window (its own visible, interactive console) and returns; cmd exits. Claude
+ * then runs *inside PowerShell*, never inside cmd, via the fixed call-operator command.
+ * `-NoExit` keeps the window open after Claude exits; the user's normal profile loads
+ * (no `-NoProfile` / `-NonInteractive` / `-ExecutionPolicy` override) so Conda etc. work.
+ * The claude path, session id and provider secrets never appear on the command line —
+ * they ride in `env` and PowerShell reads them at runtime (`& $env:CHARA_DESK_CLAUDE`),
+ * so the command string is fixed and nothing dynamic is interpolated. The command arg's
+ * `&` and spaces sit inside one quoted token, so cmd hands it to PowerShell verbatim.
+ * The explicit quoted "Chara Desk" title stops `start` reading the program path as a
+ * title (the spawn layer also quotes the path, so even a spaced path would be safe).
  */
-export function buildPowerShellLaunch(powershellExe: string, command: string, env: Record<string, string>): PowerShellLaunch {
-  return { file: powershellExe, args: ["-NoExit", "-Command", command], env };
+export function buildPowerShellLaunch(cmdExe: string, powershellExe: string, command: string, env: Record<string, string>): PowerShellLaunch {
+  return { file: cmdExe, args: ["/c", "start", "Chara Desk", powershellExe, "-NoExit", "-Command", command], env };
 }
 
 /** "Not a folder" message, path omitted when paths are hidden. */
@@ -200,7 +234,7 @@ export function launchFailedMessage(reason: string | undefined, hidePaths: boole
  * would claim a false success — and the unhandled 'error' event would crash the
  * main process. Awaiting this collapses both outcomes into a normal resolve/reject.
  */
-export function awaitTerminalLaunch(child: ChildProcess): Promise<void> {
+function awaitTerminalLaunch(child: ChildProcess): Promise<void> {
   return new Promise((resolve, reject) => {
     child.once("spawn", () => resolve());
     child.once("error", (error) => reject(error));
@@ -213,11 +247,25 @@ export interface TerminalLaunchResult {
 }
 
 /**
- * Spawn a detached terminal and resolve only once it has actually launched. Both the
- * provider terminal and session resume go through here, so a launch failure (spawn
- * reports these asynchronously via 'error', not by throwing) becomes a clean
- * { ok:false, error } for the renderer instead of a false success plus an unhandled
- * ChildProcess 'error' that could take down the main process. The window stays open.
+ * Spawn the `cmd /c start` launcher and resolve once IT has launched. Both the provider
+ * terminal and session resume go through here, so a failure to spawn cmd (reported
+ * asynchronously via 'error', not by throwing) becomes a clean { ok:false, error } for
+ * the renderer instead of a false success plus an unhandled ChildProcess 'error' that
+ * could take down the main process.
+ *
+ * Success signal, honestly: `ok:true` means the cmd launcher started — NOT that the
+ * PowerShell window is confirmed open. `cmd /c start` hands off to `start` and exits 0
+ * at once, so if PowerShell itself fails to launch (e.g. AppLocker/WDAC blocks it) that
+ * surfaces only in the detached child console, not here. trustedPowerShellPath's
+ * existsSync rules out a missing shell up front; a present-but-unrunnable shell is the
+ * residual gap (a stronger signal would need a PowerShell-side readiness handshake).
+ *
+ * stdio is "ignore": `start` gives the PowerShell it launches a brand-new console of its
+ * own, so this short-lived cmd needs no usable std handles — it just fires `start` and
+ * exits. (Spawning powershell.exe directly with "ignore" behaves differently: with NUL
+ * std handles and no console it exits before running anything — which is exactly why the
+ * launch goes through `start`, to get a real, visible console window.) detached + unref
+ * so the PowerShell window lives independently of the app.
  */
 export async function launchDetachedTerminal(
   file: string,
