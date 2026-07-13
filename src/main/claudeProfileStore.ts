@@ -1,0 +1,147 @@
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import {
+  CLAUDE_PROFILE_SCHEMA_VERSION,
+  DEFAULT_CLAUDE_PROFILE_ID,
+  type ClaudeProfile,
+  type ClaudeProfileInventory,
+  type ClaudeProfileStoreData,
+  type ClaudeProfilesSnapshot,
+  type ClaudeResourceItem,
+  type ClaudeResourcesSnapshot
+} from "../shared/claudeProfiles";
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function requireStringList(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.some(item => typeof item !== "string" || !item.trim())) {
+    throw new Error(`Invalid Claude profile ${field}`);
+  }
+  if (new Set(value).size !== value.length) throw new Error(`Duplicate Claude profile ${field}`);
+  return [...value];
+}
+
+function requireTimestamp(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid Claude profile ${field}`);
+  }
+  return value;
+}
+
+function parseProfile(value: unknown): ClaudeProfile {
+  if (!isPlainObject(value)) throw new Error("Invalid Claude profile record");
+  if (typeof value.id !== "string" || !value.id.trim()) throw new Error("Invalid Claude profile id");
+  if (typeof value.name !== "string" || !value.name.trim()) throw new Error("Invalid Claude profile name");
+  if (value.description !== undefined && typeof value.description !== "string") throw new Error("Invalid Claude profile description");
+  if (typeof value.isProtected !== "boolean") throw new Error("Invalid Claude profile protection flag");
+  return {
+    id: value.id,
+    name: value.name,
+    ...(value.description === undefined ? {} : { description: value.description }),
+    skills: requireStringList(value.skills, "skills"),
+    plugins: requireStringList(value.plugins, "plugins"),
+    mcpServers: requireStringList(value.mcpServers, "mcpServers"),
+    isProtected: value.isProtected,
+    createdAt: requireTimestamp(value.createdAt, "createdAt"),
+    updatedAt: requireTimestamp(value.updatedAt, "updatedAt")
+  };
+}
+
+export function parseClaudeProfileStore(value: unknown): ClaudeProfileStoreData {
+  if (!isPlainObject(value) || value.schemaVersion !== CLAUDE_PROFILE_SCHEMA_VERSION || !Array.isArray(value.profiles)) {
+    throw new Error("Unsupported or invalid Claude profile store");
+  }
+  const profiles = value.profiles.map(parseProfile);
+  const ids = new Set(profiles.map(profile => profile.id));
+  if (ids.size !== profiles.length) throw new Error("Duplicate Claude profile id");
+  const defaultProfile = profiles.find(profile => profile.id === DEFAULT_CLAUDE_PROFILE_ID);
+  if (!defaultProfile || !defaultProfile.isProtected) throw new Error("Protected Default Claude profile is missing");
+  const appliedProfileId = value.appliedProfileId;
+  if (appliedProfileId !== null && (typeof appliedProfileId !== "string" || !ids.has(appliedProfileId))) {
+    throw new Error("Applied Claude profile does not exist");
+  }
+  return { schemaVersion: CLAUDE_PROFILE_SCHEMA_VERSION, profiles, appliedProfileId };
+}
+
+function profileResource(item: ClaudeResourceItem, includeDetail = true, enabled = item.enabled !== false) {
+  return {
+    id: item.id,
+    kind: item.kind,
+    name: item.name,
+    ...(item.description ? { description: item.description } : {}),
+    ...(includeDetail && item.detail ? { detail: item.detail } : {}),
+    enabled
+  };
+}
+
+export function buildClaudeProfileInventory(resources: ClaudeResourcesSnapshot): ClaudeProfileInventory {
+  return {
+    skills: resources.skills
+      .filter(item => item.skillSource === "personal")
+      .map(item => profileResource(item)),
+    plugins: resources.plugins
+      .filter(item => item.scopes?.includes("user"))
+      .map(item => profileResource(item, true, item.userEnabled === true)),
+    // MCP definitions may contain credentials. The profile inventory exposes
+    // only the server identity and generic description, never config details.
+    mcpServers: resources.mcp.map(item => profileResource(item, false)),
+    scannedAt: resources.scannedAt
+  };
+}
+
+export function createInitialClaudeProfileStore(inventory: ClaudeProfileInventory, now = Date.now()): ClaudeProfileStoreData {
+  const defaultProfile: ClaudeProfile = {
+    id: DEFAULT_CLAUDE_PROFILE_ID,
+    name: "Default",
+    skills: inventory.skills.filter(item => item.enabled).map(item => item.id),
+    plugins: inventory.plugins.filter(item => item.enabled).map(item => item.id),
+    mcpServers: inventory.mcpServers.filter(item => item.enabled).map(item => item.id),
+    isProtected: true,
+    createdAt: now,
+    updatedAt: now
+  };
+  return {
+    schemaVersion: CLAUDE_PROFILE_SCHEMA_VERSION,
+    profiles: [defaultProfile],
+    appliedProfileId: DEFAULT_CLAUDE_PROFILE_ID
+  };
+}
+
+export function saveClaudeProfileStore(filePath: string, data: ClaudeProfileStoreData) {
+  const validated = parseClaudeProfileStore(data);
+  const parent = dirname(filePath);
+  mkdirSync(parent, { recursive: true });
+  const tempPath = join(parent, `.${basename(filePath)}.${process.pid}.${randomUUID()}.tmp`);
+  try {
+    writeFileSync(tempPath, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
+    renameSync(tempPath, filePath);
+  } finally {
+    try { rmSync(tempPath, { force: true }); } catch { /* best-effort temp cleanup */ }
+  }
+}
+
+export function loadOrCreateClaudeProfileStore(
+  filePath: string,
+  inventory: ClaudeProfileInventory,
+  now = Date.now()
+): ClaudeProfileStoreData {
+  if (existsSync(filePath)) {
+    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as unknown;
+    return parseClaudeProfileStore(parsed);
+  }
+  const initial = createInitialClaudeProfileStore(inventory, now);
+  saveClaudeProfileStore(filePath, initial);
+  return initial;
+}
+
+export function createClaudeProfilesSnapshot(
+  filePath: string,
+  resources: ClaudeResourcesSnapshot,
+  now = Date.now()
+): ClaudeProfilesSnapshot {
+  const inventory = buildClaudeProfileInventory(resources);
+  return { ...loadOrCreateClaudeProfileStore(filePath, inventory, now), inventory };
+}

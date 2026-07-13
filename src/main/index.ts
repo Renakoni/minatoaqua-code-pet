@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
+import type { ClaudePluginScope, ClaudeResourceItem, ClaudeResourcesSnapshot } from "../shared/claudeProfiles";
 import { PET_IMAGE_SIZE, getPetWindowHeight, getPetWindowWidth, normalizePetDisplaySettings } from "../shared/petDisplaySettings";
 import { BUILTIN_PET_THEME_ID, BUILTIN_PET_THEME_NAME, packIdFromThemeId, petPackThemeId } from "../shared/petThemeCatalog";
 import { displayedSpriteHeight } from "../shared/spriteFrame";
@@ -40,6 +41,7 @@ import { createDoubleClickDetector, installPetParentNotifyWatcher, readSystemDou
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
 import { buildPowerShellLaunch, CHARA_DESK_CLAUDE_ENV, CHARA_DESK_RESUME_ID_ENV, launchDetachedTerminal, launchFailedMessage, mergeTerminalEnv, normalizeCmdCwd, notAFolderMessage, PS_RESUME_CLAUDE, PS_RUN_CLAUDE, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd, sessionFolderUnavailableMessage, trustedCmdPath, trustedPowerShellPath, uncNotSupportedMessage } from "./providerTerminal";
+import { createClaudeProfilesSnapshot } from "./claudeProfileStore";
 
 type DailyRuntimeStats = {
   events: number;
@@ -1076,19 +1078,6 @@ function handleCompanionAlerts(event: CompanionEvent) {
   }
 }
 
-type ClaudeResourceKind = "skill" | "plugin" | "mcp";
-
-type ClaudeResourceItem = {
-  id: string;
-  kind: ClaudeResourceKind;
-  name: string;
-  description?: string;
-  path?: string;
-  enabled?: boolean;
-  source: "claude" | "claude-json" | "unknown";
-  detail?: string;
-};
-
 type ClaudeInstalledPluginEntry = Record<string, unknown> & {
   scope?: string;
   installPath?: string;
@@ -1107,14 +1096,9 @@ function getClaudePaths() {
   };
 }
 
-type ClaudeResourcesSnapshot = {
-  summary: { skills: number; plugins: number; mcp: number };
-  skills: ClaudeResourceItem[];
-  plugins: ClaudeResourceItem[];
-  mcp: ClaudeResourceItem[];
-  scannedAt: number;
-  paths: ReturnType<typeof getClaudePaths>;
-};
+function claudeProfilesPath() {
+  return join(app.getPath("userData"), "claude-profiles.json");
+}
 
 const CLAUDE_RESOURCE_CACHE_TTL = 30 * 1000;
 let claudeResourceCache: { data: ClaudeResourcesSnapshot; timestamp: number } | null = null;
@@ -1170,6 +1154,13 @@ function readClaudeEnabledPlugins(claudeDir: string): Record<string, boolean> | 
   return enabledPlugins as Record<string, boolean>;
 }
 
+function readClaudeSkillOverrides(claudeDir: string): Record<string, unknown> {
+  const settings = readJsonObject(join(claudeDir, "settings.json"));
+  const overrides = settings?.skillOverrides;
+  if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) return {};
+  return overrides as Record<string, unknown>;
+}
+
 function readClaudeInstalledPlugins(claudeDir: string): Record<string, unknown> | null {
   const registry = readJsonObject(join(claudeDir, "plugins", "installed_plugins.json"));
   const plugins = registry?.plugins;
@@ -1183,7 +1174,14 @@ function normalizeInstalledPluginEntries(value: unknown): ClaudeInstalledPluginE
   return [];
 }
 
-function scanSkillDirectory(skillDir: string, name: string, detail = "SKILL.md"): ClaudeResourceItem | null {
+function scanSkillDirectory(
+  skillDir: string,
+  name: string,
+  detail = "SKILL.md",
+  skillSource: ClaudeResourceItem["skillSource"] = "personal",
+  pluginId?: string,
+  enabled = true
+): ClaudeResourceItem | null {
   const skillFile = join(skillDir, "SKILL.md");
   const markdown = readTextIfExists(skillFile);
   if (!markdown) return null;
@@ -1193,20 +1191,29 @@ function scanSkillDirectory(skillDir: string, name: string, detail = "SKILL.md")
     name,
     description: extractMarkdownDescription(markdown),
     path: skillDir,
+    enabled,
     source: "claude" as const,
-    detail
+    detail,
+    skillSource,
+    ...(pluginId ? { pluginId } : {})
   };
 }
 
-function scanClaudeSkills(claudeDir: string, enabledPluginsInput?: Record<string, boolean> | null, installedPluginsInput?: Record<string, unknown> | null): ClaudeResourceItem[] {
+function scanClaudeSkills(
+  claudeDir: string,
+  enabledPluginsInput?: Record<string, boolean> | null,
+  installedPluginsInput?: Record<string, unknown> | null,
+  skillOverridesInput?: Record<string, unknown>
+): ClaudeResourceItem[] {
   const found = new Map<string, ClaudeResourceItem>();
   const skillsDir = join(claudeDir, "skills");
   try {
+    const skillOverrides = skillOverridesInput ?? readClaudeSkillOverrides(claudeDir);
     if (existsSync(skillsDir)) {
       for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
         const skillDir = join(skillsDir, entry.name);
         if (!isDirectoryPath(skillDir)) continue;
-        const item = scanSkillDirectory(skillDir, entry.name);
+        const item = scanSkillDirectory(skillDir, entry.name, "SKILL.md", "personal", undefined, skillOverrides[entry.name] !== "off");
         if (item) found.set(item.id, item);
       }
     }
@@ -1222,7 +1229,7 @@ function scanClaudeSkills(claudeDir: string, enabledPluginsInput?: Record<string
         for (const skillEntry of readdirSync(pluginSkillsDir, { withFileTypes: true })) {
           const skillDir = join(pluginSkillsDir, skillEntry.name);
           if (!isDirectoryPath(skillDir)) continue;
-          const item = scanSkillDirectory(skillDir, skillEntry.name, `plugin: ${pluginName}`);
+          const item = scanSkillDirectory(skillDir, skillEntry.name, `plugin: ${pluginName}`, "plugin", pluginName);
           if (item && !found.has(item.id)) found.set(item.id, item);
         }
       }
@@ -1232,6 +1239,10 @@ function scanClaudeSkills(claudeDir: string, enabledPluginsInput?: Record<string
   }
 
   return Array.from(found.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function normalizePluginScope(value: unknown): ClaudePluginScope {
+  return value === "user" || value === "project" || value === "local" ? value : "unknown";
 }
 
 function scanClaudePlugins(claudeDir: string, enabledPluginsInput?: Record<string, boolean> | null, registryPluginsInput?: Record<string, unknown> | null): ClaudeResourceItem[] {
@@ -1244,7 +1255,9 @@ function scanClaudePlugins(claudeDir: string, enabledPluginsInput?: Record<strin
         const entries = normalizeInstalledPluginEntries(value);
         const first = entries[0] ?? {};
         const version = entries.find(entry => typeof entry.version === "string")?.version;
-        const scopes = Array.from(new Set(entries.map(entry => typeof entry.scope === "string" ? entry.scope : "").filter(Boolean)));
+        const scopes = Array.from(new Set(entries.map(entry => normalizePluginScope(entry.scope))));
+        const userEntries = entries.filter(entry => entry.scope === "user");
+        const userEnabled = enabledPlugins?.[name] === true;
         const path = typeof first.installPath === "string" ? first.installPath : typeof first.path === "string" ? first.path : pluginsDir;
         return {
           id: `plugin:${name}`,
@@ -1252,9 +1265,13 @@ function scanClaudePlugins(claudeDir: string, enabledPluginsInput?: Record<strin
           name,
           description: typeof first.description === "string" ? first.description : undefined,
           path,
-          enabled: enabledPlugins ? enabledPlugins[name] === true : entries.every(entry => entry.enabled !== false),
+          enabled: userEntries.length > 0
+            ? userEnabled
+            : (enabledPlugins ? enabledPlugins[name] === true : entries.every(entry => entry.enabled !== false)),
           source: "claude" as const,
-          detail: [version ? `version ${version}` : "installed_plugins.json", scopes.length ? scopes.join("/") : ""].filter(Boolean).join(" · ")
+          detail: [version ? `version ${version}` : "installed_plugins.json", scopes.join("/")].filter(Boolean).join(" · "),
+          scopes,
+          userEnabled
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -1312,7 +1329,8 @@ function scanClaudeResourcesFresh(): ClaudeResourcesSnapshot {
   const paths = getClaudePaths();
   const enabledPlugins = readClaudeEnabledPlugins(paths.claudeDir);
   const installedPlugins = readClaudeInstalledPlugins(paths.claudeDir);
-  const skills = scanClaudeSkills(paths.claudeDir, enabledPlugins, installedPlugins);
+  const skillOverrides = readClaudeSkillOverrides(paths.claudeDir);
+  const skills = scanClaudeSkills(paths.claudeDir, enabledPlugins, installedPlugins, skillOverrides);
   const plugins = scanClaudePlugins(paths.claudeDir, enabledPlugins, installedPlugins);
   const mcp = scanClaudeMcp(paths.claudeJson);
   return {
@@ -1342,6 +1360,14 @@ function getClaudeResourcesSnapshot(force = false) {
     .finally(() => { pendingClaudeResourceScan = null; });
 
   return pendingClaudeResourceScan;
+}
+
+async function getClaudeProfilesSnapshot(force = false) {
+  const profilePath = claudeProfilesPath();
+  // Default must capture the live global state, not a startup-warmup cache
+  // that may predate an external Claude configuration change.
+  const resources = await getClaudeResourcesSnapshot(force || !existsSync(profilePath));
+  return createClaudeProfilesSnapshot(profilePath, resources);
 }
 
 function isAllowedClaudeResourcePath(targetPath: string) {
@@ -3432,6 +3458,7 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:get-monitors", () => screen.getAllDisplays().map(display => ({ id: String(display.id), label: display.label || `Display ${display.id}`, bounds: display.bounds, workArea: display.workArea, scaleFactor: display.scaleFactor })));
   ipcMain.handle("companion:get-plugins", () => companionSettings.customPlugins);
   ipcMain.handle("companion:get-claude-resources", (_, force?: boolean) => getClaudeResourcesSnapshot(Boolean(force)));
+  ipcMain.handle("companion:get-claude-profiles", (_, force?: boolean) => getClaudeProfilesSnapshot(Boolean(force)));
   ipcMain.handle("companion:get-claude-sessions", (_, force?: boolean) => getClaudeSessionSnapshot(Boolean(force)));
   ipcMain.handle("companion:get-claude-session-detail", (_, filePath: string) => getClaudeSessionDetail(filePath));
   ipcMain.handle("companion:resume-claude-session", (_, targetSessionId: string, projectPath?: string) => resumeClaudeSession(targetSessionId, projectPath));

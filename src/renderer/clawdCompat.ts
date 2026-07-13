@@ -1,4 +1,5 @@
 import { isSessionStartEvent, type PetEvent } from "../shared/events";
+import type { ClaudeProfilesSnapshot, ClaudeResourcesSnapshot } from "../shared/claudeProfiles";
 import type { HookStatus, HookOperationResult } from "../shared/hooks";
 import type { PetPackManifest } from "../shared/petPack";
 import type { PetPackDownloadProgress, PetPackDownloadResult, PetPackInspectResult, PetPackInstallResult, PetPackRemoveResult } from "../shared/petPackTransport";
@@ -79,7 +80,8 @@ type CompanionApi = {
   openDataDirectory: () => Promise<{ ok: boolean; error?: string }>;
   getMonitors: () => Promise<unknown[]>;
   getPlugins: () => Promise<unknown[]>;
-  getClaudeResources: (force?: boolean) => Promise<unknown>;
+  getClaudeResources: (force?: boolean) => Promise<ClaudeResourcesSnapshot>;
+  getClaudeProfiles: (force?: boolean) => Promise<ClaudeProfilesSnapshot>;
   getClaudeSessions: (force?: boolean) => Promise<unknown>;
   getClaudeSessionDetail: (filePath: string) => Promise<unknown>;
   resumeClaudeSession: (sessionId: string, projectPath?: string) => Promise<unknown>;
@@ -453,6 +455,12 @@ export function installClawdCompat() {
     getMonitors: async () => [],
     getPlugins: async () => [],
     getClaudeResources: async () => ({ summary: { skills: 0, plugins: 0, mcp: 0 }, skills: [], plugins: [], mcp: [], scannedAt: Date.now(), paths: { claudeDir: "~/.claude", claudeJson: "~/.claude.json" } }),
+    getClaudeProfiles: async () => ({
+      schemaVersion: 1,
+      profiles: [{ id: "default", name: "Default", skills: [], plugins: [], mcpServers: [], isProtected: true, createdAt: 0, updatedAt: 0 }],
+      appliedProfileId: "default",
+      inventory: { skills: [], plugins: [], mcpServers: [], scannedAt: Date.now() }
+    }),
     getClaudeSessions: async () => ({ sessions: [], scannedAt: Date.now(), projectsDir: "~/.claude/projects" }),
     getClaudeSessionDetail: async () => null,
     resumeClaudeSession: async sessionId => ({ ok: false, command: `claude --resume ${sessionId}` }),
