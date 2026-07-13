@@ -124,14 +124,17 @@ body {
 /* Anchored to the .tray-menu card: its top edge aligns with the menu's top
    edge (same horizontal plane, not a stacked layer), it opens on the side
    main chose, and it stays hidden until the flyout is open. The join edge is
-   squared and overlapped below so it reads as one continuous surface. */
+   squared and overlapped below so it reads as one continuous surface. The
+   height is capped to keep the same ~8px bottom clearance as the card's outer
+   inset, so a long pet list scrolls instead of clipping its bottom corner and
+   shadow against the window edge. */
 .tray-submenu {
   position: absolute;
   top: -1px;
   z-index: 1;
   box-sizing: border-box;
   width: 164px;
-  max-height: calc(100vh - 20px);
+  max-height: calc(100vh - 28px);
   overflow-y: auto;
   padding: 4px;
   display: none;
