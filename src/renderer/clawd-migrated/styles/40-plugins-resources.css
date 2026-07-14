@@ -447,7 +447,7 @@
   border-bottom: 1px solid oklch(27% 0.006 75);
   color: oklch(59% 0.009 78);
 }
-.claude-profile-options-search input {
+.claude-resources-page-dark .claude-profile-options .claude-profile-options-search input {
   min-width: 0;
   min-height: 30px;
   padding: 0;
@@ -460,9 +460,10 @@
   font: inherit;
   font-size: 11px;
 }
-.claude-profile-options-search input::placeholder { color: oklch(53% 0.009 78); }
-.claude-resources-page-dark .claude-profile-options-search input:focus {
+.claude-resources-page-dark .claude-profile-options .claude-profile-options-search input::placeholder { color: oklch(53% 0.009 78); }
+.claude-resources-page-dark .claude-profile-options .claude-profile-options-search input:focus {
   border: 0;
+  background: transparent;
   outline: 0;
   box-shadow: none;
 }
@@ -494,7 +495,9 @@
 .claude-profile-options-list > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .claude-profile-options-list > button:hover,
 .claude-profile-options-list > button:focus-visible { color: oklch(91% 0.012 78); background: oklch(23% 0.009 75); outline: 0; }
-.claude-profile-options-list > button.current { color: oklch(88% 0.035 82); background: oklch(22% 0.01 78); }
+.claude-profile-options-list > button.current { color: oklch(88% 0.035 82); background: transparent; }
+.claude-profile-options-list > button.current:hover,
+.claude-profile-options-list > button.current:focus-visible { background: oklch(23% 0.009 75); }
 .claude-profile-options-list > button svg { justify-self: end; color: oklch(72% 0.06 154); }
 .claude-profile-options-empty {
   min-height: 34px;
