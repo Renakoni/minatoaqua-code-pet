@@ -1,0 +1,24 @@
+import { randomUUID } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+
+export function backupJsonFile(filePath: string, now = Date.now()) {
+  if (!existsSync(filePath)) return null;
+  const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
+  const basePath = filePath.toLowerCase().endsWith(".json") ? filePath.slice(0, -5) : filePath;
+  const backupPath = `${basePath}.clawd-backup-${stamp}.json`;
+  copyFileSync(filePath, backupPath);
+  return backupPath;
+}
+
+export function writeTextFileAtomic(filePath: string, contents: string) {
+  const parent = dirname(filePath);
+  mkdirSync(parent, { recursive: true });
+  const tempPath = join(parent, `.${basename(filePath)}.${process.pid}.${randomUUID()}.tmp`);
+  try {
+    writeFileSync(tempPath, contents, "utf8");
+    renameSync(tempPath, filePath);
+  } finally {
+    try { rmSync(tempPath, { force: true }); } catch { /* best-effort temp cleanup */ }
+  }
+}

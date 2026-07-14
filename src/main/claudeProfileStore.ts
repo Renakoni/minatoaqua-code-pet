@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { existsSync, readFileSync, renameSync } from "node:fs";
 import {
   CLAUDE_PROFILE_SCHEMA_VERSION,
   DEFAULT_CLAUDE_PROFILE_ID,
@@ -11,6 +10,7 @@ import {
   type ClaudeResourceItem,
   type ClaudeResourcesSnapshot
 } from "../shared/claudeProfiles";
+import { writeTextFileAtomic } from "./filePersistence";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -112,15 +112,7 @@ export function createInitialClaudeProfileStore(inventory: ClaudeProfileInventor
 
 export function saveClaudeProfileStore(filePath: string, data: ClaudeProfileStoreData) {
   const validated = parseClaudeProfileStore(data);
-  const parent = dirname(filePath);
-  mkdirSync(parent, { recursive: true });
-  const tempPath = join(parent, `.${basename(filePath)}.${process.pid}.${randomUUID()}.tmp`);
-  try {
-    writeFileSync(tempPath, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
-    renameSync(tempPath, filePath);
-  } finally {
-    try { rmSync(tempPath, { force: true }); } catch { /* best-effort temp cleanup */ }
-  }
+  writeTextFileAtomic(filePath, `${JSON.stringify(validated, null, 2)}\n`);
 }
 
 function preserveInvalidClaudeProfileStore(filePath: string, now: number) {
