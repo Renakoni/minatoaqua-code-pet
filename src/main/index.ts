@@ -42,6 +42,7 @@ import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSi
 import { createTrayMenuController } from "./trayMenuController";
 import { buildPowerShellLaunch, CHARA_DESK_CLAUDE_ENV, CHARA_DESK_RESUME_ID_ENV, launchDetachedTerminal, launchFailedMessage, mergeTerminalEnv, normalizeCmdCwd, notAFolderMessage, PS_RESUME_CLAUDE, PS_RUN_CLAUDE, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd, sessionFolderUnavailableMessage, trustedCmdPath, trustedPowerShellPath, uncNotSupportedMessage } from "./providerTerminal";
 import { createClaudeProfilesSnapshot } from "./claudeProfileStore";
+import { buildSafeClaudeMcpResources, readClaudeMcpLiveConfig, synchronizeClaudeMcpInventory } from "./claudeMcpInventory";
 import { backupJsonFile } from "./filePersistence";
 
 type DailyRuntimeStats = {
@@ -1101,6 +1102,10 @@ function claudeProfilesPath() {
   return join(app.getPath("userData"), "claude-profiles.json");
 }
 
+function claudeMcpInventoryPath() {
+  return join(app.getPath("userData"), "claude-mcp-inventory.json");
+}
+
 const CLAUDE_RESOURCE_CACHE_TTL = 30 * 1000;
 let claudeResourceCache: { data: ClaudeResourcesSnapshot; timestamp: number } | null = null;
 let pendingClaudeResourceScan: Promise<ClaudeResourcesSnapshot> | null = null;
@@ -1298,22 +1303,13 @@ function scanClaudePlugins(claudeDir: string, enabledPluginsInput?: Record<strin
   }
 }
 
-function summarizeMcpServer(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return "configured";
-  const server = value as Record<string, unknown>;
-  if (typeof server.command === "string") return `command: ${server.command}`;
-  if (typeof server.url === "string") return `url: ${server.url}`;
-  if (typeof server.type === "string") return `type: ${server.type}`;
-  return Object.keys(server).filter(key => !/token|secret|key|password/i.test(key)).slice(0, 4).join(", ") || "configured";
-}
-
 function scanClaudeMcp(claudeJson: string): ClaudeResourceItem[] {
   const config = readJsonObject(claudeJson);
   const servers = config?.mcpServers;
   if (!servers || typeof servers !== "object" || Array.isArray(servers)) return [];
 
   return Object.entries(servers as Record<string, unknown>)
-    .map(([name, server]) => ({
+    .map(([name]) => ({
       id: `mcp:${name}`,
       kind: "mcp" as const,
       name,
@@ -1321,7 +1317,7 @@ function scanClaudeMcp(claudeJson: string): ClaudeResourceItem[] {
       path: claudeJson,
       enabled: true,
       source: "claude-json" as const,
-      detail: summarizeMcpServer(server)
+      detail: "configured"
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -1365,10 +1361,14 @@ function getClaudeResourcesSnapshot(force = false) {
 
 async function getClaudeProfilesSnapshot(force = false) {
   const profilePath = claudeProfilesPath();
+  const mcpInventoryPath = claudeMcpInventoryPath();
   // Default must capture the live global state, not a startup-warmup cache
   // that may predate an external Claude configuration change.
-  const resources = await getClaudeResourcesSnapshot(force || !existsSync(profilePath));
-  return createClaudeProfilesSnapshot(profilePath, resources);
+  const resources = await getClaudeResourcesSnapshot(force || !existsSync(profilePath) || !existsSync(mcpInventoryPath));
+  const liveMcp = readClaudeMcpLiveConfig(resources.paths.claudeJson);
+  const mcpInventory = synchronizeClaudeMcpInventory(mcpInventoryPath, liveMcp.servers);
+  const safeMcpResources = buildSafeClaudeMcpResources(mcpInventory, Object.keys(liveMcp.servers));
+  return createClaudeProfilesSnapshot(profilePath, resources, Date.now(), safeMcpResources);
 }
 
 function isAllowedClaudeResourcePath(targetPath: string) {

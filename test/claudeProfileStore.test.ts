@@ -6,6 +6,7 @@ import {
   buildClaudeProfileInventory,
   createClaudeProfilesSnapshot,
   createInitialClaudeProfileStore,
+  getClaudeProfileDrift,
   loadOrCreateClaudeProfileStore,
   parseClaudeProfileStore,
   saveClaudeProfileStore
@@ -104,6 +105,13 @@ describe("Claude profile store", () => {
     const first = createClaudeProfilesSnapshot(filePath, resources(), 456);
     expect(first.schemaVersion).toBe(1);
     expect(first.inventory.scannedAt).toBe(123);
+    expect(first.drift).toEqual({
+      profileId: "default",
+      isDrifted: false,
+      skills: false,
+      plugins: false,
+      mcpServers: false
+    });
 
     const persistedText = readFileSync(filePath, "utf8");
     expect(persistedText).not.toContain("secret");
@@ -176,5 +184,22 @@ describe("Claude profile store", () => {
     const store = createInitialClaudeProfileStore(inventory(), 456);
     store.profiles[0].skills.push("skill:graphify");
     expect(() => parseClaudeProfileStore(store)).toThrow("Duplicate Claude profile skills");
+  });
+
+  it("marks a crash-time partial apply as drift instead of trusting the pointer", () => {
+    const persisted = createInitialClaudeProfileStore(inventory(), 456);
+    const current = inventory();
+    current.mcpServers = [
+      { id: "mcp:filesystem", kind: "mcp", name: "filesystem", enabled: false },
+      { id: "mcp:browser", kind: "mcp", name: "browser", enabled: true }
+    ];
+
+    expect(getClaudeProfileDrift(persisted, current)).toEqual({
+      profileId: "default",
+      isDrifted: true,
+      skills: false,
+      plugins: false,
+      mcpServers: true
+    });
   });
 });
