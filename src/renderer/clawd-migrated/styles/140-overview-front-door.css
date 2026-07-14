@@ -519,8 +519,56 @@
 .connection-onboarding p { color: var(--overview-faint); font-size: 12px; line-height: 1.5; }
 
 .overview-connection .hooks-manager.actions-only {
-  padding: 10px 14px 12px;
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 14px;
   border-top: 1px solid var(--overview-line);
+}
+
+.overview-workbench .overview-connection .hooks-manager.actions-only .hooks-actions {
+  margin: 0;
+}
+
+.overview-workbench .overview-connection .hooks-manager.actions-only .hooks-actions button {
+  min-width: 92px;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid oklch(64% 0.065 82 / .42);
+  border-radius: 7px;
+  color: var(--overview-ink);
+  background: var(--overview-active-surface);
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  white-space: nowrap;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.overview-workbench .overview-connection .hooks-manager.actions-only .hooks-actions button svg {
+  color: var(--overview-accent);
+}
+
+.overview-workbench .overview-connection .hooks-manager.actions-only .hooks-actions button:hover:not(:disabled) {
+  transform: none;
+  border-color: var(--overview-active-line);
+  color: var(--overview-ink);
+  background: var(--overview-surface-hover);
+  box-shadow: none;
+}
+
+.overview-workbench .overview-connection .hooks-manager.actions-only .hooks-actions button:focus-visible {
+  outline: 2px solid var(--overview-accent);
+  outline-offset: 2px;
+}
+
+.overview-workbench .overview-connection .hooks-manager.actions-only .hooks-actions button:disabled {
+  opacity: .55;
+  cursor: default;
 }
 
 /* The extra specificity beats 130's generic `.workbench-section-head > div`
