@@ -1,8 +1,7 @@
 /** Main-process-only preservation store for full global MCP definitions. */
-import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, renameSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { ClaudeProfileMcpStatus, ClaudeProfileResource } from "../shared/claudeProfiles";
-import { writeTextFileAtomic } from "./filePersistence";
+import { quarantineInvalidJsonFile, writeTextFileAtomic } from "./filePersistence";
 
 type JsonObject = Record<string, unknown>;
 
@@ -99,14 +98,6 @@ export function loadClaudeMcpInventory(filePath: string): ClaudeMcpInventoryData
   return parseClaudeMcpInventory(parsed);
 }
 
-function preserveInvalidClaudeMcpInventory(filePath: string, now: number) {
-  const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
-  const basePath = filePath.toLowerCase().endsWith(".json") ? filePath.slice(0, -5) : filePath;
-  const preservedPath = `${basePath}.invalid-${stamp}-${randomUUID()}.json`;
-  renameSync(filePath, preservedPath);
-  console.warn(`Invalid Claude MCP inventory preserved at ${preservedPath}`);
-}
-
 export function mergeClaudeMcpInventory(
   current: ClaudeMcpInventoryData | null,
   liveServers: Record<string, ClaudeMcpDefinition>,
@@ -141,7 +132,7 @@ export function synchronizeClaudeMcpInventory(
     current = loadClaudeMcpInventory(filePath);
   } catch (error) {
     if (!(error instanceof InvalidClaudeMcpInventoryError)) throw error;
-    preserveInvalidClaudeMcpInventory(filePath, now);
+    quarantineInvalidJsonFile(filePath, now, "Claude MCP inventory");
     current = null;
   }
   const merged = mergeClaudeMcpInventory(current, liveServers, now);

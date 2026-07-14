@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, renameSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   CLAUDE_PROFILE_SCHEMA_VERSION,
   DEFAULT_CLAUDE_PROFILE_ID,
@@ -14,7 +13,7 @@ import {
   type ClaudeResourceItem,
   type ClaudeResourcesSnapshot
 } from "../shared/claudeProfiles";
-import { writeTextFileAtomic } from "./filePersistence";
+import { quarantineInvalidJsonFile, writeTextFileAtomic } from "./filePersistence";
 
 export { getClaudeProfileDrift } from "../shared/claudeProfiles";
 
@@ -264,14 +263,6 @@ export function saveClaudeProfileStore(filePath: string, data: ClaudeProfileStor
   writeTextFileAtomic(filePath, `${JSON.stringify(validated, null, 2)}\n`);
 }
 
-function preserveInvalidClaudeProfileStore(filePath: string, now: number) {
-  const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
-  const basePath = filePath.toLowerCase().endsWith(".json") ? filePath.slice(0, -5) : filePath;
-  const preservedPath = `${basePath}.invalid-${stamp}-${randomUUID()}.json`;
-  renameSync(filePath, preservedPath);
-  console.warn(`Invalid Claude profile store preserved at ${preservedPath}`);
-}
-
 export function loadOrCreateClaudeProfileStore(
   filePath: string,
   inventory: ClaudeProfileInventory,
@@ -286,7 +277,7 @@ export function loadOrCreateClaudeProfileStore(
       // Never overwrite an invalid or unsupported-version store.
       // Preserve it for inspection or a future migration, then recover with a
       // fresh Default captured from the current live Claude inventory.
-      preserveInvalidClaudeProfileStore(filePath, now);
+      quarantineInvalidJsonFile(filePath, now, "Claude profile store");
     }
   }
   const initial = createInitialClaudeProfileStore(inventory, now);
