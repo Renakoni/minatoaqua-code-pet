@@ -564,7 +564,8 @@ function issueMessage(issues: Array<{ code: string; message: string; resourceId?
   const first = issues.find(item => item.code === "rollback-failed") ?? issues[0];
   if (!first) return zh ? "操作失败。" : "The operation failed.";
   if (!zh) return first.message;
-  const localized = ZH_ISSUE_MESSAGES[first.code] ?? "操作失败。";
+  const localized = ZH_ISSUE_MESSAGES[first.code];
+  if (!localized) return first.message || "操作失败。";
   return first.resourceId ? `${localized} (${first.resourceId})` : localized;
 }
 
@@ -572,7 +573,9 @@ const ZH_ISSUE_MESSAGES: Record<string, string> = {
   "invalid-profile-input": "方案内容无效。",
   "invalid-profile-reference": "配置方案不存在或已失效。",
   "duplicate-profile-name": "方案名称已存在。",
+  "duplicate-profile-id": "生成的方案 ID 已存在，请重试。",
   "protected-profile": "Default 方案受保护，无法执行此操作。",
+  "applied-profile": "请先应用其他方案，再删除此方案。",
   "profile-delete-blocked": "该方案当前无法删除。",
   "missing-skill": "方案引用的 Skill 已不存在。",
   "missing-plugin": "方案引用的 Plugin 已不存在。",

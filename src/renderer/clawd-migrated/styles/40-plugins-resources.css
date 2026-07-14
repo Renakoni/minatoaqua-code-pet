@@ -648,6 +648,9 @@
   outline: 0;
   box-shadow: none;
 }
+.claude-resources-page-dark .claude-profile-name-field input:focus-visible {
+  border-color: oklch(43% 0.01 78);
+}
 .claude-profile-name-field input:disabled { color: oklch(66% 0.01 78); background: oklch(18% 0.006 75); }
 .claude-profile-editor-header .claude-profile-editor-actions { grid-column: 5; }
 .claude-profile-editor-tabs { grid-template-columns: repeat(3, minmax(136px, 1fr)) !important; }

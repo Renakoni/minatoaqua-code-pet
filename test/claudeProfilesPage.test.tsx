@@ -338,6 +338,45 @@ describe("Unified Claude Profiles page", () => {
     expect(screen.getByRole("button", { name: "方案：Default" })).toBeTruthy();
   });
 
+  it("keeps store mutation errors actionable in the Chinese UI", async () => {
+    deleteClaudeProfile.mockResolvedValueOnce({
+      ok: false,
+      issues: [{ code: "applied-profile", message: "Apply another profile before deleting this one." }]
+    });
+    const view = renderPage(defaultSettings, "zh");
+
+    fireEvent.click(await screen.findByRole("button", { name: "方案：Default" }));
+    fireEvent.click(screen.getByRole("option", { name: "Focused" }));
+    await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("focused"));
+    fireEvent.click(screen.getByRole("button", { name: "编辑配置方案" }));
+    fireEvent.click(await screen.findByRole("button", { name: "删除" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "删除" }).at(-1)!);
+
+    const localized = "请先应用其他方案，再删除此方案。";
+    await screen.findAllByText(localized);
+    expect(view.container.querySelector(".connection-error")?.textContent).toBe(localized);
+    expect(screen.queryByText("Apply another profile before deleting this one.")).toBeNull();
+  });
+
+  it("localizes duplicate profile id errors in the Chinese UI", async () => {
+    saveClaudeProfile.mockResolvedValueOnce({
+      ok: false,
+      issues: [{ code: "duplicate-profile-id", message: "A generated Claude profile id already exists." }]
+    });
+    const view = renderPage(defaultSettings, "zh");
+
+    await screen.findByRole("button", { name: "方案：Default" });
+    fireEvent.click(screen.getByRole("button", { name: "新建配置方案" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /空白方案/ }));
+    fireEvent.change(await screen.findByPlaceholderText("名称"), { target: { value: "生信" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    const localized = "生成的方案 ID 已存在，请重试。";
+    await screen.findAllByText(localized);
+    expect(view.container.querySelector(".connection-error")?.textContent).toBe(localized);
+    expect(screen.queryByText("A generated Claude profile id already exists.")).toBeNull();
+  });
+
   it("clears the busy state and reports an unexpected apply rejection", async () => {
     applyClaudeProfile.mockRejectedValueOnce(new Error("IPC unavailable"));
     const view = renderPage();
