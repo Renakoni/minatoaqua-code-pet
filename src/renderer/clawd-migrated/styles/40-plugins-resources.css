@@ -347,7 +347,13 @@
   flex-direction: column;
   gap: 10px;
 }
-.claude-profiles-page > .claude-resource-subtabs.compact:not(.claude-profile-editor-tabs) {
+.claude-profile-top-row {
+  display: grid;
+  grid-template-columns: minmax(285px, 330px) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px;
+}
+.claude-profile-top-row > .claude-resource-subtabs.compact {
   grid-template-columns: repeat(3, minmax(136px, 1fr));
 }
 .claude-profiles-page > .claude-resource-table { flex: 1 1 auto; }
@@ -360,57 +366,128 @@
 .claude-profile-toolbar {
   position: relative;
   z-index: 3;
-  width: fit-content;
-  max-width: 100%;
-  min-height: 46px;
-  display: inline-flex;
+  min-width: 0;
+  min-height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 5px 6px 5px 10px;
+  gap: 6px;
+  padding: 5px 6px 5px 8px;
   border: 1px solid oklch(28% 0.006 75);
   border-radius: 9px;
   background: oklch(18.5% 0.006 75);
-  align-self: flex-start;
 }
 .claude-profile-picker {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(180px, 300px);
+  grid-template-columns: auto minmax(118px, 1fr);
   align-items: center;
-  gap: 9px;
+  gap: 6px;
 }
 .claude-profile-picker > span {
   color: oklch(60% 0.009 78);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 680;
   white-space: nowrap;
 }
-.claude-profile-picker > div { position: relative; min-width: 0; }
-.claude-profile-picker select {
+.claude-profile-dropdown { position: relative; min-width: 0; }
+.claude-profile-select-button {
   width: 100%;
-  min-height: 34px;
-  padding: 0 34px 0 11px;
-  appearance: none;
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 8px 0 9px;
   border: 1px solid oklch(31% 0.008 75);
   border-radius: 7px;
   color: oklch(90% 0.011 78);
   background: oklch(21% 0.006 75);
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 650;
+  text-align: left;
 }
-.claude-profile-picker select:focus-visible,
+.claude-profile-select-button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.claude-profile-select-button > svg { color: oklch(61% 0.01 78); transition: transform 150ms ease; }
+.claude-profile-select-button[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.claude-profile-select-button:disabled { opacity: .5; cursor: wait; }
+.claude-profile-select-button:focus-visible,
 .claude-profile-name-field input:focus-visible {
   outline: 2px solid oklch(61% 0.055 78 / .68);
   outline-offset: 1px;
 }
-.claude-profile-picker svg {
+.claude-profile-options {
   position: absolute;
-  top: 50%;
-  right: 11px;
-  color: oklch(61% 0.01 78);
-  pointer-events: none;
-  transform: translateY(-50%);
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 10;
+  width: 100%;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid oklch(31% 0.009 75);
+  border-radius: 7px;
+  background: oklch(18.5% 0.007 75);
+  box-shadow: 0 14px 30px oklch(8% 0.008 75 / .42);
+}
+.claude-profile-options-search {
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 0 7px;
+  border-bottom: 1px solid oklch(27% 0.006 75);
+  color: oklch(59% 0.009 78);
+}
+.claude-profile-options-search input {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  color: oklch(88% 0.011 78);
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  font-size: 11px;
+}
+.claude-profile-options-search input::placeholder { color: oklch(53% 0.009 78); }
+.claude-profile-options-list {
+  max-height: 150px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.claude-profile-options-list::-webkit-scrollbar { display: none; }
+.claude-profile-options-list > button {
+  width: 100%;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 7px;
+  border-radius: 5px;
+  color: oklch(70% 0.011 78);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 620;
+  text-align: left;
+}
+.claude-profile-options-list > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.claude-profile-options-list > button:hover,
+.claude-profile-options-list > button:focus-visible { color: oklch(91% 0.012 78); background: oklch(23% 0.009 75); outline: 0; }
+.claude-profile-options-list > button.current { color: oklch(88% 0.035 82); background: oklch(22% 0.014 78); }
+.claude-profile-options-list > button svg { justify-self: end; color: oklch(72% 0.06 154); }
+.claude-profile-options-empty {
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  color: oklch(54% 0.009 78);
+  font-size: 10px;
 }
 .claude-profile-toolbar-actions,
 .claude-profile-editor-actions {
@@ -418,6 +495,11 @@
   align-items: center;
   justify-content: flex-end;
   gap: 7px;
+}
+.claude-profile-toolbar .claude-profile-toolbar-actions { gap: 5px; }
+.claude-profile-toolbar .claude-profile-icon-button {
+  width: 32px;
+  min-height: 32px;
 }
 .claude-profile-icon-button,
 .claude-profile-text-button,
@@ -628,13 +710,13 @@
   font-size: 11px;
 }
 @media (max-width: 820px) {
-  .claude-profile-toolbar { flex-wrap: wrap; }
-  .claude-profile-picker { grid-template-columns: auto minmax(150px, 1fr); }
+  .claude-profile-top-row { grid-template-columns: minmax(0, 1fr); }
+  .claude-profile-picker { grid-template-columns: auto minmax(118px, 1fr); }
   .claude-profile-editor-header { grid-template-columns: auto minmax(0, 1fr) auto; }
   .claude-profile-editor-header h2 { grid-column: 2; }
   .claude-profile-name-field { grid-column: 1 / -1; grid-row: 2; }
   .claude-profile-editor-actions { grid-column: 3; grid-row: 1; }
-  .claude-profiles-page > .claude-resource-subtabs.compact:not(.claude-profile-editor-tabs) .claude-resource-subtab:not(.active) { display: grid; }
+  .claude-profile-top-row > .claude-resource-subtabs.compact.claude-profile-resource-tabs .claude-resource-subtab:not(.active) { display: grid; }
   .claude-profile-editor-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
   .claude-profile-editor-tabs .claude-resource-subtab:not(.active) { display: grid !important; }
   .claude-profile-live-state { display: none; }

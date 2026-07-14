@@ -87,9 +87,16 @@ function installCompanionMock() {
     return { ok: true, profileId: profile.id, snapshot: currentSnapshot };
   });
   applyClaudeProfile.mockImplementation(async profileId => {
+    const profile = currentSnapshot.profiles.find(item => item.id === profileId)!;
     currentSnapshot = {
       ...currentSnapshot,
       appliedProfileId: profileId,
+      inventory: {
+        ...currentSnapshot.inventory,
+        skills: currentSnapshot.inventory.skills.map(item => ({ ...item, enabled: profile.skills.includes(item.id) })),
+        plugins: currentSnapshot.inventory.plugins.map(item => ({ ...item, enabled: profile.plugins.includes(item.id) })),
+        mcpServers: currentSnapshot.inventory.mcpServers.map(item => ({ ...item, enabled: profile.mcpServers.includes(item.id) }))
+      },
       drift: { profileId, isDrifted: false, skills: false, plugins: false, mcpServers: false }
     };
     return { ok: true, profileId, snapshot: currentSnapshot };
@@ -134,7 +141,8 @@ describe("Unified Claude Profiles page", () => {
   it("keeps the resource page compact and moves resources between two virtualized editor columns", async () => {
     const view = renderPage();
 
-    expect(await screen.findByRole("combobox", { name: "Current profile" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Profile: Default" })).toBeTruthy();
+    expect(view.container.querySelector(".claude-profile-picker select")).toBeNull();
     expect(screen.queryByText("Currently applied")).toBeNull();
     expect(screen.queryByText("Only new Claude Code sessions read an applied profile. Running sessions stay unchanged.")).toBeNull();
     expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
@@ -172,20 +180,72 @@ describe("Unified Claude Profiles page", () => {
 
   it("applies a selected profile immediately and confirms the switch with a toast", async () => {
     renderPage();
-    await screen.findByRole("combobox", { name: "Current profile" });
+    fireEvent.click(await screen.findByRole("button", { name: "Profile: Default" }));
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Current profile" }), { target: { value: "focused" } });
+    fireEvent.click(screen.getByRole("option", { name: "Focused" }));
 
     await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("focused"));
     expect(previewClaudeProfile).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
     expect(await screen.findByText("Switched to: Focused")).toBeTruthy();
-    expect((screen.getByRole("combobox", { name: "Current profile" }) as HTMLSelectElement).value).toBe("focused");
+    expect(screen.getByRole("button", { name: "Profile: Focused" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skills 1" })).toBeTruthy();
+    expect(document.querySelectorAll(".claude-profile-readonly-row")).toHaveLength(1);
+  });
+
+  it("uses a searchable in-app profile menu with current-first natural ordering", async () => {
+    const focused = currentSnapshot.profiles[1];
+    currentSnapshot = {
+      ...currentSnapshot,
+      profiles: [
+        ...currentSnapshot.profiles,
+        { ...focused, id: "hash", name: "#Archive" },
+        { ...focused, id: "alpha", name: "alpha" },
+        { ...focused, id: "cable", name: "cABle" },
+        { ...focused, id: "zulu", name: "Zulu" }
+      ]
+    };
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Profile: Default" }));
+    expect(screen.getAllByRole("option").map(option => option.textContent)).toEqual([
+      "Default",
+      "#Archive",
+      "alpha",
+      "cABle",
+      "Focused",
+      "Zulu"
+    ]);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search profiles" }), { target: { value: "ab" } });
+    expect(await screen.findByRole("option", { name: "cABle" })).toBeTruthy();
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+  });
+
+  it("reapplies a drifted current profile and reports Plugin enablement consistently", async () => {
+    currentSnapshot = {
+      ...currentSnapshot,
+      inventory: {
+        ...currentSnapshot.inventory,
+        plugins: currentSnapshot.inventory.plugins.map(plugin => ({ ...plugin, enabled: false }))
+      },
+      drift: { profileId: "default", isDrifted: true, skills: false, plugins: true, mcpServers: false }
+    };
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Profile: Default" }));
+    fireEvent.click(screen.getByRole("option", { name: "Default" }));
+    await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("default"));
+    fireEvent.click(screen.getByRole("button", { name: "Plugins 1" }));
+
+    expect(await screen.findByText("Active now")).toBeTruthy();
+    expect(screen.getByText("Enabled")).toBeTruthy();
+    expect(screen.queryByText("Included")).toBeNull();
   });
 
   it("starts an empty profile with every resource unselected", async () => {
     renderPage();
-    await screen.findByRole("combobox", { name: "Current profile" });
+    await screen.findByRole("button", { name: "Profile: Default" });
 
     fireEvent.click(screen.getByRole("button", { name: "New profile" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Empty profile/ }));
@@ -204,7 +264,7 @@ describe("Unified Claude Profiles page", () => {
 
   it("creates a new profile by copying the selected membership", async () => {
     renderPage();
-    await screen.findByRole("combobox", { name: "Current profile" });
+    await screen.findByRole("button", { name: "Profile: Default" });
 
     fireEvent.click(screen.getByRole("button", { name: "New profile" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Copy selected/ }));
@@ -224,9 +284,9 @@ describe("Unified Claude Profiles page", () => {
 
   it("switches to Default before deleting the current custom profile", async () => {
     renderPage();
-    await screen.findByRole("combobox", { name: "Current profile" });
+    fireEvent.click(await screen.findByRole("button", { name: "Profile: Default" }));
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Current profile" }), { target: { value: "focused" } });
+    fireEvent.click(screen.getByRole("option", { name: "Focused" }));
     await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("focused"));
     fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));

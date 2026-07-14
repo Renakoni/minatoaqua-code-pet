@@ -1,6 +1,7 @@
 import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Check,
   ChevronDown,
   Code2,
   Copy,
@@ -56,6 +57,8 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [profileQuery, setProfileQuery] = useState("");
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -90,6 +93,17 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     ? snapshot.profiles.find(profile => profile.id === editor.initial.id)
     : undefined;
   const profileActionsAvailable = snapshot.mcpStatus === "ready" && !loading && !loadError;
+  const profileOptions = useMemo(() => {
+    const needle = profileQuery.trim().toLocaleLowerCase();
+    return snapshot.profiles
+      .filter(profile => !needle || profile.name.toLocaleLowerCase().includes(needle))
+      .sort((left, right) => {
+        if (left.id === selectedProfile?.id) return -1;
+        if (right.id === selectedProfile?.id) return 1;
+        const groupDelta = profileNameSortGroup(left.name) - profileNameSortGroup(right.name);
+        return groupDelta || left.name.localeCompare(right.name, "en", { numeric: true, sensitivity: "base" });
+      });
+  }, [profileQuery, selectedProfile?.id, snapshot.profiles]);
 
   const tabs = [
     { id: "skills" as const, label: "Skills", icon: Code2 },
@@ -97,8 +111,11 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     { id: "mcpServers" as const, label: "MCP", icon: Server }
   ];
   const activeTabLabel = tabs.find(tab => tab.id === activeTab)?.label ?? activeTab;
-  const items = snapshot.inventory[activeTab];
   const selectedIds = useMemo(() => new Set(selectedProfile?.[activeTab] ?? []), [activeTab, selectedProfile]);
+  const items = useMemo(
+    () => snapshot.inventory[activeTab].filter(item => selectedIds.has(item.id)),
+    [activeTab, selectedIds, snapshot.inventory]
+  );
   const filteredItems = useMemo(() => {
     const needle = deferredQuery.trim().toLocaleLowerCase();
     if (!needle) return items;
@@ -232,61 +249,113 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   return (
     <div className="claude-resources-page claude-resources-page-dark claude-profiles-page">
       <RoutingToaster />
-      <section className="claude-profile-toolbar">
-        <label className="claude-profile-picker">
-          <span>{zh ? "当前方案" : "Current profile"}</span>
-          <div>
-            <select
-              value={selectedProfile?.id ?? ""}
-              onChange={event => {
-                const profile = snapshot.profiles.find(item => item.id === event.target.value);
-                if (profile) void switchProfile(profile.id, profile.name);
-              }}
-              disabled={!profileActionsAvailable || busyAction !== null}
-            >
-              {snapshot.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-            </select>
-            <ChevronDown size={15} aria-hidden="true" />
+      <div className="claude-profile-top-row">
+        <section className="claude-profile-toolbar">
+          <div className="claude-profile-picker">
+            <span>{zh ? "方案" : "Profile"}</span>
+            <div className="claude-profile-dropdown" onBlur={event => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setProfileMenuOpen(false);
+            }} onKeyDown={event => {
+              if (event.key === "Escape") setProfileMenuOpen(false);
+            }}>
+              <button
+                type="button"
+                className="claude-profile-select-button"
+                onClick={() => {
+                  setNewMenuOpen(false);
+                  if (!profileMenuOpen) setProfileQuery("");
+                  setProfileMenuOpen(!profileMenuOpen);
+                }}
+                disabled={!profileActionsAvailable || busyAction !== null}
+                aria-haspopup="listbox"
+                aria-expanded={profileMenuOpen}
+                aria-label={zh ? `方案：${selectedProfile?.name ?? ""}` : `Profile: ${selectedProfile?.name ?? ""}`}
+              >
+                <span>{selectedProfile?.name ?? ""}</span>
+                <ChevronDown size={15} aria-hidden="true" />
+              </button>
+              {profileMenuOpen ? (
+                <div className="claude-profile-options">
+                  <label className="claude-profile-options-search">
+                    <Search size={13} aria-hidden="true" />
+                    <input
+                      value={profileQuery}
+                      onChange={event => setProfileQuery(event.target.value)}
+                      placeholder={zh ? "搜索方案" : "Search profiles"}
+                      aria-label={zh ? "搜索方案" : "Search profiles"}
+                      autoFocus
+                    />
+                  </label>
+                  <div className="claude-profile-options-list" role="listbox" aria-label={zh ? "配置方案" : "Profiles"}>
+                    {profileOptions.length === 0 ? (
+                      <span className="claude-profile-options-empty">{zh ? "没有匹配方案" : "No matching profiles"}</span>
+                    ) : profileOptions.map(profile => {
+                      const current = profile.id === selectedProfile?.id;
+                      return (
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={current}
+                          key={profile.id}
+                          className={current ? "current" : undefined}
+                          onClick={() => {
+                            setProfileMenuOpen(false);
+                            if (!current || snapshot.drift.isDrifted) void switchProfile(profile.id, profile.name);
+                          }}
+                        >
+                          <span>{profile.name}</span>
+                          {current ? <Check size={13} aria-hidden="true" /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
-        </label>
 
-        <div className="claude-profile-toolbar-actions">
-          <button type="button" className="claude-profile-icon-button" onClick={() => selectedProfile && startEdit(selectedProfile)} disabled={!profileActionsAvailable || !selectedProfile || busyAction !== null} aria-label={zh ? "编辑配置方案" : "Edit profile"} title={zh ? "编辑" : "Edit"}>
-            <Pencil size={16} />
-          </button>
-          <div className="claude-profile-new-menu" onBlur={event => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setNewMenuOpen(false);
-          }}>
-            <button type="button" className="claude-profile-icon-button" onClick={() => setNewMenuOpen(open => !open)} disabled={!profileActionsAvailable || busyAction !== null} aria-label={zh ? "新建配置方案" : "New profile"} aria-haspopup="menu" aria-expanded={newMenuOpen} title={zh ? "新建" : "New"}>
-              <Plus size={17} />
+          <div className="claude-profile-toolbar-actions">
+            <button type="button" className="claude-profile-icon-button" onClick={() => selectedProfile && startEdit(selectedProfile)} disabled={!profileActionsAvailable || !selectedProfile || busyAction !== null} aria-label={zh ? "编辑配置方案" : "Edit profile"} title={zh ? "编辑" : "Edit"}>
+              <Pencil size={16} />
             </button>
-            {newMenuOpen ? (
-              <div className="claude-profile-new-options" role="menu">
-                <button type="button" role="menuitem" onClick={() => startCreate(false)}><Plus size={15} /><span><b>{zh ? "空白方案" : "Empty profile"}</b><small>{zh ? "从零开始选择" : "Start with no resources"}</small></span></button>
-                <button type="button" role="menuitem" onClick={() => startCreate(true)} disabled={!selectedProfile}><Copy size={15} /><span><b>{zh ? "复制当前方案" : "Copy selected"}</b><small>{selectedProfile?.name}</small></span></button>
-              </div>
-            ) : null}
+            <div className="claude-profile-new-menu" onBlur={event => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setNewMenuOpen(false);
+            }}>
+              <button type="button" className="claude-profile-icon-button" onClick={() => {
+                setProfileMenuOpen(false);
+                setNewMenuOpen(open => !open);
+              }} disabled={!profileActionsAvailable || busyAction !== null} aria-label={zh ? "新建配置方案" : "New profile"} aria-haspopup="menu" aria-expanded={newMenuOpen} title={zh ? "新建" : "New"}>
+                <Plus size={17} />
+              </button>
+              {newMenuOpen ? (
+                <div className="claude-profile-new-options" role="menu">
+                  <button type="button" role="menuitem" onClick={() => startCreate(false)}><Plus size={15} /><span><b>{zh ? "空白方案" : "Empty profile"}</b><small>{zh ? "从零开始选择" : "Start with no resources"}</small></span></button>
+                  <button type="button" role="menuitem" onClick={() => startCreate(true)} disabled={!selectedProfile}><Copy size={15} /><span><b>{zh ? "复制当前方案" : "Copy selected"}</b><small>{selectedProfile?.name}</small></span></button>
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
-      </section>
+
+        </section>
+
+        <nav className="claude-resource-subtabs compact claude-profile-resource-tabs" aria-label={zh ? "资源类型" : "Resource type"}>
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button type="button" key={tab.id} className={`claude-resource-subtab ${activeTab === tab.id ? "active" : ""}`} onClick={() => setActiveTab(tab.id)}>
+                <Icon size={16} />
+                <span><b>{tab.label}</b></span>
+                <small>{selectedProfile?.[tab.id].length ?? 0}</small>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
 
       {snapshot.mcpStatus !== "ready" ? (
         <section className="claude-profile-unavailable"><AlertTriangle size={16} />{snapshot.mcpStatus === "config-unreadable" ? (zh ? "暂时无法读取 ~/.claude.json，方案操作已暂停。" : "~/.claude.json is temporarily unreadable. Profile actions are paused.") : (zh ? "MCP 保全清单暂时不可用，方案操作已暂停。" : "The MCP preservation inventory is unavailable. Profile actions are paused.")}</section>
       ) : null}
       {loadError || actionError ? <section className="connection-error"><PlugZap size={18} />{loadError ?? actionError}</section> : null}
-
-      <nav className="claude-resource-subtabs compact" aria-label={zh ? "资源类型" : "Resource type"}>
-        {tabs.map(tab => {
-          const Icon = tab.icon;
-          return (
-            <button type="button" key={tab.id} className={`claude-resource-subtab ${activeTab === tab.id ? "active" : ""}`} onClick={() => setActiveTab(tab.id)}>
-              <Icon size={16} />
-              <span><b>{tab.label}</b></span>
-              <small>{snapshot.inventory[tab.id].length}</small>
-            </button>
-          );
-        })}
-      </nav>
 
       <section className="claude-resource-list-toolbar">
         <div className="claude-resource-search dark">
@@ -300,7 +369,6 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
 
       <ProfileResourceTable
         items={filteredItems}
-        selectedIds={selectedIds}
         loading={loading}
         emptyLabel={emptyText(activeTab, zh)}
         hideSensitiveContent={settings.hideSensitiveContent}
@@ -319,7 +387,6 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
 
 function ProfileResourceTable({
   items,
-  selectedIds,
   loading,
   emptyLabel,
   hideSensitiveContent,
@@ -327,7 +394,6 @@ function ProfileResourceTable({
   resetKey
 }: {
   items: ClaudeProfileResource[];
-  selectedIds: Set<string>;
   loading: boolean;
   emptyLabel: string;
   hideSensitiveContent: boolean;
@@ -356,7 +422,6 @@ function ProfileResourceTable({
                 <ResourceRow
                   key={item.id}
                   item={item}
-                  included={selectedIds.has(item.id)}
                   hideSensitiveContent={hideSensitiveContent}
                   zh={zh}
                   style={{ height: rowHeight, transform: `translateY(${index * rowHeight}px)` }}
@@ -370,7 +435,7 @@ function ProfileResourceTable({
   );
 }
 
-function ResourceRow({ item, included, hideSensitiveContent, zh, style }: { item: ClaudeProfileResource; included: boolean; hideSensitiveContent: boolean; zh: boolean; style?: React.CSSProperties }) {
+function ResourceRow({ item, hideSensitiveContent, zh, style }: { item: ClaudeProfileResource; hideSensitiveContent: boolean; zh: boolean; style?: React.CSSProperties }) {
   const description = hideSensitiveContent
     ? fallbackDescription(item.kind, zh)
     : item.description ?? item.detail ?? fallbackDescription(item.kind, zh);
@@ -384,8 +449,8 @@ function ResourceRow({ item, included, hideSensitiveContent, zh, style }: { item
         <span>{zh ? "CLAUDE CODE" : "CLAUDE CODE"}</span>
         <strong>{item.enabled ? (zh ? "当前启用" : "Active now") : (zh ? "当前未启用" : "Inactive now")}</strong>
       </div>
-      <div className={`claude-resource-status ${included ? "active" : "idle"}`}>
-        <span>{included ? (zh ? "已选择" : "Included") : (zh ? "未选择" : "Not included")}</span>
+      <div className="claude-resource-status active">
+        <span>{zh ? "已启用" : "Enabled"}</span>
       </div>
     </article>
   );
@@ -410,6 +475,13 @@ function nextCopyName(sourceName: string, profiles: ClaudeProfile[]) {
   return candidate;
 }
 
+function profileNameSortGroup(name: string) {
+  const first = name.trim().charAt(0);
+  if (!first || /^[0-9]$/.test(first) || !/^\p{L}$/u.test(first)) return 0;
+  if (/^[A-Za-z]$/.test(first)) return 1;
+  return 2;
+}
+
 function issueMessage(issues: Array<{ message: string }>, zh: boolean) {
   return issues[0]?.message ?? (zh ? "操作失败。" : "The operation failed.");
 }
@@ -421,7 +493,7 @@ function fallbackDescription(kind: ClaudeProfileResource["kind"], zh: boolean) {
 }
 
 function emptyText(tab: ResourceTab, zh: boolean) {
-  if (tab === "skills") return zh ? "没有发现可由全局方案管理的个人 Skills。" : "No personal Skills are available for global profiles.";
-  if (tab === "plugins") return zh ? "没有发现用户范围的 Plugins。" : "No user-scope Plugins are available.";
-  return zh ? "没有发现全局 MCP Servers。" : "No global MCP servers are available.";
+  if (tab === "skills") return zh ? "当前方案未启用 Skills。" : "No Skills are enabled in this profile.";
+  if (tab === "plugins") return zh ? "当前方案未启用 Plugins。" : "No Plugins are enabled in this profile.";
+  return zh ? "当前方案未启用 MCP。" : "No MCP servers are enabled in this profile.";
 }
