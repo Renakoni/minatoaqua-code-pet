@@ -45,6 +45,7 @@ import { OverviewSection } from "./features/overview/OverviewSection";
 import { connectionSurfaceKey } from "./features/overview/connectionState";
 import { useConnectionSurface } from "./features/overview/useConnectionSurface";
 import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
+import { keepIdleAnimationConfigReference, type IdleAnimationConfig, planIdleAnimation, startIdleAnimator } from "../state/petIdleAnimator";
 import { getPetTheme } from "./utils/petThemes";
 import { usePetPacks } from "./usePetPacks";
 import { spritesheetAssetsFromPack } from "../../shared/petPackAssets";
@@ -220,7 +221,7 @@ function PetApp() {
   const dragStart = useRef<{ mx: number; my: number; ox: number; oy: number }>({ mx: 0, my: 0, ox: 0, oy: 0 });
   const offRef = useRef(settings.positionOffsets ?? {});
   const [randomBubble, setRandomBubble] = useState<string | null>(null);
-  const idleTimers = useRef<number[]>([]);
+  const [idleAnimConfig, setIdleAnimConfig] = useState<IdleAnimationConfig | null>(settings.idleAnim ?? null);
   const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
 
   // Git 操作气泡：触发时在 Clawd 头顶弹出，2.2 秒后自动消失
@@ -275,46 +276,20 @@ function PetApp() {
     }
   }
 
-  // 随机动画定时器（仅管理随机模式的定时播放）
+  // 随机待机池是完整的可播放集合：启动或配置变化时立即选择一个成员，
+  // 播放间隔也回到池内成员，不隐式回退到可能已取消选择的 idle。
   useEffect(() => {
-    const cfg = settings.idleAnim;
-    // 空动画池与关闭随机动画同义：清理气泡与定时器，不再调度（与桌宠行为一致）。
-    const pool = cfg ? normalizeAnimationKeys(cfg.selectedSprites) : [];
-    if (!cfg?.enabled || pool.length === 0 || petState !== "idle" || editMode || mainIdle !== "random") {
+    setIdleAnimConfig(previous => keepIdleAnimationConfigReference(previous, settings.idleAnim ?? null));
+  }, [settings.idleAnim]);
+
+  useEffect(() => {
+    const plan = planIdleAnimation(idleAnimConfig);
+    if (!plan || petState !== "idle" || editMode || mainIdle !== "random") {
       setRandomBubble(null);
-      idleTimers.current.forEach(clearTimeout);
-      idleTimers.current = [];
       return;
     }
-    function playBatch() {
-      const sprite = pool[Math.floor(Math.random() * pool.length)];
-      const range = cfg!.repeatMax - cfg!.repeatMin;
-      const repeats = cfg!.repeatMin + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
-      let count = 0;
-      function show() {
-        setRandomBubble(sprite);
-        const t = window.setTimeout(() => {
-          setRandomBubble(null);
-          count++;
-          if (count < repeats) {
-            idleTimers.current = [window.setTimeout(show, 1500)];
-          } else {
-            scheduleNext();
-          }
-        }, 2500);
-        idleTimers.current = [t];
-      }
-      show();
-    }
-    function scheduleNext() {
-      const iMin = cfg!.intervalMin * 1000;
-      const iMax = cfg!.intervalMax * 1000;
-      const delay = iMin + Math.random() * (iMax - iMin);
-      idleTimers.current = [window.setTimeout(playBatch, delay)];
-    }
-    scheduleNext();
-    return () => { idleTimers.current.forEach(clearTimeout); idleTimers.current = []; };
-  }, [petState, editMode, settings.idleAnim, mainIdle]);
+    return startIdleAnimator(plan, setRandomBubble);
+  }, [petState, editMode, idleAnimConfig, mainIdle]);
 
   // 同步 effectiveIdleBubble 到设置面板
   useEffect(() => {

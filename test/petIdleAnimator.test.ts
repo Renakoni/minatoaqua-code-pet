@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   IDLE_SPRITE_GAP_MS,
   IDLE_SPRITE_SHOW_MS,
+  keepIdleAnimationConfigReference,
   planIdleAnimation,
   startIdleAnimator,
   type IdleAnimationPlan
@@ -76,7 +77,28 @@ describe("planIdleAnimation: config → runnable plan", () => {
   });
 });
 
-describe("startIdleAnimator: panel-preview choreography", () => {
+describe("keepIdleAnimationConfigReference", () => {
+  const config = {
+    enabled: true,
+    selectedSprites: ["extra_action_5", "extra_action_9"],
+    intervalMin: 10,
+    intervalMax: 20,
+    repeatMin: 1,
+    repeatMax: 2
+  };
+
+  it("keeps the stable reference for an equivalent settings broadcast", () => {
+    const equivalent = { ...config, selectedSprites: [...config.selectedSprites] };
+    expect(keepIdleAnimationConfigReference(config, equivalent)).toBe(config);
+  });
+
+  it("uses the new reference when the idle configuration changes", () => {
+    const changed = { ...config, selectedSprites: ["extra_action_9"] };
+    expect(keepIdleAnimationConfigReference(config, changed)).toBe(changed);
+  });
+});
+
+describe("startIdleAnimator: selected-pool choreography", () => {
   const plan: IdleAnimationPlan = {
     pool: ["extra_action_5", "extra_action_9"],
     intervalMinMs: 10_000,
@@ -88,42 +110,69 @@ describe("startIdleAnimator: panel-preview choreography", () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it("waits the random interval, then shows one sprite per batch with show/gap beats", () => {
+  it("keeps every resting and gap frame inside the selected pool", () => {
     const seen: Array<string | null> = [];
-    // rng: 0.5 → delay 15s; 0.9 → sprite index 1 (extra_action_9); span is 0 so
-    // no repeat roll.
-    const stop = startIdleAnimator(plan, key => seen.push(key), rngSequence([0.5, 0.9]));
+    // rng: 0 → resting sprite index 0; 0.5 → delay 15s; 0.9 → batch sprite
+    // index 1. The resting sprite replaces the old implicit idle/null gap.
+    const stop = startIdleAnimator(plan, key => seen.push(key), rngSequence([0, 0.5, 0.9]));
+
+    expect(seen).toEqual(["extra_action_5"]);
 
     vi.advanceTimersByTime(14_999);
-    expect(seen).toEqual([]);
+    expect(seen).toEqual(["extra_action_5"]);
 
     vi.advanceTimersByTime(1);
-    expect(seen).toEqual(["extra_action_9"]);
+    expect(seen).toEqual(["extra_action_5", "extra_action_9"]);
 
     vi.advanceTimersByTime(IDLE_SPRITE_SHOW_MS);
-    expect(seen).toEqual(["extra_action_9", null]);
+    expect(seen).toEqual(["extra_action_5", "extra_action_9", "extra_action_5"]);
 
     // Second repeat of the SAME sprite after the gap.
     vi.advanceTimersByTime(IDLE_SPRITE_GAP_MS);
-    expect(seen).toEqual(["extra_action_9", null, "extra_action_9"]);
+    expect(seen).toEqual(["extra_action_5", "extra_action_9", "extra_action_5", "extra_action_9"]);
 
     vi.advanceTimersByTime(IDLE_SPRITE_SHOW_MS);
-    expect(seen).toEqual(["extra_action_9", null, "extra_action_9", null]);
+    expect(seen).toEqual(["extra_action_5", "extra_action_9", "extra_action_5", "extra_action_9", "extra_action_5"]);
 
     stop();
   });
 
+  it("keeps a single selected sprite active for the entire idle plan", () => {
+    const seen: Array<string | null> = [];
+    const singleSprite: IdleAnimationPlan = { ...plan, pool: ["extra_action_9"], repeatMin: 1, repeatMax: 1 };
+    const stop = startIdleAnimator(singleSprite, key => seen.push(key), rngSequence([0, 0, 0]));
+
+    vi.advanceTimersByTime(10_000 + IDLE_SPRITE_SHOW_MS + 10_000);
+    expect(seen.length).toBeGreaterThan(1);
+    expect(seen.every(key => key === "extra_action_9")).toBe(true);
+
+    stop();
+    expect(seen.at(-1)).toBeNull();
+  });
+
+  it("immediately replaces a deselected active sprite when the plan restarts", () => {
+    const seen: Array<string | null> = [];
+    const stopA = startIdleAnimator({ ...plan, pool: ["extra_action_5"] }, key => seen.push(key), rngSequence([0]));
+    expect(seen).toEqual(["extra_action_5"]);
+
+    stopA();
+    const stopRemaining = startIdleAnimator({ ...plan, pool: ["extra_action_7", "extra_action_9"] }, key => seen.push(key), rngSequence([0.99]));
+    expect(seen.at(-1)).toBe("extra_action_9");
+
+    stopRemaining();
+  });
+
   it("schedules the next batch after a batch completes", () => {
     const seen: Array<string | null> = [];
-    // Batch 1: delay 10s (rng 0), sprite 0; batch 2: delay 10s, sprite index 1.
+    // Rest on sprite 0; batch 1 uses sprite 1, then batch 2 uses sprite 1.
     const singleRepeat: IdleAnimationPlan = { ...plan, repeatMin: 1, repeatMax: 1 };
-    const stop = startIdleAnimator(singleRepeat, key => seen.push(key), rngSequence([0, 0, 0, 0.9]));
+    const stop = startIdleAnimator(singleRepeat, key => seen.push(key), rngSequence([0, 0, 0.9, 0, 0.9]));
 
     vi.advanceTimersByTime(10_000 + IDLE_SPRITE_SHOW_MS);
-    expect(seen).toEqual(["extra_action_5", null]);
+    expect(seen).toEqual(["extra_action_5", "extra_action_9", "extra_action_5"]);
 
     vi.advanceTimersByTime(10_000);
-    expect(seen).toEqual(["extra_action_5", null, "extra_action_9"]);
+    expect(seen).toEqual(["extra_action_5", "extra_action_9", "extra_action_5", "extra_action_9"]);
 
     stop();
   });
@@ -131,21 +180,26 @@ describe("startIdleAnimator: panel-preview choreography", () => {
   it("rolls the repeat count within repeatMin..repeatMax", () => {
     const seen: Array<string | null> = [];
     const variable: IdleAnimationPlan = { ...plan, repeatMin: 1, repeatMax: 3 };
-    // delay rng 0 → 10s; sprite rng 0 → extra_action_5; repeat rng 0.99 → 1 + floor(0.99*3) = 3.
-    const stop = startIdleAnimator(variable, key => seen.push(key), rngSequence([0, 0, 0.99]));
+    // rest rng 0 → extra_action_5; delay rng 0 → 10s; sprite rng 0.9 →
+    // extra_action_9; repeat rng 0.99 → 1 + floor(0.99*3) = 3.
+    const stop = startIdleAnimator(variable, key => seen.push(key), rngSequence([0, 0, 0.9, 0.99]));
 
     vi.advanceTimersByTime(10_000);
     vi.advanceTimersByTime(3 * IDLE_SPRITE_SHOW_MS + 2 * IDLE_SPRITE_GAP_MS);
-    expect(seen).toEqual(["extra_action_5", null, "extra_action_5", null, "extra_action_5", null]);
+    expect(seen).toEqual([
+      "extra_action_5",
+      "extra_action_9", "extra_action_5",
+      "extra_action_9", "extra_action_5",
+      "extra_action_9", "extra_action_5"
+    ]);
 
     stop();
   });
 
   it("stop() cancels pending work and clears the current sprite", () => {
     const seen: Array<string | null> = [];
-    const stop = startIdleAnimator(plan, key => seen.push(key), rngSequence([0, 0]));
+    const stop = startIdleAnimator(plan, key => seen.push(key), rngSequence([0, 0, 0]));
 
-    vi.advanceTimersByTime(10_000);
     expect(seen).toEqual(["extra_action_5"]);
 
     stop();
