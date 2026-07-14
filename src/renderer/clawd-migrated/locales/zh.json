@@ -721,6 +721,8 @@
     "getApiKey": "获取 API Key",
     "showApiKey": "显示 API Key",
     "hideApiKey": "隐藏 API Key",
+    "showConfig": "显示配置",
+    "hideConfig": "隐藏配置",
     "apiEndpoint": "请求地址",
     "endpointHintAnthropic": "💡 填写兼容 Claude API 的服务端点地址，不要以斜杠结尾",
     "endpointHintOpenaiChat": "💡 填写兼容 OpenAI Chat Completions 的服务端点地址，不要以斜杠结尾",

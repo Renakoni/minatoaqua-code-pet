@@ -59,6 +59,7 @@ import {
 import { synchronizeClaudeMcpProfileResources } from "./claudeMcpInventory";
 import { applyClaudeProfile, previewClaudeProfileApply } from "./claudeProfileCoordinator";
 import { backupJsonFile } from "./filePersistence";
+import { EVENT_SERVER_DEV_ORIGIN, isAcceptedEventServerRequest } from "./eventServerSecurity";
 
 type DailyRuntimeStats = {
   events: number;
@@ -837,7 +838,7 @@ function readJson(req: IncomingMessage): Promise<unknown> {
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown) {
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "http://127.0.0.1:5273",
+    "access-control-allow-origin": EVENT_SERVER_DEV_ORIGIN,
     "access-control-allow-methods": "POST, OPTIONS",
     "access-control-allow-headers": "content-type"
   });
@@ -2522,15 +2523,15 @@ async function openClaudeProviderTerminal(providerId: string, cwd: string) {
   // gets no console and runs windowless (a false success), so we go through `start`.
   const cmd = trustedCmdPath(process.env);
   if (!cmd) return { ok: false, command: "", error: CMD_NOT_FOUND_ERROR };
-  // The provider's env (base URL, tokens) is handed to the child through spawn's `env`
-  // (never argv, never disk); the case-insensitive merge lets a provider PATH override
-  // the inherited one. claude is resolved to a trusted native entry point (claude.exe /
-  // claude.ps1) from that PATH — never the selected project — and its path rides in a
+  // The provider's routing env (base URL, tokens) is handed to the child through spawn's
+  // `env` (never argv, never disk), but providerTerminalEnv rejects PATH. Resolve Claude
+  // against the inherited process environment before overlaying provider values, so an
+  // imported provider cannot select a planted executable. Its absolute path rides in a
   // child-only env var invoked by a fixed PowerShell call-operator command, so a
   // project-local shim can't shadow it and no value is interpolated into the command.
-  const baseEnv = mergeTerminalEnv(providerTerminalEnv(provider.settingsConfig), process.env);
-  const claude = resolveClaudeExecutable(baseEnv);
+  const claude = resolveClaudeExecutable(process.env);
   if (!claude.ok) return { ok: false, command: "", error: claudeUnavailableError(claude.reason) };
+  const baseEnv = mergeTerminalEnv(providerTerminalEnv(provider.settingsConfig), process.env);
   const command = "claude";
   const env = mergeTerminalEnv({ [CHARA_DESK_CLAUDE_ENV]: claude.path }, baseEnv);
   const { file, args } = buildPowerShellLaunch(cmd, powershell, PS_RUN_CLAUDE, env);
@@ -3322,6 +3323,10 @@ const PERMISSION_ID_PATTERN = /^\/permission\/([A-Za-z0-9-]+)$/;
 
 function startEventServer() {
   eventServer = createServer(async (req, res) => {
+    if (!isAcceptedEventServerRequest(req.method, req.headers)) {
+      sendJson(res, 403, { ok: false, error: "forbidden" });
+      return;
+    }
     if (req.method === "OPTIONS") {
       sendJson(res, 204, {});
       return;

@@ -721,6 +721,8 @@
     "getApiKey": "Get API Key",
     "showApiKey": "Show API Key",
     "hideApiKey": "Hide API Key",
+    "showConfig": "Show config",
+    "hideConfig": "Hide config",
     "apiEndpoint": "API Endpoint",
     "endpointHintAnthropic": "💡 A Claude API compatible endpoint, without a trailing slash",
     "endpointHintOpenaiChat": "💡 An OpenAI Chat Completions compatible endpoint, without a trailing slash",
