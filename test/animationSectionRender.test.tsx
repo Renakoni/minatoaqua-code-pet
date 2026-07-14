@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AnimationSection } from "../src/renderer/clawd-migrated/features/animation/AnimationSection";
@@ -60,5 +60,17 @@ describe("imported-theme Animation page localization", () => {
     expect(screen.getByText("停止测试")).toBeTruthy();
     expect(screen.getByText("运行出错")).toBeTruthy();
     expect(screen.getAllByText("向右跑").length).toBeGreaterThan(0);
+  });
+
+  it("clears a test animation when the page unmounts", () => {
+    const view = renderSection("en");
+    const testButton = view.container.querySelector<HTMLButtonElement>(".animation-test-grid button");
+    expect(testButton).toBeTruthy();
+    fireEvent.click(testButton!);
+    expect(window.companion.previewPetAnimation).toHaveBeenCalledWith(expect.not.stringMatching("__clear_preview"));
+
+    view.unmount();
+
+    expect(window.companion.previewPetAnimation).toHaveBeenLastCalledWith("__clear_preview");
   });
 });

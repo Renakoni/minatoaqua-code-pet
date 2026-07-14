@@ -53,4 +53,28 @@ describe("provider secret visibility", () => {
     expect(editor.state.doc.toString()).toContain(SECRET);
     expect(screen.getByRole("button", { name: "Hide config" })).toBeTruthy();
   });
+
+  it.each(["ftp://api.example.test", "https://api.example.test/${ENDPOINT_ID}"])("blocks an unroutable API endpoint: %s", endpoint => {
+    const onSave = vi.fn();
+    render(
+      <I18nProvider initialLocale="en">
+        <ProviderEditPanel
+          provider={{
+            id: "invalid-endpoint-provider",
+            name: "Invalid endpoint provider",
+            category: "custom",
+            settingsConfig: { env: { ANTHROPIC_AUTH_TOKEN: SECRET, ANTHROPIC_BASE_URL: endpoint } }
+          }}
+          mode="edit"
+          onSave={onSave}
+          onClose={vi.fn()}
+        />
+      </I18nProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(screen.getByText("API endpoint must be a valid HTTP(S) URL without unfilled template parameters")).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+  });
 });

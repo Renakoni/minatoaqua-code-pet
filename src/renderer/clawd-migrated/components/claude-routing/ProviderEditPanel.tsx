@@ -51,6 +51,16 @@ function substituteTemplate(text: string, values: Record<string, string>): strin
   );
 }
 
+function isValidHttpEndpoint(value: string) {
+  if (/\$\{[^}]+\}/.test(value)) return false;
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") && Boolean(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function ProviderEditPanel({
   provider,
   mode,
@@ -230,6 +240,10 @@ export function ProviderEditPanel({
     }
     if (parseConfig(configText) === null) {
       setHardError(t("routing.configInvalid", "配置不是合法的 JSON 对象"));
+      return;
+    }
+    if (baseUrl.trim() && !isValidHttpEndpoint(baseUrl.trim())) {
+      setHardError(t("routing.endpointInvalid", "请求地址必须是有效的 HTTP(S) URL，且不能包含未填写的模板参数"));
       return;
     }
     if (!force) {
