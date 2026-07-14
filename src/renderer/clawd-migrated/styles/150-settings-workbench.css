@@ -1427,15 +1427,21 @@
   color: var(--settings-danger);
 }
 
+.settings-page,
+.settings-subsection-content {
+  scrollbar-width: none;
+}
+
 .settings-page::-webkit-scrollbar,
-.settings-subsection-content::-webkit-scrollbar,
+.settings-subsection-content::-webkit-scrollbar {
+  display: none;
+}
+
 .notification-rules-table::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-.settings-page::-webkit-scrollbar-thumb,
-.settings-subsection-content::-webkit-scrollbar-thumb,
 .notification-rules-table::-webkit-scrollbar-thumb {
   border: 3px solid var(--settings-surface);
   border-radius: 999px;

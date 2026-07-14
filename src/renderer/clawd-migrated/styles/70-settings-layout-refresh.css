@@ -17,20 +17,21 @@
   padding: 0 18px;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none;
   -webkit-app-region: no-drag;
 }
 
 .tab-bar::-webkit-scrollbar,
-.section-content::-webkit-scrollbar,
+.section-content::-webkit-scrollbar {
+  display: none;
+}
+
 .event-list::-webkit-scrollbar,
 pre::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-.tab-bar::-webkit-scrollbar-thumb,
-.section-content::-webkit-scrollbar-thumb,
 .event-list::-webkit-scrollbar-thumb,
 pre::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
@@ -77,6 +78,7 @@ pre::-webkit-scrollbar-thumb {
   padding: 22px 24px 28px;
   gap: 18px;
   overscroll-behavior: contain;
+  scrollbar-width: none;
 }
 
 .hero-panel,
