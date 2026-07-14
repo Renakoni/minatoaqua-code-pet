@@ -118,9 +118,9 @@ function installCompanionMock() {
   });
 }
 
-function renderPage(settings = defaultSettings) {
+function renderPage(settings = defaultSettings, locale: "en" | "zh" = "en") {
   return render(
-    <I18nProvider initialLocale="en">
+    <I18nProvider initialLocale={locale}>
       <PluginsPage settings={settings} updateSettings={vi.fn()} />
     </I18nProvider>
   );
@@ -222,6 +222,43 @@ describe("Unified Claude Profiles page", () => {
     expect(screen.getAllByRole("option")).toHaveLength(1);
   });
 
+  it("supports keyboard navigation and restores focus to the profile trigger", async () => {
+    renderPage();
+    const trigger = await screen.findByRole("button", { name: "Profile: Default" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const search = screen.getByRole("textbox", { name: "Search profiles" });
+    expect(document.activeElement).toBe(trigger);
+    expect(document.activeElement).not.toBe(search);
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const defaultOption = screen.getByRole("option", { name: "Default" });
+    expect(document.activeElement).toBe(defaultOption);
+    fireEvent.keyDown(defaultOption, { key: "ArrowDown" });
+    const focusedOption = screen.getByRole("option", { name: "Focused" });
+    expect(document.activeElement).toBe(focusedOption);
+    fireEvent.keyDown(focusedOption, { key: "Enter" });
+
+    await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("focused"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Profile: Focused" })));
+
+    const focusedTrigger = screen.getByRole("button", { name: "Profile: Focused" });
+    focusedTrigger.focus();
+    fireEvent.click(focusedTrigger);
+    const reopenedSearch = screen.getByRole("textbox", { name: "Search profiles" });
+    fireEvent.keyDown(reopenedSearch, { key: "Escape" });
+    expect(document.activeElement).toBe(focusedTrigger);
+    expect(screen.queryByRole("listbox", { name: "Profiles" })).toBeNull();
+
+    const newProfile = screen.getByRole("button", { name: "New profile" });
+    fireEvent.click(newProfile);
+    const emptyProfile = screen.getByRole("menuitem", { name: /Empty profile/ });
+    emptyProfile.focus();
+    fireEvent.keyDown(emptyProfile, { key: "Escape" });
+    expect(document.activeElement).toBe(newProfile);
+    expect(screen.queryByRole("menuitem", { name: /Empty profile/ })).toBeNull();
+  });
+
   it("reapplies a drifted current profile and reports Plugin enablement consistently", async () => {
     currentSnapshot = {
       ...currentSnapshot,
@@ -276,10 +313,82 @@ describe("Unified Claude Profiles page", () => {
 
     fireEvent.change(screen.getByPlaceholderText("Search Skills"), { target: { value: "private-only-token" } });
     await waitFor(() => expect(view.container.querySelector('[data-resource-id="skill:skill-0"]')).toBeNull());
+    expect(screen.getByText("No matches")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
     fireEvent.change(await screen.findByPlaceholderText("Search Skills"), { target: { value: "private-only-token" } });
     await waitFor(() => expect(screen.queryByRole("button", { name: "Remove skill-0" })).toBeNull());
+  });
+
+  it("localizes backend operation errors in the Chinese UI", async () => {
+    applyClaudeProfile.mockResolvedValueOnce({
+      ok: false,
+      issues: [{ code: "settings-write-failed", message: "Claude settings could not be replaced." }]
+    });
+    const view = renderPage(defaultSettings, "zh");
+
+    fireEvent.click(await screen.findByRole("button", { name: "方案：Default" }));
+    fireEvent.click(screen.getByRole("option", { name: "Focused" }));
+
+    const localized = "无法更新 Claude settings.json。";
+    await screen.findAllByText(localized);
+    expect(view.container.querySelector(".connection-error")?.textContent).toBe(localized);
+    expect(document.querySelector("[data-sonner-toast] [data-title]")?.textContent).toBe(localized);
+    expect(screen.queryByText("Claude settings could not be replaced.")).toBeNull();
+    expect(screen.getByRole("button", { name: "方案：Default" })).toBeTruthy();
+  });
+
+  it("keeps store mutation errors actionable in the Chinese UI", async () => {
+    deleteClaudeProfile.mockResolvedValueOnce({
+      ok: false,
+      issues: [{ code: "applied-profile", message: "Apply another profile before deleting this one." }]
+    });
+    const view = renderPage(defaultSettings, "zh");
+
+    fireEvent.click(await screen.findByRole("button", { name: "方案：Default" }));
+    fireEvent.click(screen.getByRole("option", { name: "Focused" }));
+    await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("focused"));
+    fireEvent.click(screen.getByRole("button", { name: "编辑配置方案" }));
+    fireEvent.click(await screen.findByRole("button", { name: "删除" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "删除" }).at(-1)!);
+
+    const localized = "请先应用其他方案，再删除此方案。";
+    await screen.findAllByText(localized);
+    expect(view.container.querySelector(".connection-error")?.textContent).toBe(localized);
+    expect(screen.queryByText("Apply another profile before deleting this one.")).toBeNull();
+  });
+
+  it("localizes duplicate profile id errors in the Chinese UI", async () => {
+    saveClaudeProfile.mockResolvedValueOnce({
+      ok: false,
+      issues: [{ code: "duplicate-profile-id", message: "A generated Claude profile id already exists." }]
+    });
+    const view = renderPage(defaultSettings, "zh");
+
+    await screen.findByRole("button", { name: "方案：Default" });
+    fireEvent.click(screen.getByRole("button", { name: "新建配置方案" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /空白方案/ }));
+    fireEvent.change(await screen.findByPlaceholderText("名称"), { target: { value: "生信" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    const localized = "生成的方案 ID 已存在，请重试。";
+    await screen.findAllByText(localized);
+    expect(view.container.querySelector(".connection-error")?.textContent).toBe(localized);
+    expect(screen.queryByText("A generated Claude profile id already exists.")).toBeNull();
+  });
+
+  it("clears the busy state and reports an unexpected apply rejection", async () => {
+    applyClaudeProfile.mockRejectedValueOnce(new Error("IPC unavailable"));
+    const view = renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Profile: Default" }));
+    fireEvent.click(screen.getByRole("option", { name: "Focused" }));
+
+    const message = "The profile could not be applied.";
+    await screen.findAllByText(message);
+    expect(view.container.querySelector(".connection-error")?.textContent).toBe(message);
+    expect(document.querySelector("[data-sonner-toast] [data-title]")?.textContent).toBe(message);
+    expect((screen.getByRole("button", { name: "Profile: Default" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("starts an empty profile with every resource unselected", async () => {
@@ -290,7 +399,11 @@ describe("Unified Claude Profiles page", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /Empty profile/ }));
 
     expect(await screen.findByRole("heading", { name: "New profile" })).toBeTruthy();
-    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Bioinformatics" } });
+    const nameInput = screen.getByPlaceholderText("Name") as HTMLInputElement;
+    expect(nameInput.value).toBe("");
+    expect(document.activeElement).not.toBe(nameInput);
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(nameInput, { target: { value: "Bioinformatics" } });
     fireEvent.change(screen.getByPlaceholderText("Search Skills"), { target: { value: "skill-1999" } });
     fireEvent.click(await screen.findByRole("button", { name: "Select skill-1999" }));
     expect(await screen.findByRole("button", { name: "Remove skill-1999" })).toBeTruthy();

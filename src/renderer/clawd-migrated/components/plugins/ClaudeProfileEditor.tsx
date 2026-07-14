@@ -98,16 +98,16 @@ export function ClaudeProfileEditor({
           <ArrowLeft size={17} />
         </button>
         <h2>{title}</h2>
-        <label className="claude-profile-name-field">
-          <span>{zh ? "名称" : "Name"}</span>
+        <div className="claude-profile-name-field">
           <input
             value={draft.name}
             onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}
+            placeholder={zh ? "名称" : "Name"}
+            aria-label={zh ? "名称" : "Name"}
             maxLength={64}
             disabled={busy || protectedProfile}
-            autoFocus={!protectedProfile}
           />
-        </label>
+        </div>
         <div className="claude-profile-editor-actions">
           {initial.id && !protectedProfile ? (
             <button type="button" className="claude-profile-text-button danger" onClick={onDelete} disabled={busy || !canDelete} title={!canDelete ? (zh ? "先应用其他方案" : "Apply another profile first") : undefined}>

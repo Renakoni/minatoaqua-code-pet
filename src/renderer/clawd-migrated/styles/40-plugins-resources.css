@@ -410,25 +410,32 @@
 }
 .claude-profile-select-button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .claude-profile-select-button > svg { color: oklch(61% 0.01 78); transition: transform 150ms ease; }
+.claude-profile-select-button[aria-expanded="true"] {
+  border-bottom-color: transparent;
+  border-radius: 7px 7px 0 0;
+  background: oklch(18.5% 0.007 75);
+}
 .claude-profile-select-button[aria-expanded="true"] > svg { transform: rotate(180deg); }
 .claude-profile-select-button:disabled { opacity: .5; cursor: wait; }
-.claude-profile-select-button:focus-visible,
-.claude-profile-name-field input:focus-visible {
+.claude-profile-select-button:focus-visible {
   outline: 2px solid oklch(61% 0.055 78 / .68);
   outline-offset: 1px;
 }
 .claude-profile-options {
   position: absolute;
-  top: calc(100% + 5px);
+  top: calc(100% - 1px);
   left: 0;
   z-index: 10;
   width: 100%;
-  min-width: 220px;
-  padding: 4px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 4px 4px;
+  overflow: hidden;
   border: 1px solid oklch(31% 0.009 75);
-  border-radius: 7px;
+  border-top: 0;
+  border-radius: 0 0 7px 7px;
   background: oklch(18.5% 0.007 75);
-  box-shadow: 0 14px 30px oklch(8% 0.008 75 / .42);
+  box-shadow: 0 12px 24px oklch(8% 0.008 75 / .36);
 }
 .claude-profile-options-search {
   min-height: 32px;
@@ -440,7 +447,7 @@
   border-bottom: 1px solid oklch(27% 0.006 75);
   color: oklch(59% 0.009 78);
 }
-.claude-profile-options-search input {
+.claude-resources-page-dark .claude-profile-options .claude-profile-options-search input {
   min-width: 0;
   min-height: 30px;
   padding: 0;
@@ -453,7 +460,13 @@
   font: inherit;
   font-size: 11px;
 }
-.claude-profile-options-search input::placeholder { color: oklch(53% 0.009 78); }
+.claude-resources-page-dark .claude-profile-options .claude-profile-options-search input::placeholder { color: oklch(53% 0.009 78); }
+.claude-resources-page-dark .claude-profile-options .claude-profile-options-search input:focus {
+  border: 0;
+  background: transparent;
+  outline: 0;
+  box-shadow: none;
+}
 .claude-profile-options-list {
   max-height: 150px;
   overflow-y: auto;
@@ -462,6 +475,7 @@
 }
 .claude-profile-options-list::-webkit-scrollbar { display: none; }
 .claude-profile-options-list > button {
+  appearance: none;
   width: 100%;
   min-height: 30px;
   display: grid;
@@ -469,6 +483,7 @@
   align-items: center;
   gap: 7px;
   padding: 0 7px;
+  border: 0;
   border-radius: 5px;
   color: oklch(70% 0.011 78);
   background: transparent;
@@ -480,7 +495,9 @@
 .claude-profile-options-list > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .claude-profile-options-list > button:hover,
 .claude-profile-options-list > button:focus-visible { color: oklch(91% 0.012 78); background: oklch(23% 0.009 75); outline: 0; }
-.claude-profile-options-list > button.current { color: oklch(88% 0.035 82); background: oklch(22% 0.014 78); }
+.claude-profile-options-list > button.current { color: oklch(88% 0.035 82); background: transparent; }
+.claude-profile-options-list > button.current:hover,
+.claude-profile-options-list > button.current:focus-visible { background: oklch(23% 0.009 75); }
 .claude-profile-options-list > button svg { justify-self: end; color: oklch(72% 0.06 154); }
 .claude-profile-options-empty {
   min-height: 34px;
@@ -607,20 +624,17 @@
 .claude-profile-editor-header {
   min-height: 48px;
   display: grid;
-  grid-template-columns: auto max-content minmax(220px, 1fr) auto;
+  grid-template-columns: auto max-content minmax(220px, 3fr) minmax(40px, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 .claude-profile-editor-header h2 { margin: 0; color: oklch(91% 0.012 78); font-size: 16px; font-weight: 720; white-space: nowrap; }
 .claude-profile-name-field {
   min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(180px, 1fr);
-  align-items: center;
-  gap: 9px;
+  display: block;
 }
-.claude-profile-name-field span { color: oklch(59% 0.009 78); font-size: 11px; font-weight: 680; }
 .claude-profile-name-field input {
+  width: 100%;
   min-width: 0;
   min-height: 36px;
   padding: 0 11px;
@@ -631,7 +645,17 @@
   font: inherit;
   font-size: 13px;
 }
+.claude-profile-name-field input::placeholder { color: oklch(55% 0.009 78); }
+.claude-resources-page-dark .claude-profile-name-field input:focus {
+  border-color: oklch(29% 0.006 75);
+  outline: 0;
+  box-shadow: none;
+}
+.claude-resources-page-dark .claude-profile-name-field input:focus-visible {
+  border-color: oklch(43% 0.01 78);
+}
 .claude-profile-name-field input:disabled { color: oklch(66% 0.01 78); background: oklch(18% 0.006 75); }
+.claude-profile-editor-header .claude-profile-editor-actions { grid-column: 5; }
 .claude-profile-editor-tabs { grid-template-columns: repeat(3, minmax(136px, 1fr)) !important; }
 .claude-resource-subtabs.compact.claude-profile-editor-tabs .claude-resource-subtab {
   grid-template-columns: 18px minmax(0, 1fr);
@@ -715,7 +739,7 @@
   .claude-profile-editor-header { grid-template-columns: auto minmax(0, 1fr) auto; }
   .claude-profile-editor-header h2 { grid-column: 2; }
   .claude-profile-name-field { grid-column: 1 / -1; grid-row: 2; }
-  .claude-profile-editor-actions { grid-column: 3; grid-row: 1; }
+  .claude-profile-editor-header .claude-profile-editor-actions { grid-column: 3; grid-row: 1; }
   .claude-profile-top-row > .claude-resource-subtabs.compact.claude-profile-resource-tabs .claude-resource-subtab:not(.active) { display: grid; }
   .claude-profile-editor-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
   .claude-profile-editor-tabs .claude-resource-subtab:not(.active) { display: grid !important; }
