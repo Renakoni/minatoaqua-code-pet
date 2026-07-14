@@ -15,17 +15,18 @@
  *
  * API keys live in plaintext inside settings_config JSON (cc-switch stores
  * them the same way). They must never be logged or written anywhere except
- * the db and the live Claude settings file.
+ * the db, the live Claude settings file, and the bounded local backup set.
  *
  * SQLite access uses node:sqlite (bundled with Electron's Node 22) so no
  * native module is required. Connections are opened per operation and closed
  * immediately to avoid holding locks against a running cc-switch instance.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, watch, copyFileSync, type FSWatcher } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, watch, type FSWatcher } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { randomUUID } from "crypto";
+import { backupJsonFile } from "./filePersistence";
 
 type JsonObject = Record<string, unknown>;
 
@@ -418,18 +419,6 @@ function readLiveJsonObject(path: string): JsonObject {
   }
 }
 
-function backupLiveFile(path: string): string | null {
-  try {
-    if (!existsSync(path)) return null;
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupPath = path.replace(/\.json$/i, `.clawd-backup-${stamp}.json`);
-    copyFileSync(path, backupPath);
-    return backupPath;
-  } catch {
-    return null;
-  }
-}
-
 function writeCurrentPointer(id: string) {
   const settings = readCcSwitchSettings();
   settings.currentProviderClaude = id;
@@ -474,7 +463,7 @@ export function switchCcSwitchProvider(id: string): SwitchOutcome {
   let backupPath: string | null = null;
   try {
     mkdirSync(join(homedir(), ".claude"), { recursive: true });
-    backupPath = backupLiveFile(livePath);
+    backupPath = backupJsonFile(livePath);
     const effective = buildEffectiveSettings(target, snippet);
     writeFileSync(livePath, `${JSON.stringify(effective, null, 2)}\n`, "utf-8");
   } catch (error) {

@@ -47,6 +47,7 @@ describe("redactSensitiveText", () => {
 
   it("strips UNC and POSIX home paths", () => {
     expect(redactSensitiveText("Backup at \\\\nas\\share\\clawd\\settings.json")).toBe("Backup at [path hidden]");
+    expect(redactSensitiveText("Backup at //nas/share/clawd/settings.json")).toBe("Backup at [path hidden]");
     expect(redactSensitiveText("Wrote ~/.claude/settings.json")).toBe("Wrote [path hidden]");
     expect(redactSensitiveText("Reading /Users/private/project/a.ts")).toBe("Reading [path hidden]");
   });
@@ -57,6 +58,15 @@ describe("redactSensitiveText", () => {
     expect(redactSensitiveText("Wrote /tmp/clawd/hook-forwarder.js")).toBe("Wrote [path hidden]");
     expect(redactSensitiveText("node /usr/local/bin/node")).toBe("node [path hidden]");
     expect(redactSensitiveText("/Applications/Chara Desk.app/hook-forwarder.js")).toBe("[path hidden]");
+    expect(redactSensitiveText("Reading /data/home/jdoe/project/file.ts")).toBe("Reading [path hidden]");
+    expect(redactSensitiveText("Missing /workspace/private/project/file.ts")).toBe("Missing [path hidden]");
+    expect(redactSensitiveText("Mounted /media/jdoe/private/file.ts")).toBe("Mounted [path hidden]");
+    expect(redactSensitiveText("Socket /run/user/1000/private.sock")).toBe("Socket [path hidden]");
+    expect(redactSensitiveText("Snap /snap/chara/current/private.json")).toBe("Snap [path hidden]");
+  });
+
+  it("does not mistake a URL scheme for a forward-slash UNC path", () => {
+    expect(redactSensitiveText("Endpoint https://api.example.test/v1")).toBe("Endpoint https://api.example.test/v1");
   });
 
   it("strips Windows paths that contain spaces", () => {
