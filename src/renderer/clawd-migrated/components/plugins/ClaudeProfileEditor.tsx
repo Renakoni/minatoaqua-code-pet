@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Code2, Package, Search, Server, Trash2 } from "lucide-react";
 import type {
   ClaudeProfileInventory,
@@ -74,6 +74,14 @@ export function ClaudeProfileEditor({
       .toLocaleLowerCase()
       .includes(needle));
   }, [deferredQuery, resources]);
+  const unselectedResources = useMemo(
+    () => filtered.filter(resource => !selected.has(resource.id)),
+    [filtered, selected]
+  );
+  const selectedResources = useMemo(
+    () => filtered.filter(resource => selected.has(resource.id)),
+    [filtered, selected]
+  );
 
   useEffect(() => setQuery(""), [activeTab]);
 
@@ -88,19 +96,6 @@ export function ClaudeProfileEditor({
     setMembership(resources.filter(resource => next.has(resource.id)).map(resource => resource.id));
   }
 
-  const selectedFilteredCount = filtered.reduce((count, resource) => count + Number(selected.has(resource.id)), 0);
-  const allFilteredSelected = filtered.length > 0 && selectedFilteredCount === filtered.length;
-  const someFilteredSelected = selectedFilteredCount > 0 && !allFilteredSelected;
-
-  function toggleFiltered() {
-    const next = new Set(selected);
-    for (const resource of filtered) {
-      if (allFilteredSelected) next.delete(resource.id);
-      else next.add(resource.id);
-    }
-    setMembership(resources.filter(resource => next.has(resource.id)).map(resource => resource.id));
-  }
-
   const title = initial.id ? (zh ? "编辑配置方案" : "Edit profile") : (zh ? "新建配置方案" : "New profile");
   const activeTabLabel = tabs.find(tab => tab.id === activeTab)?.label ?? activeTab;
 
@@ -110,10 +105,17 @@ export function ClaudeProfileEditor({
         <button type="button" className="claude-profile-icon-button" onClick={onCancel} disabled={busy} aria-label={zh ? "返回" : "Back"}>
           <ArrowLeft size={17} />
         </button>
-        <div>
-          <h2>{title}</h2>
-          <p>{zh ? "保存只更新方案内容，不会修改 Claude Code。" : "Saving updates the profile only. Claude Code is unchanged."}</p>
-        </div>
+        <h2>{title}</h2>
+        <label className="claude-profile-name-field">
+          <span>{zh ? "名称" : "Name"}</span>
+          <input
+            value={draft.name}
+            onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}
+            maxLength={64}
+            disabled={busy || protectedProfile}
+            autoFocus={!protectedProfile}
+          />
+        </label>
         <div className="claude-profile-editor-actions">
           {initial.id && !protectedProfile ? (
             <button type="button" className="claude-profile-text-button danger" onClick={onDelete} disabled={busy || !canDelete} title={!canDelete ? (zh ? "先应用其他方案" : "Apply another profile first") : undefined}>
@@ -132,29 +134,6 @@ export function ClaudeProfileEditor({
         </div>
       </header>
 
-      <section className="claude-profile-fields">
-        <label>
-          <span>{zh ? "名称" : "Name"}</span>
-          <input
-            value={draft.name}
-            onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}
-            maxLength={64}
-            disabled={busy || protectedProfile}
-            autoFocus={!protectedProfile}
-          />
-        </label>
-        <label>
-          <span>{zh ? "说明" : "Description"}</span>
-          <input
-            value={draft.description ?? ""}
-            onChange={event => setDraft(current => ({ ...current, description: event.target.value }))}
-            placeholder={zh ? "可选" : "Optional"}
-            maxLength={240}
-            disabled={busy}
-          />
-        </label>
-      </section>
-
       <nav className="claude-resource-subtabs compact claude-profile-editor-tabs" aria-label={zh ? "资源类型" : "Resource type"}>
         {tabs.map(tab => {
           const Icon = tab.icon;
@@ -162,7 +141,6 @@ export function ClaudeProfileEditor({
             <button type="button" key={tab.id} className={`claude-resource-subtab ${activeTab === tab.id ? "active" : ""}`} onClick={() => setActiveTab(tab.id)}>
               <Icon size={16} />
               <span><b>{tab.label}</b></span>
-              <small>{draft[tab.id].length}/{inventory[tab.id].length}</small>
             </button>
           );
         })}
@@ -173,108 +151,96 @@ export function ClaudeProfileEditor({
           <Search size={16} />
           <input value={query} onChange={event => setQuery(event.target.value)} placeholder={zh ? `搜索 ${activeTabLabel}` : `Search ${activeTabLabel}`} />
         </div>
-        <label className="claude-profile-select-filtered">
-          <IndeterminateCheckbox
-            checked={allFilteredSelected}
-            mixed={someFilteredSelected}
-            onChange={toggleFiltered}
-            disabled={filtered.length === 0 || busy}
-          />
-          <span>{zh ? "选择筛选结果" : "Select filtered"}</span>
-          <small>{selectedFilteredCount}/{filtered.length}</small>
-        </label>
       </section>
 
-      <section className="claude-profile-resource-frame" aria-busy={busy}>
-        {filtered.length === 0 ? (
-          <div className="claude-resource-empty">{zh ? "没有匹配的资源。" : "No matching resources."}</div>
-        ) : (
-          <VirtualResourceList
-            items={filtered}
-            selected={selected}
-            availableIds={availableIds}
-            hideSensitiveContent={hideSensitiveContent}
-            zh={zh}
-            resetKey={`${activeTab}:${deferredQuery}`}
-            onToggle={toggleResource}
-          />
-        )}
+      <section className="claude-profile-transfer" aria-busy={busy}>
+        <TransferColumn
+          title={zh ? "未选择" : "Unselected"}
+          side="unselected"
+          items={unselectedResources}
+          availableIds={availableIds}
+          hideSensitiveContent={hideSensitiveContent}
+          zh={zh}
+          busy={busy}
+          resetKey={`${activeTab}:${deferredQuery}:unselected`}
+          onMove={toggleResource}
+        />
+        <TransferColumn
+          title={zh ? "已选择" : "Selected"}
+          side="selected"
+          items={selectedResources}
+          availableIds={availableIds}
+          hideSensitiveContent={hideSensitiveContent}
+          zh={zh}
+          busy={busy}
+          resetKey={`${activeTab}:${deferredQuery}:selected`}
+          onMove={toggleResource}
+        />
       </section>
-
-      <footer className="claude-profile-editor-summary">
-        <span>{zh ? "已选择" : "Selected"}</span>
-        <strong>{draft.skills.length} Skills</strong>
-        <strong>{draft.plugins.length} Plugins</strong>
-        <strong>{draft.mcpServers.length} MCP</strong>
-      </footer>
     </div>
   );
 }
 
-function IndeterminateCheckbox({
-  checked,
-  mixed,
-  disabled,
-  onChange
-}: {
-  checked: boolean;
-  mixed: boolean;
-  disabled: boolean;
-  onChange: () => void;
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = mixed;
-  }, [mixed]);
-  return <input ref={ref} type="checkbox" checked={checked} disabled={disabled} onChange={onChange} />;
-}
-
-function VirtualResourceList({
+function TransferColumn({
+  title,
+  side,
   items,
-  selected,
   availableIds,
   hideSensitiveContent,
   zh,
+  busy,
   resetKey,
-  onToggle
+  onMove
 }: {
+  title: string;
+  side: "unselected" | "selected";
   items: ClaudeProfileResource[];
-  selected: Set<string>;
   availableIds: Set<string>;
   hideSensitiveContent: boolean;
   zh: boolean;
+  busy: boolean;
   resetKey: string;
-  onToggle: (resourceId: string) => void;
+  onMove: (resourceId: string) => void;
 }) {
   const virtual = useVirtualRows(items, ROW_HEIGHT, resetKey, OVERSCAN);
 
   return (
-    <div ref={virtual.viewportRef} className="claude-profile-virtual-list" onScroll={event => virtual.onScroll(event.currentTarget.scrollTop)}>
-      <div className="claude-profile-virtual-space" style={{ height: virtual.totalHeight }}>
-        {virtual.visible.map((resource, offset) => {
-          const index = virtual.start + offset;
-          const available = availableIds.has(resource.id);
-          const description = hideSensitiveContent
-            ? (zh ? "资源详情已隐藏" : "Resource details hidden")
-            : resource.description ?? resource.detail ?? (zh ? "Claude Code 资源" : "Claude Code resource");
-          return (
-            <label
-              key={resource.id}
-              className="claude-profile-resource-option"
-              style={{ height: ROW_HEIGHT, transform: `translateY(${index * ROW_HEIGHT}px)` }}
-              data-resource-id={resource.id}
-            >
-              <input type="checkbox" checked={selected.has(resource.id)} onChange={() => onToggle(resource.id)} />
-              <span className="claude-profile-resource-copy">
-                <strong>{resource.name}</strong>
-                <small title={description}>{description}</small>
-              </span>
-              <span className={`claude-profile-live-state ${available && resource.enabled ? "active" : "idle"}`}>
-                {!available ? (zh ? "已不可用" : "Unavailable") : resource.enabled ? (zh ? "当前启用" : "Active now") : (zh ? "当前未启用" : "Inactive now")}
-              </span>
-            </label>
-          );
-        })}
+    <div className="claude-profile-transfer-column" data-transfer-side={side}>
+      <header>{title}</header>
+      <div ref={virtual.viewportRef} className="claude-profile-virtual-list" onScroll={event => virtual.onScroll(event.currentTarget.scrollTop)}>
+        {items.length === 0 ? (
+          <div className="claude-profile-transfer-empty">{zh ? "没有匹配项" : "No matches"}</div>
+        ) : (
+          <div className="claude-profile-virtual-space" style={{ height: virtual.totalHeight }}>
+            {virtual.visible.map((resource, offset) => {
+              const index = virtual.start + offset;
+              const available = availableIds.has(resource.id);
+              const description = hideSensitiveContent
+                ? (zh ? "资源详情已隐藏" : "Resource details hidden")
+                : resource.description ?? resource.detail ?? (zh ? "Claude Code 资源" : "Claude Code resource");
+              return (
+                <button
+                  type="button"
+                  key={resource.id}
+                  className="claude-profile-transfer-option"
+                  style={{ height: ROW_HEIGHT, transform: `translateY(${index * ROW_HEIGHT}px)` }}
+                  data-resource-id={resource.id}
+                  disabled={busy}
+                  aria-label={side === "unselected" ? `${zh ? "选择" : "Select"} ${resource.name}` : `${zh ? "移除" : "Remove"} ${resource.name}`}
+                  onClick={() => onMove(resource.id)}
+                >
+                  <span className="claude-profile-resource-copy">
+                    <strong>{resource.name}</strong>
+                    <small title={description}>{description}</small>
+                  </span>
+                  <span className={`claude-profile-live-state ${available && resource.enabled ? "active" : "idle"}`}>
+                    {!available ? (zh ? "已不可用" : "Unavailable") : resource.enabled ? (zh ? "当前启用" : "Active now") : (zh ? "当前未启用" : "Inactive now")}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

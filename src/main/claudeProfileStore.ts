@@ -236,9 +236,9 @@ export function createInitialClaudeProfileStore(inventory: ClaudeProfileInventor
   const defaultProfile: ClaudeProfile = {
     id: DEFAULT_CLAUDE_PROFILE_ID,
     name: "Default",
-    skills: inventory.skills.filter(item => item.enabled).map(item => item.id),
-    plugins: inventory.plugins.filter(item => item.enabled).map(item => item.id),
-    mcpServers: inventory.mcpServers.filter(item => item.enabled).map(item => item.id),
+    skills: inventory.skills.map(item => item.id),
+    plugins: inventory.plugins.map(item => item.id),
+    mcpServers: inventory.mcpServers.map(item => item.id),
     isProtected: true,
     createdAt: now,
     updatedAt: now
@@ -247,6 +247,34 @@ export function createInitialClaudeProfileStore(inventory: ClaudeProfileInventor
     schemaVersion: CLAUDE_PROFILE_SCHEMA_VERSION,
     profiles: [defaultProfile],
     appliedProfileId: DEFAULT_CLAUDE_PROFILE_ID
+  };
+}
+
+function synchronizeUntouchedDefaultProfile(
+  store: ClaudeProfileStoreData,
+  inventory: ClaudeProfileInventory
+): ClaudeProfileStoreData {
+  const defaultProfile = store.profiles.find(profile => profile.id === DEFAULT_CLAUDE_PROFILE_ID);
+  if (!defaultProfile || defaultProfile.createdAt !== defaultProfile.updatedAt) return store;
+
+  const skills = inventory.skills.map(item => item.id);
+  const plugins = inventory.plugins.map(item => item.id);
+  const mcpServers = inventory.mcpServers.map(item => item.id);
+  const unchanged = (
+    defaultProfile.skills.length === skills.length
+    && defaultProfile.skills.every((id, index) => id === skills[index])
+    && defaultProfile.plugins.length === plugins.length
+    && defaultProfile.plugins.every((id, index) => id === plugins[index])
+    && defaultProfile.mcpServers.length === mcpServers.length
+    && defaultProfile.mcpServers.every((id, index) => id === mcpServers[index])
+  );
+  if (unchanged) return store;
+
+  return {
+    ...store,
+    profiles: store.profiles.map(profile => profile.id === DEFAULT_CLAUDE_PROFILE_ID
+      ? { ...profile, skills, plugins, mcpServers }
+      : profile)
   };
 }
 
@@ -296,8 +324,15 @@ export function createClaudeProfilesSnapshot(
   const inventory = mcpServers ? { ...scannedInventory, mcpServers } : scannedInventory;
   // Do not persist a first Default captured from an incomplete MCP read. A
   // later healthy snapshot will seed the store from the complete live state.
-  const store = mcpStatus !== "ready" && !existsSync(filePath)
+  let store = mcpStatus !== "ready" && !existsSync(filePath)
     ? createInitialClaudeProfileStore(inventory, now)
     : loadOrCreateClaudeProfileStore(filePath, inventory, now);
+  if (mcpStatus === "ready") {
+    const synchronizedStore = synchronizeUntouchedDefaultProfile(store, inventory);
+    if (synchronizedStore !== store) {
+      saveClaudeProfileStore(filePath, synchronizedStore);
+      store = synchronizedStore;
+    }
+  }
   return { ...store, inventory, drift: getClaudeProfileDrift(store, inventory, mcpStatus), mcpStatus };
 }

@@ -1,7 +1,6 @@
 import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  CheckCircle2,
   ChevronDown,
   Code2,
   Copy,
@@ -88,7 +87,6 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   useEffect(() => setQuery(""), [activeTab]);
 
   const selectedProfile = snapshot.profiles.find(profile => profile.id === selectedProfileId) ?? snapshot.profiles[0];
-  const appliedProfile = snapshot.profiles.find(profile => profile.id === snapshot.appliedProfileId);
   const selectedIsApplied = selectedProfile?.id === snapshot.appliedProfileId;
   const selectedIsDrifted = Boolean(selectedIsApplied && snapshot.drift.isDrifted);
   const profileActionsAvailable = snapshot.mcpStatus === "ready" && !loading && !loadError;
@@ -246,7 +244,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
       <RoutingToaster />
       <section className="claude-profile-toolbar">
         <label className="claude-profile-picker">
-          <span>{zh ? "配置方案" : "Profile"}</span>
+          <span>{zh ? "当前方案" : "Current profile"}</span>
           <div>
             <select value={selectedProfile?.id ?? ""} onChange={event => setSelectedProfileId(event.target.value)} disabled={loading || busyAction === "apply"}>
               {snapshot.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
@@ -272,22 +270,12 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
               </div>
             ) : null}
           </div>
-          <button type="button" className="claude-profile-primary-button" onClick={() => void prepareApply()} disabled={!profileActionsAvailable || !needsApply || busyAction !== null}>
-            {busyAction === "preview" ? (zh ? "准备中..." : "Preparing...") : selectedIsApplied && !selectedIsDrifted ? (zh ? "已应用" : "Applied") : (zh ? "应用" : "Apply")}
-          </button>
-          <button type="button" className="claude-profile-icon-button" onClick={() => void refresh(true)} disabled={busyAction !== null} aria-label={zh ? "刷新" : "Refresh"} title={zh ? "刷新" : "Refresh"}>
-            <RefreshCw size={16} className={busyAction === "refresh" ? "spinning" : undefined} />
-          </button>
+          {needsApply ? (
+            <button type="button" className="claude-profile-primary-button" onClick={() => void prepareApply()} disabled={!profileActionsAvailable || busyAction !== null}>
+              {busyAction === "preview" ? (zh ? "准备中..." : "Preparing...") : (zh ? "应用" : "Apply")}
+            </button>
+          ) : null}
         </div>
-      </section>
-
-      <section className={`claude-profile-state-row ${selectedIsDrifted ? "warning" : selectedIsApplied ? "success" : "idle"}`}>
-        <div>
-          {selectedIsDrifted ? <AlertTriangle size={16} /> : selectedIsApplied ? <CheckCircle2 size={16} /> : <span className="claude-profile-state-dot" />}
-          <strong>{selectedIsDrifted ? (zh ? "已偏离方案" : "Drifted") : selectedIsApplied ? (zh ? "当前已应用" : "Currently applied") : (zh ? `当前应用：${appliedProfile?.name ?? "无"}` : `Applied: ${appliedProfile?.name ?? "None"}`)}</strong>
-          {selectedIsDrifted ? <small>{driftSummary(snapshot, zh)}</small> : null}
-        </div>
-        <p>{zh ? "仅新启动的 Claude Code 会话会读取新方案，正在运行的会话不变。" : "Only new Claude Code sessions read an applied profile. Running sessions stay unchanged."}</p>
       </section>
 
       {snapshot.mcpStatus !== "ready" ? (
@@ -302,7 +290,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
             <button type="button" key={tab.id} className={`claude-resource-subtab ${activeTab === tab.id ? "active" : ""}`} onClick={() => setActiveTab(tab.id)}>
               <Icon size={16} />
               <span><b>{tab.label}</b></span>
-              <small>{selectedProfile?.[tab.id].length ?? 0}/{snapshot.inventory[tab.id].length}</small>
+              <small>{snapshot.inventory[tab.id].length}</small>
             </button>
           );
         })}
@@ -313,7 +301,9 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
           <Search size={16} />
           <input value={query} onChange={event => setQuery(event.target.value)} placeholder={zh ? `搜索 ${activeTabLabel}` : `Search ${activeTabLabel}`} />
         </div>
-        <span>{formatCount(filteredItems.length, items.length, zh)}</span>
+        <button type="button" className="claude-resource-search-refresh" onClick={() => void refresh(true)} disabled={busyAction !== null} aria-label={zh ? "刷新" : "Refresh"} title={zh ? "刷新" : "Refresh"}>
+          <RefreshCw size={17} className={busyAction === "refresh" ? "spinning" : undefined} />
+        </button>
       </section>
 
       <ProfileResourceTable
@@ -451,23 +441,9 @@ function issueMessage(issues: Array<{ message: string }>, zh: boolean) {
   return issues[0]?.message ?? (zh ? "操作失败。" : "The operation failed.");
 }
 
-function driftSummary(snapshot: ClaudeProfilesSnapshot, zh: boolean) {
-  const labels = [
-    snapshot.drift.skills ? "Skills" : null,
-    snapshot.drift.plugins ? "Plugins" : null,
-    snapshot.drift.mcpServers ? "MCP" : null
-  ].filter(Boolean);
-  return labels.length > 0 ? (zh ? `${labels.join("、")} 已变化` : `${labels.join(", ")} changed`) : "";
-}
-
 function deltaText(changes: { enable: string[]; disable: string[] }, zh: boolean) {
   if (changes.enable.length === 0 && changes.disable.length === 0) return zh ? "无变化" : "No changes";
   return zh ? `启用 ${changes.enable.length}，停用 ${changes.disable.length}` : `Enable ${changes.enable.length}, disable ${changes.disable.length}`;
-}
-
-function formatCount(filtered: number, total: number, zh: boolean) {
-  if (filtered === total) return zh ? `${total} 项` : `${total} items`;
-  return zh ? `${filtered} / ${total} 项` : `${filtered} / ${total} items`;
 }
 
 function fallbackDescription(kind: ClaudeProfileResource["kind"], zh: boolean) {
