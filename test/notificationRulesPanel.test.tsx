@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationRulesPanel } from "../src/renderer/clawd-migrated/components/NotificationRulesPanel";
@@ -8,13 +8,17 @@ import { defaultSettings } from "../src/renderer/shared/events";
 
 beforeEach(() => {
   Reflect.set(window, "companion", {
-    getDefaultSoundPaths: vi.fn(async () => ({ done: null, error: null, permission: null }))
+    getDefaultSoundPaths: vi.fn(async () => ({ done: null, error: null, permission: null })),
+    previewSound: vi.fn(async () => ({ ok: true, dataUrl: "data:audio/wav;base64,dGVzdA==" })),
+    previewSoundFile: vi.fn(async () => ({ ok: true, dataUrl: "data:audio/wav;base64,dGVzdA==" }))
   });
 });
 
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(window, "companion");
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("NotificationRulesPanel concurrent edits", () => {
@@ -36,5 +40,34 @@ describe("NotificationRulesPanel concurrent edits", () => {
     fireEvent.click(switches[1]);
     fireEvent.change(screen.getByRole("slider"), { target: { value: "0.2" } });
     expect(updateSettings.mock.calls.at(-1)?.[0].sound).toMatchObject({ enabled: false, volume: 0.2 });
+  });
+
+  it("stops sound previews and clears status timers on unmount", async () => {
+    vi.useFakeTimers();
+    const pause = vi.fn();
+    const play = vi.fn(async () => undefined);
+    vi.stubGlobal("Audio", class {
+      volume = 1;
+      currentTime = 0;
+      pause = pause;
+      play = play;
+      addEventListener = vi.fn();
+    });
+    const view = render(
+      <I18nProvider initialLocale="en">
+        <NotificationRulesPanel settings={structuredClone(defaultSettings)} updateSettings={vi.fn()} />
+      </I18nProvider>
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: "Preview" })[0]);
+      await Promise.resolve();
+    });
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    view.unmount();
+
+    expect(pause).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
