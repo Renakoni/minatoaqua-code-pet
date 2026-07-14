@@ -280,7 +280,7 @@ describe("Unified Claude profile coordinator", () => {
 
   it("can retry successfully after a target write failure", () => {
     const paths = tempPaths();
-    seedFiles(paths);
+    const original = seedFiles(paths);
     const claudeJsonPath = paths.claudeJsonPath;
     const blocker = join(dirname(claudeJsonPath), "blocked-parent");
     writeFileSync(blocker, "not a directory", "utf8");
@@ -293,6 +293,7 @@ describe("Unified Claude profile coordinator", () => {
       paths
     });
     expect(failed.ok).toBe(false);
+    expect(readFileSync(paths.settingsPath, "utf8")).toBe(original.settingsText);
 
     paths.claudeJsonPath = claudeJsonPath;
     const retried = applyClaudeProfile({
@@ -317,8 +318,8 @@ describe("Unified Claude profile coordinator", () => {
       paths
     });
     expect(first.ok).toBe(true);
-    const focusedSettings = readFileSync(paths.settingsPath, "utf8");
-    const focusedClaude = readFileSync(paths.claudeJsonPath, "utf8");
+    const focusedSettings = JSON.parse(readFileSync(paths.settingsPath, "utf8"));
+    const focusedClaude = JSON.parse(readFileSync(paths.claudeJsonPath, "utf8"));
 
     // Simulate process exit after settings replacement but before the MCP and
     // pointer writes completed.
@@ -333,8 +334,8 @@ describe("Unified Claude profile coordinator", () => {
     });
 
     expect(recovered.ok).toBe(true);
-    expect(readFileSync(paths.settingsPath, "utf8")).toBe(focusedSettings);
-    expect(readFileSync(paths.claudeJsonPath, "utf8")).toBe(focusedClaude);
+    expect(JSON.parse(readFileSync(paths.settingsPath, "utf8"))).toEqual(focusedSettings);
+    expect(JSON.parse(readFileSync(paths.claudeJsonPath, "utf8"))).toEqual(focusedClaude);
     expect(parseClaudeProfileStore(JSON.parse(readFileSync(paths.profileStorePath, "utf8"))).appliedProfileId).toBe("focused");
   });
 

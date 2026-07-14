@@ -359,7 +359,6 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
                       onChange={event => setProfileQuery(event.target.value)}
                       placeholder={zh ? "搜索方案" : "Search profiles"}
                       aria-label={zh ? "搜索方案" : "Search profiles"}
-                      autoFocus
                     />
                   </label>
                   <div className="claude-profile-options-list" role="listbox" aria-label={zh ? "配置方案" : "Profiles"}>

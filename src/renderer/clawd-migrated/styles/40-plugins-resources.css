@@ -412,8 +412,7 @@
 .claude-profile-select-button > svg { color: oklch(61% 0.01 78); transition: transform 150ms ease; }
 .claude-profile-select-button[aria-expanded="true"] > svg { transform: rotate(180deg); }
 .claude-profile-select-button:disabled { opacity: .5; cursor: wait; }
-.claude-profile-select-button:focus-visible,
-.claude-profile-name-field input:focus-visible {
+.claude-profile-select-button:focus-visible {
   outline: 2px solid oklch(61% 0.055 78 / .68);
   outline-offset: 1px;
 }
@@ -454,6 +453,11 @@
   font-size: 11px;
 }
 .claude-profile-options-search input::placeholder { color: oklch(53% 0.009 78); }
+.claude-resources-page-dark .claude-profile-options-search input:focus {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
 .claude-profile-options-list {
   max-height: 150px;
   overflow-y: auto;
@@ -614,13 +618,10 @@
 .claude-profile-editor-header h2 { margin: 0; color: oklch(91% 0.012 78); font-size: 16px; font-weight: 720; white-space: nowrap; }
 .claude-profile-name-field {
   min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(180px, 1fr);
-  align-items: center;
-  gap: 9px;
+  display: block;
 }
-.claude-profile-name-field span { color: oklch(59% 0.009 78); font-size: 11px; font-weight: 680; }
 .claude-profile-name-field input {
+  width: 100%;
   min-width: 0;
   min-height: 36px;
   padding: 0 11px;
@@ -630,6 +631,12 @@
   background: oklch(20% 0.006 75);
   font: inherit;
   font-size: 13px;
+}
+.claude-profile-name-field input::placeholder { color: oklch(55% 0.009 78); }
+.claude-resources-page-dark .claude-profile-name-field input:focus {
+  border-color: oklch(29% 0.006 75);
+  outline: 0;
+  box-shadow: none;
 }
 .claude-profile-name-field input:disabled { color: oklch(66% 0.01 78); background: oklch(18% 0.006 75); }
 .claude-profile-editor-tabs { grid-template-columns: repeat(3, minmax(136px, 1fr)) !important; }

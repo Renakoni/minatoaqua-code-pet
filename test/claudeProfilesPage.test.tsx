@@ -225,11 +225,13 @@ describe("Unified Claude Profiles page", () => {
   it("supports keyboard navigation and restores focus to the profile trigger", async () => {
     renderPage();
     const trigger = await screen.findByRole("button", { name: "Profile: Default" });
+    trigger.focus();
     fireEvent.click(trigger);
     const search = screen.getByRole("textbox", { name: "Search profiles" });
-    await waitFor(() => expect(document.activeElement).toBe(search));
+    expect(document.activeElement).toBe(trigger);
+    expect(document.activeElement).not.toBe(search);
 
-    fireEvent.keyDown(search, { key: "ArrowDown" });
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
     const defaultOption = screen.getByRole("option", { name: "Default" });
     expect(document.activeElement).toBe(defaultOption);
     fireEvent.keyDown(defaultOption, { key: "ArrowDown" });
@@ -241,6 +243,7 @@ describe("Unified Claude Profiles page", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Profile: Focused" })));
 
     const focusedTrigger = screen.getByRole("button", { name: "Profile: Focused" });
+    focusedTrigger.focus();
     fireEvent.click(focusedTrigger);
     const reopenedSearch = screen.getByRole("textbox", { name: "Search profiles" });
     fireEvent.keyDown(reopenedSearch, { key: "Escape" });
@@ -322,23 +325,30 @@ describe("Unified Claude Profiles page", () => {
       ok: false,
       issues: [{ code: "settings-write-failed", message: "Claude settings could not be replaced." }]
     });
-    renderPage(defaultSettings, "zh");
+    const view = renderPage(defaultSettings, "zh");
 
     fireEvent.click(await screen.findByRole("button", { name: "方案：Default" }));
     fireEvent.click(screen.getByRole("option", { name: "Focused" }));
 
-    expect((await screen.findAllByText("无法更新 Claude settings.json。")).length).toBeGreaterThan(0);
+    const localized = "无法更新 Claude settings.json。";
+    await screen.findAllByText(localized);
+    expect(view.container.querySelector(".connection-error")?.textContent).toBe(localized);
+    expect(document.querySelector("[data-sonner-toast] [data-title]")?.textContent).toBe(localized);
+    expect(screen.queryByText("Claude settings could not be replaced.")).toBeNull();
     expect(screen.getByRole("button", { name: "方案：Default" })).toBeTruthy();
   });
 
   it("clears the busy state and reports an unexpected apply rejection", async () => {
     applyClaudeProfile.mockRejectedValueOnce(new Error("IPC unavailable"));
-    renderPage();
+    const view = renderPage();
 
     fireEvent.click(await screen.findByRole("button", { name: "Profile: Default" }));
     fireEvent.click(screen.getByRole("option", { name: "Focused" }));
 
-    expect((await screen.findAllByText("The profile could not be applied.")).length).toBeGreaterThan(0);
+    const message = "The profile could not be applied.";
+    await screen.findAllByText(message);
+    expect(view.container.querySelector(".connection-error")?.textContent).toBe(message);
+    expect(document.querySelector("[data-sonner-toast] [data-title]")?.textContent).toBe(message);
     expect((screen.getByRole("button", { name: "Profile: Default" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -350,7 +360,11 @@ describe("Unified Claude Profiles page", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /Empty profile/ }));
 
     expect(await screen.findByRole("heading", { name: "New profile" })).toBeTruthy();
-    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Bioinformatics" } });
+    const nameInput = screen.getByPlaceholderText("Name") as HTMLInputElement;
+    expect(nameInput.value).toBe("");
+    expect(document.activeElement).not.toBe(nameInput);
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(nameInput, { target: { value: "Bioinformatics" } });
     fireEvent.change(screen.getByPlaceholderText("Search Skills"), { target: { value: "skill-1999" } });
     fireEvent.click(await screen.findByRole("button", { name: "Select skill-1999" }));
     expect(await screen.findByRole("button", { name: "Remove skill-1999" })).toBeTruthy();
