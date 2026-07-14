@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 export function quarantineInvalidJsonFile(filePath: string, now: number, label: string) {
@@ -11,6 +11,17 @@ export function quarantineInvalidJsonFile(filePath: string, now: number, label: 
 }
 
 const MAX_JSON_BACKUPS = 5;
+
+export function readJsonObjectFile(filePath: string): Record<string, unknown> {
+  if (!existsSync(filePath)) return {};
+  const raw = readFileSync(filePath, "utf8").trim();
+  if (!raw) throw new Error(`Expected a JSON object in ${filePath}`);
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Expected a JSON object in ${filePath}`);
+  }
+  return parsed as Record<string, unknown>;
+}
 
 function pruneJsonBackups(filePath: string) {
   const parent = dirname(filePath);
