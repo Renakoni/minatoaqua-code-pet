@@ -100,6 +100,28 @@ export function getClaudeProfileDrift(
   return { profileId, isDrifted: skills || plugins || mcpServers, skills, plugins, mcpServers };
 }
 
+export function snapshotAfterClaudeProfileApply(
+  snapshot: ClaudeProfilesSnapshot,
+  profileId: string
+): ClaudeProfilesSnapshot {
+  const profile = snapshot.profiles.find(item => item.id === profileId);
+  if (!profile) throw new Error(`Claude profile does not exist: ${profileId}`);
+
+  const selected = {
+    skills: new Set(profile.skills),
+    plugins: new Set(profile.plugins),
+    mcpServers: new Set(profile.mcpServers)
+  };
+  const inventory: ClaudeProfileInventory = {
+    ...snapshot.inventory,
+    skills: snapshot.inventory.skills.map(item => ({ ...item, enabled: selected.skills.has(item.id) })),
+    plugins: snapshot.inventory.plugins.map(item => ({ ...item, enabled: selected.plugins.has(item.id) })),
+    mcpServers: snapshot.inventory.mcpServers.map(item => ({ ...item, enabled: selected.mcpServers.has(item.id) }))
+  };
+  const projected = { ...snapshot, appliedProfileId: profileId, inventory };
+  return { ...projected, drift: getClaudeProfileDrift(projected, inventory, snapshot.mcpStatus) };
+}
+
 export type ClaudeProfilesSnapshot = ClaudeProfileStoreData & {
   inventory: ClaudeProfileInventory;
   drift: ClaudeProfileDrift;

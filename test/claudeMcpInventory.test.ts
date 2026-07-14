@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -103,16 +103,36 @@ describe("Claude MCP inventory", () => {
     });
   });
 
-  it("does not overwrite an invalid preservation inventory", () => {
+  it("preserves an unsupported inventory before rebuilding it from live servers", () => {
     const inventoryPath = tempFile("claude-mcp-inventory.json");
-    const malformed = '{"schemaVersion":1,"servers":';
-    writeFileSync(inventoryPath, malformed, "utf8");
+    const unsupported = '{"schemaVersion":2,"servers":{"old":{"command":"old"}},"updatedAt":1}\n';
+    writeFileSync(inventoryPath, unsupported, "utf8");
+
+    const recovered = synchronizeClaudeMcpInventory(inventoryPath, {
+      filesystem: { command: "mcp-filesystem" }
+    }, 300);
+    const preserved = readdirSync(dirname(inventoryPath))
+      .filter(name => name.startsWith("claude-mcp-inventory.invalid-") && name.endsWith(".json"));
+
+    expect(recovered).toEqual({
+      schemaVersion: 1,
+      servers: { filesystem: { command: "mcp-filesystem" } },
+      updatedAt: 300
+    });
+    expect(loadClaudeMcpInventory(inventoryPath)).toEqual(recovered);
+    expect(preserved).toHaveLength(1);
+    expect(readFileSync(join(dirname(inventoryPath), preserved[0]), "utf8")).toBe(unsupported);
+  });
+
+  it("propagates inventory read failures without quarantining the path", () => {
+    const inventoryPath = tempFile("claude-mcp-inventory.json");
+    mkdirSync(inventoryPath);
 
     expect(() => synchronizeClaudeMcpInventory(inventoryPath, {
       filesystem: { command: "mcp-filesystem" }
-    })).toThrow("malformed JSON");
-    expect(readFileSync(inventoryPath, "utf8")).toBe(malformed);
-    expect(() => loadClaudeMcpInventory(inventoryPath)).toThrow("malformed JSON");
+    })).toThrow();
+    expect(statSync(inventoryPath).isDirectory()).toBe(true);
+    expect(readdirSync(dirname(inventoryPath)).filter(name => name.startsWith("claude-mcp-inventory.invalid-"))).toEqual([]);
   });
 
   it("returns last-known safe identities when the live MCP config is malformed", () => {
@@ -138,7 +158,7 @@ describe("Claude MCP inventory", () => {
     expect(JSON.stringify(snapshot)).not.toContain("preserved-secret");
   });
 
-  it("returns live safe identities without replacing a malformed inventory", () => {
+  it("preserves a malformed inventory and rebuilds live safe identities", () => {
     const inventoryPath = tempFile("claude-mcp-inventory.json");
     const claudeJsonPath = join(dirname(inventoryPath), ".claude.json");
     const malformed = '{"schemaVersion":1,"servers":';
@@ -150,7 +170,7 @@ describe("Claude MCP inventory", () => {
     const snapshot = synchronizeClaudeMcpProfileResources(claudeJsonPath, inventoryPath, []);
 
     expect(snapshot).toEqual({
-      status: "inventory-unreadable",
+      status: "ready",
       resources: [{
         id: "mcp:browser",
         kind: "mcp",
@@ -160,6 +180,13 @@ describe("Claude MCP inventory", () => {
       }]
     });
     expect(JSON.stringify(snapshot)).not.toContain("live-secret");
-    expect(readFileSync(inventoryPath, "utf8")).toBe(malformed);
+    expect(loadClaudeMcpInventory(inventoryPath)?.servers.browser).toEqual({
+      url: "https://mcp.example.test",
+      headers: { Authorization: "live-secret" }
+    });
+    const preserved = readdirSync(dirname(inventoryPath))
+      .filter(name => name.startsWith("claude-mcp-inventory.invalid-") && name.endsWith(".json"));
+    expect(preserved).toHaveLength(1);
+    expect(readFileSync(join(dirname(inventoryPath), preserved[0]), "utf8")).toBe(malformed);
   });
 });

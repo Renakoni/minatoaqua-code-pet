@@ -1,7 +1,7 @@
 /** Main-process-only preservation store for full global MCP definitions. */
 import { existsSync, readFileSync } from "node:fs";
 import type { ClaudeProfileMcpStatus, ClaudeProfileResource } from "../shared/claudeProfiles";
-import { writeTextFileAtomic } from "./filePersistence";
+import { quarantineInvalidJsonFile, writeTextFileAtomic } from "./filePersistence";
 
 type JsonObject = Record<string, unknown>;
 
@@ -19,6 +19,8 @@ export type ClaudeMcpLiveConfig = {
   config: JsonObject;
   servers: Record<string, ClaudeMcpDefinition>;
 };
+
+class InvalidClaudeMcpInventoryError extends Error {}
 
 function isPlainObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -50,17 +52,22 @@ function parseDefinitions(value: unknown, label: string) {
 }
 
 export function parseClaudeMcpInventory(value: unknown): ClaudeMcpInventoryData {
-  if (!isPlainObject(value) || value.schemaVersion !== CLAUDE_MCP_INVENTORY_SCHEMA_VERSION) {
-    throw new Error("Unsupported or invalid Claude MCP inventory");
+  try {
+    if (!isPlainObject(value) || value.schemaVersion !== CLAUDE_MCP_INVENTORY_SCHEMA_VERSION) {
+      throw new Error("Unsupported or invalid Claude MCP inventory");
+    }
+    if (typeof value.updatedAt !== "number" || !Number.isFinite(value.updatedAt) || value.updatedAt < 0) {
+      throw new Error("Invalid Claude MCP inventory timestamp");
+    }
+    return {
+      schemaVersion: CLAUDE_MCP_INVENTORY_SCHEMA_VERSION,
+      servers: parseDefinitions(value.servers, "Claude MCP inventory servers"),
+      updatedAt: value.updatedAt
+    };
+  } catch (error) {
+    if (error instanceof InvalidClaudeMcpInventoryError) throw error;
+    throw new InvalidClaudeMcpInventoryError(error instanceof Error ? error.message : "Invalid Claude MCP inventory");
   }
-  if (typeof value.updatedAt !== "number" || !Number.isFinite(value.updatedAt) || value.updatedAt < 0) {
-    throw new Error("Invalid Claude MCP inventory timestamp");
-  }
-  return {
-    schemaVersion: CLAUDE_MCP_INVENTORY_SCHEMA_VERSION,
-    servers: parseDefinitions(value.servers, "Claude MCP inventory servers"),
-    updatedAt: value.updatedAt
-  };
 }
 
 export function readClaudeMcpLiveConfig(filePath: string): ClaudeMcpLiveConfig {
@@ -86,7 +93,7 @@ export function loadClaudeMcpInventory(filePath: string): ClaudeMcpInventoryData
   try {
     parsed = JSON.parse(raw) as unknown;
   } catch {
-    throw new Error("Claude MCP inventory contains malformed JSON");
+    throw new InvalidClaudeMcpInventoryError("Claude MCP inventory contains malformed JSON");
   }
   return parseClaudeMcpInventory(parsed);
 }
@@ -120,7 +127,15 @@ export function synchronizeClaudeMcpInventory(
   liveServers: Record<string, ClaudeMcpDefinition>,
   now = Date.now()
 ) {
-  const merged = mergeClaudeMcpInventory(loadClaudeMcpInventory(filePath), liveServers, now);
+  let current: ClaudeMcpInventoryData | null;
+  try {
+    current = loadClaudeMcpInventory(filePath);
+  } catch (error) {
+    if (!(error instanceof InvalidClaudeMcpInventoryError)) throw error;
+    quarantineInvalidJsonFile(filePath, now, "Claude MCP inventory");
+    current = null;
+  }
+  const merged = mergeClaudeMcpInventory(current, liveServers, now);
   if (merged.changed) saveClaudeMcpInventory(filePath, merged.data);
   return merged.data;
 }

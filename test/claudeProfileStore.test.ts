@@ -13,7 +13,12 @@ import {
   saveClaudeProfileStore,
   upsertClaudeProfile
 } from "../src/main/claudeProfileStore";
-import type { ClaudeProfileInventory, ClaudeResourcesSnapshot } from "../src/shared/claudeProfiles";
+import {
+  snapshotAfterClaudeProfileApply,
+  type ClaudeProfileInventory,
+  type ClaudeProfilesSnapshot,
+  type ClaudeResourcesSnapshot
+} from "../src/shared/claudeProfiles";
 
 const tempRoots: string[] = [];
 
@@ -371,6 +376,41 @@ describe("Claude profile store", () => {
       skills: false,
       plugins: false,
       mcpServers: true
+    });
+  });
+
+  it("projects a successful apply when the post-write refresh is unavailable", () => {
+    const current = inventory();
+    const store = createInitialClaudeProfileStore(current, 456);
+    store.profiles.push({
+      id: "focused",
+      name: "Focused",
+      skills: ["skill:impeccable"],
+      plugins: ["plugin:notify@market"],
+      mcpServers: ["mcp:filesystem"],
+      isProtected: false,
+      createdAt: 457,
+      updatedAt: 457
+    });
+    const snapshot: ClaudeProfilesSnapshot = {
+      ...store,
+      inventory: current,
+      drift: getClaudeProfileDrift(store, current),
+      mcpStatus: "ready"
+    };
+
+    const projected = snapshotAfterClaudeProfileApply(snapshot, "focused");
+
+    expect(projected.appliedProfileId).toBe("focused");
+    expect(projected.inventory.skills.filter(item => item.enabled).map(item => item.id)).toEqual(["skill:impeccable"]);
+    expect(projected.inventory.plugins.filter(item => item.enabled).map(item => item.id)).toEqual(["plugin:notify@market"]);
+    expect(projected.inventory.mcpServers.filter(item => item.enabled).map(item => item.id)).toEqual(["mcp:filesystem"]);
+    expect(projected.drift).toEqual({
+      profileId: "focused",
+      isDrifted: false,
+      skills: false,
+      plugins: false,
+      mcpServers: false
     });
   });
 });

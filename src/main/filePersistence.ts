@@ -2,6 +2,14 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+export function quarantineInvalidJsonFile(filePath: string, now: number, label: string) {
+  const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
+  const basePath = filePath.toLowerCase().endsWith(".json") ? filePath.slice(0, -5) : filePath;
+  const preservedPath = `${basePath}.invalid-${stamp}-${randomUUID()}.json`;
+  renameSync(filePath, preservedPath);
+  console.warn(`Invalid ${label} preserved at ${preservedPath}`);
+}
+
 const MAX_JSON_BACKUPS = 5;
 
 function pruneJsonBackups(filePath: string) {
