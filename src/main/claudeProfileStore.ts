@@ -213,6 +213,12 @@ function membershipDiffers(expected: string[], resources: ClaudeProfileResource[
   return expected.length !== active.size || expected.some(id => !active.has(id));
 }
 
+function membershipsEqual(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const rightMembers = new Set(right);
+  return left.every(id => rightMembers.has(id));
+}
+
 export function getClaudeProfileDrift(
   store: ClaudeProfileStoreData,
   inventory: ClaudeProfileInventory,
@@ -261,12 +267,9 @@ function synchronizeUntouchedDefaultProfile(
   const plugins = inventory.plugins.map(item => item.id);
   const mcpServers = inventory.mcpServers.map(item => item.id);
   const unchanged = (
-    defaultProfile.skills.length === skills.length
-    && defaultProfile.skills.every((id, index) => id === skills[index])
-    && defaultProfile.plugins.length === plugins.length
-    && defaultProfile.plugins.every((id, index) => id === plugins[index])
-    && defaultProfile.mcpServers.length === mcpServers.length
-    && defaultProfile.mcpServers.every((id, index) => id === mcpServers[index])
+    membershipsEqual(defaultProfile.skills, skills)
+    && membershipsEqual(defaultProfile.plugins, plugins)
+    && membershipsEqual(defaultProfile.mcpServers, mcpServers)
   );
   if (unchanged) return store;
 

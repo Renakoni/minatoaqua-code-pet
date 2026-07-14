@@ -5,9 +5,14 @@ import type {
   ClaudeProfileResource,
   ClaudeProfileSaveInput
 } from "../../../../shared/claudeProfiles";
+import {
+  filterProfileResources,
+  unavailableProfileResources,
+  type ClaudeProfileResourceTab
+} from "./claudeProfileResources";
 import { useVirtualRows } from "./useVirtualRows";
 
-type ResourceTab = "skills" | "plugins" | "mcpServers";
+type ResourceTab = ClaudeProfileResourceTab;
 
 const ROW_HEIGHT = 64;
 const OVERSCAN = 5;
@@ -54,26 +59,13 @@ export function ClaudeProfileEditor({
   const availableIds = useMemo(() => new Set(availableResources.map(resource => resource.id)), [availableResources]);
   const resources = useMemo<ClaudeProfileResource[]>(() => [
     ...availableResources,
-    ...draft[activeTab]
-      .filter(resourceId => !availableIds.has(resourceId))
-      .map(resourceId => ({
-        id: resourceId,
-        kind: activeTab === "skills" ? "skill" as const : activeTab === "plugins" ? "plugin" as const : "mcp" as const,
-        name: resourceId.replace(/^[^:]+:/, ""),
-        description: zh ? "当前环境中已不存在" : "No longer available in the current environment",
-        enabled: false
-      }))
-  ], [activeTab, availableIds, availableResources, draft, zh]);
+    ...unavailableProfileResources(draft[activeTab], availableResources, activeTab, zh)
+  ], [activeTab, availableResources, draft, zh]);
   const selected = useMemo(() => new Set(draft[activeTab]), [activeTab, draft]);
-  const filtered = useMemo(() => {
-    const needle = deferredQuery.trim().toLocaleLowerCase();
-    if (!needle) return resources;
-    return resources.filter(resource => [resource.name, resource.description, resource.detail]
-      .filter(Boolean)
-      .join(" ")
-      .toLocaleLowerCase()
-      .includes(needle));
-  }, [deferredQuery, resources]);
+  const filtered = useMemo(
+    () => filterProfileResources(resources, deferredQuery, hideSensitiveContent),
+    [deferredQuery, hideSensitiveContent, resources]
+  );
   const unselectedResources = useMemo(
     () => filtered.filter(resource => !selected.has(resource.id)),
     [filtered, selected]

@@ -14,30 +14,29 @@ import {
   Server
 } from "lucide-react";
 import { toast } from "sonner";
-import type {
-  ClaudeProfile,
-  ClaudeProfileResource,
-  ClaudeProfileSaveInput,
-  ClaudeProfilesSnapshot
+import {
+  createEmptyClaudeProfilesSnapshot,
+  type ClaudeProfile,
+  type ClaudeProfileResource,
+  type ClaudeProfileSaveInput,
+  type ClaudeProfilesSnapshot
 } from "../../../../shared/claudeProfiles";
 import type { CompanionSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import { ConfirmDialog } from "../claude-routing/ConfirmDialog";
 import { RoutingToaster } from "../claude-routing/RoutingToaster";
 import { ClaudeProfileEditor } from "./ClaudeProfileEditor";
+import {
+  filterProfileResources,
+  unavailableProfileResources,
+  type ClaudeProfileResourceTab
+} from "./claudeProfileResources";
 import { useVirtualRows } from "./useVirtualRows";
 
-type ResourceTab = "skills" | "plugins" | "mcpServers";
+type ResourceTab = ClaudeProfileResourceTab;
 type BusyAction = "refresh" | "save" | "delete" | "apply" | null;
 
-const emptySnapshot: ClaudeProfilesSnapshot = {
-  schemaVersion: 1,
-  profiles: [{ id: "default", name: "Default", skills: [], plugins: [], mcpServers: [], isProtected: true, createdAt: 0, updatedAt: 0 }],
-  appliedProfileId: "default",
-  inventory: { skills: [], plugins: [], mcpServers: [], scannedAt: 0 },
-  drift: { profileId: "default", isDrifted: false, skills: false, plugins: false, mcpServers: false },
-  mcpStatus: "ready"
-};
+const emptySnapshot: ClaudeProfilesSnapshot = createEmptyClaudeProfilesSnapshot();
 
 type EditorState = {
   key: string;
@@ -111,20 +110,19 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     { id: "mcpServers" as const, label: "MCP", icon: Server }
   ];
   const activeTabLabel = tabs.find(tab => tab.id === activeTab)?.label ?? activeTab;
-  const selectedIds = useMemo(() => new Set(selectedProfile?.[activeTab] ?? []), [activeTab, selectedProfile]);
-  const items = useMemo(
-    () => snapshot.inventory[activeTab].filter(item => selectedIds.has(item.id)),
-    [activeTab, selectedIds, snapshot.inventory]
+  const items = useMemo(() => {
+    const availableResources = snapshot.inventory[activeTab];
+    const memberIds = selectedProfile?.[activeTab] ?? [];
+    const members = new Set(memberIds);
+    return [
+      ...availableResources.filter(item => members.has(item.id)),
+      ...unavailableProfileResources(memberIds, availableResources, activeTab, zh)
+    ];
+  }, [activeTab, selectedProfile, snapshot.inventory, zh]);
+  const filteredItems = useMemo(
+    () => filterProfileResources(items, deferredQuery, settings.hideSensitiveContent),
+    [deferredQuery, items, settings.hideSensitiveContent]
   );
-  const filteredItems = useMemo(() => {
-    const needle = deferredQuery.trim().toLocaleLowerCase();
-    if (!needle) return items;
-    return items.filter(item => [item.name, item.description, item.detail]
-      .filter(Boolean)
-      .join(" ")
-      .toLocaleLowerCase()
-      .includes(needle));
-  }, [deferredQuery, items]);
 
   function startEdit(profile: ClaudeProfile) {
     setActionError(null);

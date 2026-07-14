@@ -1,10 +1,11 @@
 import { isSessionStartEvent, type PetEvent } from "../shared/events";
-import type {
-  ClaudeProfileMutationResult,
-  ClaudeProfilePreviewResult,
-  ClaudeProfileSaveInput,
-  ClaudeProfilesSnapshot,
-  ClaudeResourcesSnapshot
+import {
+  createEmptyClaudeProfilesSnapshot,
+  type ClaudeProfileMutationResult,
+  type ClaudeProfilePreviewResult,
+  type ClaudeProfileSaveInput,
+  type ClaudeProfilesSnapshot,
+  type ClaudeResourcesSnapshot
 } from "../shared/claudeProfiles";
 import type { HookStatus, HookOperationResult } from "../shared/hooks";
 import type { PetPackManifest } from "../shared/petPack";
@@ -151,14 +152,7 @@ const currentSettings: CompanionSettings = {
   openSettingsOnStart: true
 };
 
-let mockClaudeProfiles: ClaudeProfilesSnapshot = {
-  schemaVersion: 1,
-  profiles: [{ id: "default", name: "Default", skills: [], plugins: [], mcpServers: [], isProtected: true, createdAt: 0, updatedAt: 0 }],
-  appliedProfileId: "default",
-  inventory: { skills: [], plugins: [], mcpServers: [], scannedAt: Date.now() },
-  drift: { profileId: "default", isDrifted: false, skills: false, plugins: false, mcpServers: false },
-  mcpStatus: "ready"
-};
+let mockClaudeProfiles: ClaudeProfilesSnapshot = createEmptyClaudeProfilesSnapshot(Date.now());
 
 function updateMockClaudeDrift() {
   const applied = mockClaudeProfiles.profiles.find(profile => profile.id === mockClaudeProfiles.appliedProfileId);

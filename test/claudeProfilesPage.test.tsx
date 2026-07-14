@@ -118,10 +118,10 @@ function installCompanionMock() {
   });
 }
 
-function renderPage() {
+function renderPage(settings = defaultSettings) {
   return render(
     <I18nProvider initialLocale="en">
-      <PluginsPage settings={defaultSettings} updateSettings={vi.fn()} />
+      <PluginsPage settings={settings} updateSettings={vi.fn()} />
     </I18nProvider>
   );
 }
@@ -241,6 +241,45 @@ describe("Unified Claude Profiles page", () => {
     expect(await screen.findByText("Active now")).toBeTruthy();
     expect(screen.getByText("Enabled")).toBeTruthy();
     expect(screen.queryByText("Included")).toBeNull();
+  });
+
+  it("shows unavailable profile members in both the tab count and read-only list", async () => {
+    const defaultProfile = currentSnapshot.profiles[0];
+    currentSnapshot = {
+      ...currentSnapshot,
+      profiles: currentSnapshot.profiles.map(profile => profile.id === defaultProfile.id
+        ? { ...profile, skills: [...profile.skills, "skill:retired-skill"] }
+        : profile)
+    };
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: "Skills 2001" })).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText("Search Skills"), { target: { value: "retired-skill" } });
+
+    expect(await screen.findByText("No longer available in the current environment")).toBeTruthy();
+    expect(screen.getByText("Inactive now")).toBeTruthy();
+    expect(screen.getByText("Enabled")).toBeTruthy();
+  });
+
+  it("does not search hidden resource details in the main list or editor", async () => {
+    currentSnapshot = {
+      ...currentSnapshot,
+      inventory: {
+        ...currentSnapshot.inventory,
+        skills: currentSnapshot.inventory.skills.map((skill, index) => index === 0
+          ? { ...skill, description: "private-only-token" }
+          : skill)
+      }
+    };
+    const view = renderPage({ ...defaultSettings, hideSensitiveContent: true });
+    await screen.findByRole("button", { name: "Profile: Default" });
+
+    fireEvent.change(screen.getByPlaceholderText("Search Skills"), { target: { value: "private-only-token" } });
+    await waitFor(() => expect(view.container.querySelector('[data-resource-id="skill:skill-0"]')).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+    fireEvent.change(await screen.findByPlaceholderText("Search Skills"), { target: { value: "private-only-token" } });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove skill-0" })).toBeNull());
   });
 
   it("starts an empty profile with every resource unselected", async () => {

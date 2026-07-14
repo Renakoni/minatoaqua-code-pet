@@ -121,6 +121,20 @@ describe("Claude profile store", () => {
     expect(parseClaudeProfileStore(JSON.parse(readFileSync(filePath, "utf8"))).profiles[0]).toEqual(snapshot.profiles[0]);
   });
 
+  it("does not rewrite an untouched Default when only inventory order changes", () => {
+    const filePath = tempFile();
+    const liveInventory = buildClaudeProfileInventory(resources());
+    const reordered = createInitialClaudeProfileStore(liveInventory, 456);
+    reordered.profiles[0].skills.reverse();
+    saveClaudeProfileStore(filePath, reordered);
+    const persistedText = readFileSync(filePath, "utf8");
+
+    const snapshot = createClaudeProfilesSnapshot(filePath, resources(), 789);
+
+    expect(snapshot.profiles[0].skills).toEqual(reordered.profiles[0].skills);
+    expect(readFileSync(filePath, "utf8")).toBe(persistedText);
+  });
+
   it("does not overwrite Default after the user has edited it", () => {
     const filePath = tempFile();
     const edited = createInitialClaudeProfileStore(inventory(), 456);

@@ -82,6 +82,26 @@ export type ClaudeProfilesSnapshot = ClaudeProfileStoreData & {
   mcpStatus: ClaudeProfileMcpStatus;
 };
 
+export function createEmptyClaudeProfilesSnapshot(scannedAt = 0): ClaudeProfilesSnapshot {
+  return {
+    schemaVersion: CLAUDE_PROFILE_SCHEMA_VERSION,
+    profiles: [{
+      id: DEFAULT_CLAUDE_PROFILE_ID,
+      name: "Default",
+      skills: [],
+      plugins: [],
+      mcpServers: [],
+      isProtected: true,
+      createdAt: 0,
+      updatedAt: 0
+    }],
+    appliedProfileId: DEFAULT_CLAUDE_PROFILE_ID,
+    inventory: { skills: [], plugins: [], mcpServers: [], scannedAt },
+    drift: { profileId: DEFAULT_CLAUDE_PROFILE_ID, isDrifted: false, skills: false, plugins: false, mcpServers: false },
+    mcpStatus: "ready"
+  };
+}
+
 export type ClaudeProfileSaveInput = {
   id?: string;
   name: string;

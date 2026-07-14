@@ -61,9 +61,6 @@ export type ClaudeProfileCoordinatorInput = {
 
 type SuccessfulSettingsPreview = Extract<ClaudeProfileSettingsPreview, { ok: true }>;
 
-export type ClaudeProfileCoordinatorChanges = ClaudeProfileChanges;
-export type ClaudeProfileCoordinatorPreview = ClaudeProfilePreviewResult;
-
 type PreparedClaudeProfileApply =
   | {
       ok: true;
@@ -157,7 +154,7 @@ function prepareClaudeProfileApply(input: ClaudeProfileCoordinatorInput): Prepar
   };
 }
 
-function profileChanges(selectedIds: string[], resources: ClaudeProfileResource[]): ClaudeProfileCoordinatorChanges {
+function profileChanges(selectedIds: string[], resources: ClaudeProfileResource[]): ClaudeProfileChanges {
   const selected = new Set(selectedIds);
   return {
     enable: resources.filter(resource => selected.has(resource.id) && !resource.enabled).map(resource => resource.id),
@@ -165,7 +162,7 @@ function profileChanges(selectedIds: string[], resources: ClaudeProfileResource[
   };
 }
 
-export function previewClaudeProfileApply(input: ClaudeProfileCoordinatorInput): ClaudeProfileCoordinatorPreview {
+export function previewClaudeProfileApply(input: ClaudeProfileCoordinatorInput): ClaudeProfilePreviewResult {
   const prepared = prepareClaudeProfileApply(input);
   if (!prepared.ok) return prepared;
   const profile = input.store.profiles.find(item => item.id === prepared.profileId)!;
