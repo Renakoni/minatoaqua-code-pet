@@ -1,5 +1,12 @@
 import { isSessionStartEvent, type PetEvent } from "../shared/events";
-import type { ClaudeProfilesSnapshot, ClaudeResourcesSnapshot } from "../shared/claudeProfiles";
+import {
+  createEmptyClaudeProfilesSnapshot,
+  type ClaudeProfileMutationResult,
+  type ClaudeProfilePreviewResult,
+  type ClaudeProfileSaveInput,
+  type ClaudeProfilesSnapshot,
+  type ClaudeResourcesSnapshot
+} from "../shared/claudeProfiles";
 import type { HookStatus, HookOperationResult } from "../shared/hooks";
 import type { PetPackManifest } from "../shared/petPack";
 import type { PetPackDownloadProgress, PetPackDownloadResult, PetPackInspectResult, PetPackInstallResult, PetPackRemoveResult } from "../shared/petPackTransport";
@@ -82,6 +89,10 @@ type CompanionApi = {
   getPlugins: () => Promise<unknown[]>;
   getClaudeResources: (force?: boolean) => Promise<ClaudeResourcesSnapshot>;
   getClaudeProfiles: (force?: boolean) => Promise<ClaudeProfilesSnapshot>;
+  saveClaudeProfile: (input: ClaudeProfileSaveInput) => Promise<ClaudeProfileMutationResult>;
+  deleteClaudeProfile: (profileId: string) => Promise<ClaudeProfileMutationResult>;
+  previewClaudeProfile: (profileId: string) => Promise<ClaudeProfilePreviewResult>;
+  applyClaudeProfile: (profileId: string) => Promise<ClaudeProfileMutationResult>;
   getClaudeSessions: (force?: boolean) => Promise<unknown>;
   getClaudeSessionDetail: (filePath: string) => Promise<unknown>;
   resumeClaudeSession: (sessionId: string, projectPath?: string) => Promise<unknown>;
@@ -140,6 +151,25 @@ const currentSettings: CompanionSettings = {
   petTheme: "minato-aqua",
   openSettingsOnStart: true
 };
+
+let mockClaudeProfiles: ClaudeProfilesSnapshot = createEmptyClaudeProfilesSnapshot(Date.now());
+
+function updateMockClaudeDrift() {
+  const applied = mockClaudeProfiles.profiles.find(profile => profile.id === mockClaudeProfiles.appliedProfileId);
+  const skills = (applied?.skills.length ?? 0) > 0;
+  const plugins = (applied?.plugins.length ?? 0) > 0;
+  const mcpServers = (applied?.mcpServers.length ?? 0) > 0;
+  mockClaudeProfiles = {
+    ...mockClaudeProfiles,
+    drift: {
+      profileId: mockClaudeProfiles.appliedProfileId,
+      isDrifted: skills || plugins || mcpServers,
+      skills,
+      plugins,
+      mcpServers
+    }
+  };
+}
 
 let eventHistory: EventHistoryEntry[] = [];
 let statsHistory: EventHistoryEntry[] = [];
@@ -455,14 +485,59 @@ export function installClawdCompat() {
     getMonitors: async () => [],
     getPlugins: async () => [],
     getClaudeResources: async () => ({ summary: { skills: 0, plugins: 0, mcp: 0 }, skills: [], plugins: [], mcp: [], scannedAt: Date.now(), paths: { claudeDir: "~/.claude", claudeJson: "~/.claude.json" } }),
-    getClaudeProfiles: async () => ({
-      schemaVersion: 1,
-      profiles: [{ id: "default", name: "Default", skills: [], plugins: [], mcpServers: [], isProtected: true, createdAt: 0, updatedAt: 0 }],
-      appliedProfileId: "default",
-      inventory: { skills: [], plugins: [], mcpServers: [], scannedAt: Date.now() },
-      drift: { profileId: "default", isDrifted: false, skills: false, plugins: false, mcpServers: false },
-      mcpStatus: "ready"
-    }),
+    getClaudeProfiles: async () => mockClaudeProfiles,
+    saveClaudeProfile: async input => {
+      const existing = input.id ? mockClaudeProfiles.profiles.find(profile => profile.id === input.id) : undefined;
+      if (input.id && !existing) return { ok: false, issues: [{ code: "invalid-profile-reference", message: "Profile not found." }] };
+      if (existing?.isProtected && input.name.trim() !== existing.name) {
+        return { ok: false, issues: [{ code: "protected-profile", message: "The protected Default profile cannot be renamed." }] };
+      }
+      if (mockClaudeProfiles.profiles.some(profile => profile.id !== input.id && profile.name.toLocaleLowerCase() === input.name.trim().toLocaleLowerCase())) {
+        return { ok: false, issues: [{ code: "duplicate-profile-name", message: "A profile with this name already exists." }] };
+      }
+      const now = Date.now();
+      const profile = {
+        id: existing?.id ?? `profile-${now.toString(36)}`,
+        name: existing?.isProtected ? existing.name : input.name.trim(),
+        ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+        skills: [...input.skills],
+        plugins: [...input.plugins],
+        mcpServers: [...input.mcpServers],
+        isProtected: existing?.isProtected ?? false,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now
+      };
+      mockClaudeProfiles = {
+        ...mockClaudeProfiles,
+        profiles: existing
+          ? mockClaudeProfiles.profiles.map(item => item.id === profile.id ? profile : item)
+          : [...mockClaudeProfiles.profiles, profile]
+      };
+      updateMockClaudeDrift();
+      return { ok: true, profileId: profile.id, snapshot: mockClaudeProfiles };
+    },
+    deleteClaudeProfile: async profileId => {
+      const profile = mockClaudeProfiles.profiles.find(item => item.id === profileId);
+      if (!profile || profile.isProtected || mockClaudeProfiles.appliedProfileId === profileId) {
+        return { ok: false, issues: [{ code: "profile-delete-blocked", message: "This profile cannot be deleted." }] };
+      }
+      mockClaudeProfiles = { ...mockClaudeProfiles, profiles: mockClaudeProfiles.profiles.filter(item => item.id !== profileId) };
+      return { ok: true, profileId, snapshot: mockClaudeProfiles };
+    },
+    previewClaudeProfile: async profileId => mockClaudeProfiles.profiles.some(profile => profile.id === profileId)
+      ? { ok: true, profileId, changes: { skills: { enable: [], disable: [] }, plugins: { enable: [], disable: [] }, mcpServers: { enable: [], disable: [] } } }
+      : { ok: false, issues: [{ code: "invalid-profile-reference", message: "Profile not found." }] },
+    applyClaudeProfile: async profileId => {
+      if (!mockClaudeProfiles.profiles.some(profile => profile.id === profileId)) {
+        return { ok: false, issues: [{ code: "invalid-profile-reference", message: "Profile not found." }] };
+      }
+      mockClaudeProfiles = {
+        ...mockClaudeProfiles,
+        appliedProfileId: profileId,
+        drift: { profileId, isDrifted: false, skills: false, plugins: false, mcpServers: false }
+      };
+      return { ok: true, profileId, snapshot: mockClaudeProfiles };
+    },
     getClaudeSessions: async () => ({ sessions: [], scannedAt: Date.now(), projectsDir: "~/.claude/projects" }),
     getClaudeSessionDetail: async () => null,
     resumeClaudeSession: async sessionId => ({ ok: false, command: `claude --resume ${sessionId}` }),

@@ -7,6 +7,7 @@ import {
   type ClaudeProfileDrift,
   type ClaudeProfileInventory,
   type ClaudeProfileMcpStatus,
+  type ClaudeProfileOperationIssue,
   type ClaudeProfileResource,
   type ClaudeProfileStoreData,
   type ClaudeProfilesSnapshot,
@@ -17,6 +18,118 @@ import { writeTextFileAtomic } from "./filePersistence";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type ClaudeProfileStoreMutationResult =
+  | { ok: true; profileId: string; store: ClaudeProfileStoreData }
+  | { ok: false; issues: ClaudeProfileOperationIssue[] };
+
+function mutationIssue(code: string, message: string, resourceId?: string): ClaudeProfileOperationIssue {
+  return { code, message, ...(resourceId ? { resourceId } : {}) };
+}
+
+function parseMutationMembership(
+  value: unknown,
+  field: "skills" | "plugins" | "mcpServers",
+  inventory: ClaudeProfileInventory,
+  issues: ClaudeProfileOperationIssue[]
+): string[] | null {
+  if (!Array.isArray(value) || value.some(item => typeof item !== "string" || !item.trim()) || new Set(value).size !== value.length) {
+    issues.push(mutationIssue("invalid-profile-input", `Claude profile ${field} must be a unique string list.`));
+    return null;
+  }
+  const ids = new Set(inventory[field].map(item => item.id));
+  const missingCode = field === "skills" ? "missing-skill" : field === "plugins" ? "missing-plugin" : "missing-mcp-server";
+  for (const resourceId of value) {
+    if (!ids.has(resourceId)) issues.push(mutationIssue(missingCode, `Claude profile references missing resource ${resourceId}.`, resourceId));
+  }
+  return [...value];
+}
+
+export function upsertClaudeProfile(
+  store: ClaudeProfileStoreData,
+  inventory: ClaudeProfileInventory,
+  input: unknown,
+  now = Date.now(),
+  createId: () => string = randomUUID
+): ClaudeProfileStoreMutationResult {
+  if (!isPlainObject(input)) {
+    return { ok: false, issues: [mutationIssue("invalid-profile-input", "Claude profile input must be an object.")] };
+  }
+
+  const issues: ClaudeProfileOperationIssue[] = [];
+  const id = input.id === undefined ? undefined : typeof input.id === "string" && input.id.trim() === input.id && input.id
+    ? input.id
+    : null;
+  if (id === null) issues.push(mutationIssue("invalid-profile-input", "Claude profile id is invalid."));
+
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name || name.length > 64) issues.push(mutationIssue("invalid-profile-input", "Claude profile name must be 1 to 64 characters."));
+
+  const description = input.description === undefined ? undefined : typeof input.description === "string" ? input.description.trim() : null;
+  if (description === null || (description?.length ?? 0) > 240) {
+    issues.push(mutationIssue("invalid-profile-input", "Claude profile description must be at most 240 characters."));
+  }
+
+  const skills = parseMutationMembership(input.skills, "skills", inventory, issues);
+  const plugins = parseMutationMembership(input.plugins, "plugins", inventory, issues);
+  const mcpServers = parseMutationMembership(input.mcpServers, "mcpServers", inventory, issues);
+  const existing = id ? store.profiles.find(profile => profile.id === id) : undefined;
+  if (id && !existing) issues.push(mutationIssue("invalid-profile-reference", `Claude profile ${id} does not exist.`));
+  if (existing?.isProtected && name !== existing.name) {
+    issues.push(mutationIssue("protected-profile", "The protected Default profile cannot be renamed."));
+  }
+  if (store.profiles.some(profile => profile.id !== id && profile.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+    issues.push(mutationIssue("duplicate-profile-name", `A Claude profile named ${name} already exists.`));
+  }
+  if (issues.length > 0 || !skills || !plugins || !mcpServers || description === null) return { ok: false, issues };
+
+  const profileId = existing?.id ?? createId();
+  if (!existing && store.profiles.some(profile => profile.id === profileId)) {
+    return { ok: false, issues: [mutationIssue("duplicate-profile-id", "A generated Claude profile id already exists.")] };
+  }
+  const profile: ClaudeProfile = {
+    id: profileId,
+    name: existing?.isProtected ? existing.name : name,
+    ...(description ? { description } : {}),
+    skills,
+    plugins,
+    mcpServers,
+    isProtected: existing?.isProtected ?? false,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  };
+  return {
+    ok: true,
+    profileId,
+    store: {
+      ...store,
+      profiles: existing
+        ? store.profiles.map(item => item.id === profileId ? profile : item)
+        : [...store.profiles, profile]
+    }
+  };
+}
+
+export function removeClaudeProfile(store: ClaudeProfileStoreData, profileId: unknown): ClaudeProfileStoreMutationResult {
+  if (typeof profileId !== "string" || !profileId.trim()) {
+    return { ok: false, issues: [mutationIssue("invalid-profile-reference", "Claude profile id is invalid.")] };
+  }
+  const profile = store.profiles.find(item => item.id === profileId);
+  if (!profile) {
+    return { ok: false, issues: [mutationIssue("invalid-profile-reference", `Claude profile ${profileId} does not exist.`)] };
+  }
+  if (profile.isProtected) {
+    return { ok: false, issues: [mutationIssue("protected-profile", "The protected Default profile cannot be deleted.")] };
+  }
+  if (store.appliedProfileId === profileId) {
+    return { ok: false, issues: [mutationIssue("applied-profile", "Apply another profile before deleting this one.")] };
+  }
+  return {
+    ok: true,
+    profileId,
+    store: { ...store, profiles: store.profiles.filter(item => item.id !== profileId) }
+  };
 }
 
 function requireStringList(value: unknown, field: string): string[] {
@@ -100,6 +213,12 @@ function membershipDiffers(expected: string[], resources: ClaudeProfileResource[
   return expected.length !== active.size || expected.some(id => !active.has(id));
 }
 
+function membershipsEqual(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const rightMembers = new Set(right);
+  return left.every(id => rightMembers.has(id));
+}
+
 export function getClaudeProfileDrift(
   store: ClaudeProfileStoreData,
   inventory: ClaudeProfileInventory,
@@ -123,9 +242,9 @@ export function createInitialClaudeProfileStore(inventory: ClaudeProfileInventor
   const defaultProfile: ClaudeProfile = {
     id: DEFAULT_CLAUDE_PROFILE_ID,
     name: "Default",
-    skills: inventory.skills.filter(item => item.enabled).map(item => item.id),
-    plugins: inventory.plugins.filter(item => item.enabled).map(item => item.id),
-    mcpServers: inventory.mcpServers.filter(item => item.enabled).map(item => item.id),
+    skills: inventory.skills.map(item => item.id),
+    plugins: inventory.plugins.map(item => item.id),
+    mcpServers: inventory.mcpServers.map(item => item.id),
     isProtected: true,
     createdAt: now,
     updatedAt: now
@@ -134,6 +253,31 @@ export function createInitialClaudeProfileStore(inventory: ClaudeProfileInventor
     schemaVersion: CLAUDE_PROFILE_SCHEMA_VERSION,
     profiles: [defaultProfile],
     appliedProfileId: DEFAULT_CLAUDE_PROFILE_ID
+  };
+}
+
+function synchronizeUntouchedDefaultProfile(
+  store: ClaudeProfileStoreData,
+  inventory: ClaudeProfileInventory
+): ClaudeProfileStoreData {
+  const defaultProfile = store.profiles.find(profile => profile.id === DEFAULT_CLAUDE_PROFILE_ID);
+  if (!defaultProfile || defaultProfile.createdAt !== defaultProfile.updatedAt) return store;
+
+  const skills = inventory.skills.map(item => item.id);
+  const plugins = inventory.plugins.map(item => item.id);
+  const mcpServers = inventory.mcpServers.map(item => item.id);
+  const unchanged = (
+    membershipsEqual(defaultProfile.skills, skills)
+    && membershipsEqual(defaultProfile.plugins, plugins)
+    && membershipsEqual(defaultProfile.mcpServers, mcpServers)
+  );
+  if (unchanged) return store;
+
+  return {
+    ...store,
+    profiles: store.profiles.map(profile => profile.id === DEFAULT_CLAUDE_PROFILE_ID
+      ? { ...profile, skills, plugins, mcpServers }
+      : profile)
   };
 }
 
@@ -183,8 +327,15 @@ export function createClaudeProfilesSnapshot(
   const inventory = mcpServers ? { ...scannedInventory, mcpServers } : scannedInventory;
   // Do not persist a first Default captured from an incomplete MCP read. A
   // later healthy snapshot will seed the store from the complete live state.
-  const store = mcpStatus !== "ready" && !existsSync(filePath)
+  let store = mcpStatus !== "ready" && !existsSync(filePath)
     ? createInitialClaudeProfileStore(inventory, now)
     : loadOrCreateClaudeProfileStore(filePath, inventory, now);
+  if (mcpStatus === "ready") {
+    const synchronizedStore = synchronizeUntouchedDefaultProfile(store, inventory);
+    if (synchronizedStore !== store) {
+      saveClaudeProfileStore(filePath, synchronizedStore);
+      store = synchronizedStore;
+    }
+  }
   return { ...store, inventory, drift: getClaudeProfileDrift(store, inventory, mcpStatus), mcpStatus };
 }

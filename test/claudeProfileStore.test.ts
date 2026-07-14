@@ -9,7 +9,9 @@ import {
   getClaudeProfileDrift,
   loadOrCreateClaudeProfileStore,
   parseClaudeProfileStore,
-  saveClaudeProfileStore
+  removeClaudeProfile,
+  saveClaudeProfileStore,
+  upsertClaudeProfile
 } from "../src/main/claudeProfileStore";
 import type { ClaudeProfileInventory, ClaudeResourcesSnapshot } from "../src/shared/claudeProfiles";
 
@@ -85,19 +87,148 @@ describe("Claude profile inventory", () => {
 });
 
 describe("Claude profile store", () => {
-  it("seeds protected Default from the live enabled resources", () => {
+  it("seeds protected Default with every manageable resource", () => {
     const store = createInitialClaudeProfileStore(inventory(), 456);
     expect(store.appliedProfileId).toBe("default");
     expect(store.profiles).toEqual([{
       id: "default",
       name: "Default",
-      skills: ["skill:graphify"],
-      plugins: ["plugin:review@market"],
+      skills: ["skill:graphify", "skill:impeccable"],
+      plugins: ["plugin:review@market", "plugin:notify@market"],
       mcpServers: ["mcp:filesystem"],
       isProtected: true,
       createdAt: 456,
       updatedAt: 456
     }]);
+  });
+
+  it("synchronizes an untouched persisted Default with the complete inventory", () => {
+    const filePath = tempFile();
+    const legacy = createInitialClaudeProfileStore(inventory(), 456);
+    legacy.profiles[0].skills = ["skill:graphify"];
+    legacy.profiles[0].plugins = [];
+    saveClaudeProfileStore(filePath, legacy);
+
+    const snapshot = createClaudeProfilesSnapshot(filePath, resources(), 789);
+
+    expect(snapshot.profiles[0]).toMatchObject({
+      skills: ["skill:graphify", "skill:impeccable"],
+      plugins: ["plugin:review@market"],
+      mcpServers: ["mcp:filesystem"],
+      createdAt: 456,
+      updatedAt: 456
+    });
+    expect(parseClaudeProfileStore(JSON.parse(readFileSync(filePath, "utf8"))).profiles[0]).toEqual(snapshot.profiles[0]);
+  });
+
+  it("does not rewrite an untouched Default when only inventory order changes", () => {
+    const filePath = tempFile();
+    const liveInventory = buildClaudeProfileInventory(resources());
+    const reordered = createInitialClaudeProfileStore(liveInventory, 456);
+    reordered.profiles[0].skills.reverse();
+    saveClaudeProfileStore(filePath, reordered);
+    const persistedText = readFileSync(filePath, "utf8");
+
+    const snapshot = createClaudeProfilesSnapshot(filePath, resources(), 789);
+
+    expect(snapshot.profiles[0].skills).toEqual(reordered.profiles[0].skills);
+    expect(readFileSync(filePath, "utf8")).toBe(persistedText);
+  });
+
+  it("does not overwrite Default after the user has edited it", () => {
+    const filePath = tempFile();
+    const edited = createInitialClaudeProfileStore(inventory(), 456);
+    edited.profiles[0] = {
+      ...edited.profiles[0],
+      skills: ["skill:graphify"],
+      plugins: [],
+      updatedAt: 500
+    };
+    saveClaudeProfileStore(filePath, edited);
+
+    const snapshot = createClaudeProfilesSnapshot(filePath, resources(), 789);
+
+    expect(snapshot.profiles[0]).toEqual(edited.profiles[0]);
+  });
+
+  it("creates and updates curated profiles without changing the applied pointer", () => {
+    const initial = createInitialClaudeProfileStore(inventory(), 100);
+    const created = upsertClaudeProfile(initial, inventory(), {
+      name: "Bioinformatics",
+      description: "Sequence analysis",
+      skills: ["skill:impeccable"],
+      plugins: ["plugin:notify@market"],
+      mcpServers: []
+    }, 200, () => "bio");
+
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.store.appliedProfileId).toBe("default");
+    expect(created.store.profiles[1]).toEqual({
+      id: "bio",
+      name: "Bioinformatics",
+      description: "Sequence analysis",
+      skills: ["skill:impeccable"],
+      plugins: ["plugin:notify@market"],
+      mcpServers: [],
+      isProtected: false,
+      createdAt: 200,
+      updatedAt: 200
+    });
+
+    const updated = upsertClaudeProfile(created.store, inventory(), {
+      id: "bio",
+      name: "Bioinformatics",
+      skills: ["skill:graphify"],
+      plugins: [],
+      mcpServers: ["mcp:filesystem"]
+    }, 300);
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.store.profiles[1].createdAt).toBe(200);
+    expect(updated.store.profiles[1].updatedAt).toBe(300);
+    expect(updated.store.profiles[1].skills).toEqual(["skill:graphify"]);
+  });
+
+  it("rejects unsafe profile edits and unknown resource membership", () => {
+    const initial = createInitialClaudeProfileStore(inventory(), 100);
+    const result = upsertClaudeProfile(initial, inventory(), {
+      id: "default",
+      name: "Renamed",
+      skills: ["skill:missing"],
+      plugins: [],
+      mcpServers: []
+    }, 200);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.map(issue => issue.code)).toEqual(["missing-skill", "protected-profile"]);
+  });
+
+  it("protects Default and the currently applied profile from deletion", () => {
+    const initial = createInitialClaudeProfileStore(inventory(), 100);
+    const created = upsertClaudeProfile(initial, inventory(), {
+      name: "Focused",
+      skills: [],
+      plugins: [],
+      mcpServers: []
+    }, 200, () => "focused");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    expect(removeClaudeProfile(created.store, "default")).toMatchObject({
+      ok: false,
+      issues: [{ code: "protected-profile" }]
+    });
+    expect(removeClaudeProfile({ ...created.store, appliedProfileId: "focused" }, "focused")).toMatchObject({
+      ok: false,
+      issues: [{ code: "applied-profile" }]
+    });
+    expect(removeClaudeProfile(created.store, "focused")).toMatchObject({
+      ok: true,
+      profileId: "focused",
+      store: { profiles: [{ id: "default" }] }
+    });
   });
 
   it("creates the versioned store once and returns the persisted data later", () => {
@@ -108,9 +239,9 @@ describe("Claude profile store", () => {
     expect(first.mcpStatus).toBe("ready");
     expect(first.drift).toEqual({
       profileId: "default",
-      isDrifted: false,
-      skills: false,
-      plugins: false,
+      isDrifted: true,
+      skills: true,
+      plugins: true,
       mcpServers: false
     });
 
@@ -137,12 +268,15 @@ describe("Claude profile store", () => {
 
   it("does not report MCP drift from a degraded read of an established store", () => {
     const filePath = tempFile();
-    const healthy = createClaudeProfilesSnapshot(filePath, resources(), 456);
+    const liveResources = resources();
+    liveResources.skills = liveResources.skills.map(skill => ({ ...skill, enabled: true }));
+    liveResources.plugins = liveResources.plugins.map(plugin => ({ ...plugin, enabled: true }));
+    const healthy = createClaudeProfilesSnapshot(filePath, liveResources, 456);
     const unavailableMcp = healthy.inventory.mcpServers.map(server => ({ ...server, enabled: false }));
 
     const degraded = createClaudeProfilesSnapshot(
       filePath,
-      resources(),
+      liveResources,
       789,
       unavailableMcp,
       "config-unreadable"
@@ -224,6 +358,8 @@ describe("Claude profile store", () => {
   it("marks a crash-time partial apply as drift instead of trusting the pointer", () => {
     const persisted = createInitialClaudeProfileStore(inventory(), 456);
     const current = inventory();
+    current.skills = current.skills.map(skill => ({ ...skill, enabled: true }));
+    current.plugins = current.plugins.map(plugin => ({ ...plugin, enabled: true }));
     current.mcpServers = [
       { id: "mcp:filesystem", kind: "mcp", name: "filesystem", enabled: false },
       { id: "mcp:browser", kind: "mcp", name: "browser", enabled: true }

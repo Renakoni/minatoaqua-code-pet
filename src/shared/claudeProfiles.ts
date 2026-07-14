@@ -81,3 +81,60 @@ export type ClaudeProfilesSnapshot = ClaudeProfileStoreData & {
   drift: ClaudeProfileDrift;
   mcpStatus: ClaudeProfileMcpStatus;
 };
+
+export function createEmptyClaudeProfilesSnapshot(scannedAt = 0): ClaudeProfilesSnapshot {
+  return {
+    schemaVersion: CLAUDE_PROFILE_SCHEMA_VERSION,
+    profiles: [{
+      id: DEFAULT_CLAUDE_PROFILE_ID,
+      name: "Default",
+      skills: [],
+      plugins: [],
+      mcpServers: [],
+      isProtected: true,
+      createdAt: 0,
+      updatedAt: 0
+    }],
+    appliedProfileId: DEFAULT_CLAUDE_PROFILE_ID,
+    inventory: { skills: [], plugins: [], mcpServers: [], scannedAt },
+    drift: { profileId: DEFAULT_CLAUDE_PROFILE_ID, isDrifted: false, skills: false, plugins: false, mcpServers: false },
+    mcpStatus: "ready"
+  };
+}
+
+export type ClaudeProfileSaveInput = {
+  id?: string;
+  name: string;
+  description?: string;
+  skills: string[];
+  plugins: string[];
+  mcpServers: string[];
+};
+
+export type ClaudeProfileOperationIssue = {
+  code: string;
+  message: string;
+  resourceId?: string;
+  target?: "settings" | "mcp";
+};
+
+export type ClaudeProfileChanges = {
+  enable: string[];
+  disable: string[];
+};
+
+export type ClaudeProfilePreviewResult =
+  | {
+      ok: true;
+      profileId: string;
+      changes: {
+        skills: ClaudeProfileChanges;
+        plugins: ClaudeProfileChanges;
+        mcpServers: ClaudeProfileChanges;
+      };
+    }
+  | { ok: false; issues: ClaudeProfileOperationIssue[] };
+
+export type ClaudeProfileMutationResult =
+  | { ok: true; profileId: string; snapshot: ClaudeProfilesSnapshot }
+  | { ok: false; issues: ClaudeProfileOperationIssue[] };

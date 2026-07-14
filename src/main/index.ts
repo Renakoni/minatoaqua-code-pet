@@ -7,7 +7,15 @@ import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isPetEvent, isSessionStartEvent, NotificationKind, PetEvent, PetState } from "../shared/events";
-import type { ClaudePluginScope, ClaudeResourceItem, ClaudeResourcesSnapshot } from "../shared/claudeProfiles";
+import type {
+  ClaudePluginScope,
+  ClaudeProfileMutationResult,
+  ClaudeProfileOperationIssue,
+  ClaudeProfilePreviewResult,
+  ClaudeProfilesSnapshot,
+  ClaudeResourceItem,
+  ClaudeResourcesSnapshot
+} from "../shared/claudeProfiles";
 import { PET_IMAGE_SIZE, getPetWindowHeight, getPetWindowWidth, normalizePetDisplaySettings } from "../shared/petDisplaySettings";
 import { BUILTIN_PET_THEME_ID, BUILTIN_PET_THEME_NAME, packIdFromThemeId, petPackThemeId } from "../shared/petThemeCatalog";
 import { displayedSpriteHeight } from "../shared/spriteFrame";
@@ -41,8 +49,15 @@ import { createDoubleClickDetector, installPetParentNotifyWatcher, readSystemDou
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
 import { buildPowerShellLaunch, CHARA_DESK_CLAUDE_ENV, CHARA_DESK_RESUME_ID_ENV, launchDetachedTerminal, launchFailedMessage, mergeTerminalEnv, normalizeCmdCwd, notAFolderMessage, PS_RESUME_CLAUDE, PS_RUN_CLAUDE, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd, sessionFolderUnavailableMessage, trustedCmdPath, trustedPowerShellPath, uncNotSupportedMessage } from "./providerTerminal";
-import { buildClaudeProfileInventory, createClaudeProfilesSnapshot } from "./claudeProfileStore";
+import {
+  buildClaudeProfileInventory,
+  createClaudeProfilesSnapshot,
+  removeClaudeProfile,
+  saveClaudeProfileStore,
+  upsertClaudeProfile
+} from "./claudeProfileStore";
 import { synchronizeClaudeMcpProfileResources } from "./claudeMcpInventory";
+import { applyClaudeProfile, previewClaudeProfileApply } from "./claudeProfileCoordinator";
 import { backupJsonFile } from "./filePersistence";
 
 type DailyRuntimeStats = {
@@ -1372,6 +1387,107 @@ async function getClaudeProfilesSnapshot(force = false) {
     scannedMcpResources
   );
   return createClaudeProfilesSnapshot(profilePath, resources, Date.now(), mcpSnapshot.resources, mcpSnapshot.status);
+}
+
+function profileIssue(code: string, message: string): ClaudeProfileOperationIssue {
+  return { code, message };
+}
+
+function profileStoreFromSnapshot(snapshot: ClaudeProfilesSnapshot) {
+  return {
+    schemaVersion: snapshot.schemaVersion,
+    profiles: snapshot.profiles,
+    appliedProfileId: snapshot.appliedProfileId
+  };
+}
+
+function profileCoordinatorPaths() {
+  const paths = getClaudePaths();
+  return {
+    settingsPath: join(paths.claudeDir, "settings.json"),
+    claudeJsonPath: paths.claudeJson,
+    profileStorePath: claudeProfilesPath(),
+    mcpInventoryPath: claudeMcpInventoryPath()
+  };
+}
+
+function unavailableProfileMutation(snapshot: ClaudeProfilesSnapshot): ClaudeProfileMutationResult | null {
+  if (snapshot.mcpStatus === "ready") return null;
+  return {
+    ok: false,
+    issues: [profileIssue("mcp-state-unavailable", "Claude MCP state is temporarily unavailable. Refresh before changing profiles.")]
+  };
+}
+
+async function saveClaudeProfileFromRenderer(input: unknown): Promise<ClaudeProfileMutationResult> {
+  try {
+    const snapshot = await getClaudeProfilesSnapshot(true);
+    const unavailable = unavailableProfileMutation(snapshot);
+    if (unavailable) return unavailable;
+    const mutation = upsertClaudeProfile(profileStoreFromSnapshot(snapshot), snapshot.inventory, input);
+    if (!mutation.ok) return mutation;
+    saveClaudeProfileStore(claudeProfilesPath(), mutation.store);
+    return { ok: true, profileId: mutation.profileId, snapshot: await getClaudeProfilesSnapshot(false) };
+  } catch {
+    return { ok: false, issues: [profileIssue("profile-store-write-failed", "The Claude profile could not be saved.")] };
+  }
+}
+
+async function deleteClaudeProfileFromRenderer(profileId: unknown): Promise<ClaudeProfileMutationResult> {
+  try {
+    const snapshot = await getClaudeProfilesSnapshot(true);
+    const unavailable = unavailableProfileMutation(snapshot);
+    if (unavailable) return unavailable;
+    const mutation = removeClaudeProfile(profileStoreFromSnapshot(snapshot), profileId);
+    if (!mutation.ok) return mutation;
+    saveClaudeProfileStore(claudeProfilesPath(), mutation.store);
+    return { ok: true, profileId: mutation.profileId, snapshot: await getClaudeProfilesSnapshot(false) };
+  } catch {
+    return { ok: false, issues: [profileIssue("profile-store-write-failed", "The Claude profile could not be deleted.")] };
+  }
+}
+
+async function previewClaudeProfileFromRenderer(profileId: unknown): Promise<ClaudeProfilePreviewResult> {
+  if (typeof profileId !== "string" || !profileId.trim()) {
+    return { ok: false, issues: [profileIssue("invalid-profile-reference", "Claude profile id is invalid.")] };
+  }
+  try {
+    const snapshot = await getClaudeProfilesSnapshot(true);
+    if (snapshot.mcpStatus !== "ready") {
+      return { ok: false, issues: [profileIssue("mcp-state-unavailable", "Claude MCP state is temporarily unavailable. Refresh before applying a profile.")] };
+    }
+    return previewClaudeProfileApply({
+      profileId,
+      store: profileStoreFromSnapshot(snapshot),
+      inventory: snapshot.inventory,
+      paths: profileCoordinatorPaths()
+    });
+  } catch {
+    return { ok: false, issues: [profileIssue("profile-preview-failed", "The Claude profile preview could not be prepared.")] };
+  }
+}
+
+async function applyClaudeProfileFromRenderer(profileId: unknown): Promise<ClaudeProfileMutationResult> {
+  if (typeof profileId !== "string" || !profileId.trim()) {
+    return { ok: false, issues: [profileIssue("invalid-profile-reference", "Claude profile id is invalid.")] };
+  }
+  try {
+    const snapshot = await getClaudeProfilesSnapshot(true);
+    if (snapshot.mcpStatus !== "ready") {
+      return { ok: false, issues: [profileIssue("mcp-state-unavailable", "Claude MCP state is temporarily unavailable. Refresh before applying a profile.")] };
+    }
+    const result = applyClaudeProfile({
+      profileId,
+      store: profileStoreFromSnapshot(snapshot),
+      inventory: snapshot.inventory,
+      paths: profileCoordinatorPaths()
+    });
+    if (!result.ok) return result;
+    claudeResourceCache = null;
+    return { ok: true, profileId, snapshot: await getClaudeProfilesSnapshot(true) };
+  } catch {
+    return { ok: false, issues: [profileIssue("profile-apply-failed", "The Claude profile could not be applied.")] };
+  }
 }
 
 function isAllowedClaudeResourcePath(targetPath: string) {
@@ -3455,6 +3571,10 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:get-plugins", () => companionSettings.customPlugins);
   ipcMain.handle("companion:get-claude-resources", (_, force?: boolean) => getClaudeResourcesSnapshot(Boolean(force)));
   ipcMain.handle("companion:get-claude-profiles", (_, force?: boolean) => getClaudeProfilesSnapshot(Boolean(force)));
+  ipcMain.handle("companion:save-claude-profile", (_, input: unknown) => saveClaudeProfileFromRenderer(input));
+  ipcMain.handle("companion:delete-claude-profile", (_, profileId: unknown) => deleteClaudeProfileFromRenderer(profileId));
+  ipcMain.handle("companion:preview-claude-profile", (_, profileId: unknown) => previewClaudeProfileFromRenderer(profileId));
+  ipcMain.handle("companion:apply-claude-profile", (_, profileId: unknown) => applyClaudeProfileFromRenderer(profileId));
   ipcMain.handle("companion:get-claude-sessions", (_, force?: boolean) => getClaudeSessionSnapshot(Boolean(force)));
   ipcMain.handle("companion:get-claude-session-detail", (_, filePath: string) => getClaudeSessionDetail(filePath));
   ipcMain.handle("companion:resume-claude-session", (_, targetSessionId: string, projectPath?: string) => resumeClaudeSession(targetSessionId, projectPath));

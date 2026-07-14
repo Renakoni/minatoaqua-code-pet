@@ -67,7 +67,7 @@ function preloadPanelSections() {
 }
 
 function warmPanelData() {
-  void window.companion.getClaudeResources(false).catch(() => {});
+  void window.companion.getClaudeProfiles(false).catch(() => {});
   void window.companion.getClaudeSessions(false).catch(() => {});
   void window.companion.getStats().catch(() => {});
 }
