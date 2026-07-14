@@ -757,6 +757,7 @@
     "softValidationTitle": "The configuration has the following issues",
     "saveAnyway": "Save anyway",
     "issueNoEndpoint": "API endpoint (ANTHROPIC_BASE_URL) is empty",
+    "endpointInvalid": "API endpoint must be a valid HTTP(S) URL without unfilled template parameters",
     "issueNoApiKey": "API Key is empty",
     "issueTemplateUnfilled": "Unfilled parameters"
   },

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { CompanionSettings, NotificationRule } from "../../shared/events";
 import { useI18n } from "../useI18n";
 import { Slider } from "./ui/Slider";
@@ -33,6 +33,11 @@ export function NotificationRulesPanel({ settings, updateSettings }: { settings:
   const sound = settings.sound;
   const [status, setStatus] = useState<Record<string, { ok: boolean; error?: string } | null>>({});
   const [defaultPaths, setDefaultPaths] = useState<Record<BuiltInSound, string | null> | null>(null);
+  const rulesRef = useRef(rules);
+  const soundRef = useRef(sound);
+
+  useEffect(() => { rulesRef.current = rules; }, [rules]);
+  useEffect(() => { soundRef.current = sound; }, [sound]);
 
   useEffect(() => {
     void window.companion.getDefaultSoundPaths().then(setDefaultPaths).catch(() => setDefaultPaths(null));
@@ -52,19 +57,26 @@ export function NotificationRulesPanel({ settings, updateSettings }: { settings:
 
   const rulesByEvent = useMemo(() => new Map(rules.map(rule => [rule.eventType, rule])), [rules]);
   const updateRule = (eventType: SoundEventType, patch: Partial<NotificationRule>) => {
-    const existing = rulesByEvent.get(eventType) ?? defaultRule(eventType);
+    const currentRules = rulesRef.current;
+    const existing = currentRules.find(rule => rule.eventType === eventType) ?? defaultRule(eventType);
+    const nextRules = [
+      ...currentRules.filter(rule => rule.eventType !== eventType),
+      { ...existing, ...patch, eventType, enabled: true }
+    ];
+    rulesRef.current = nextRules;
     updateSettings({
-      notificationRules: [
-        ...rules.filter(rule => rule.eventType !== eventType),
-        { ...existing, ...patch, eventType, enabled: true }
-      ]
+      notificationRules: nextRules
     });
   };
 
-  const updateSound = (patch: Partial<typeof sound>) => updateSettings({ sound: { ...sound, ...patch } });
+  const updateSound = (patch: Partial<typeof sound>) => {
+    const nextSound = { ...soundRef.current, ...patch };
+    soundRef.current = nextSound;
+    updateSettings({ sound: nextSound });
+  };
 
   const setDefaultSound = (eventType: SoundEventType) => {
-    const next = { ...(sound.eventFiles ?? {}) };
+    const next = { ...(soundRef.current.eventFiles ?? {}) };
     delete next[eventType];
     updateSound({ eventFiles: next });
     updateRule(eventType, { playSound: true });
@@ -73,25 +85,26 @@ export function NotificationRulesPanel({ settings, updateSettings }: { settings:
   const pickEventSound = async (eventType: SoundEventType) => {
     const file = await window.companion.pickSoundFile();
     if (file !== null) {
-      updateSound({ eventFiles: { ...(sound.eventFiles ?? {}), [eventType]: file } });
+      updateSound({ eventFiles: { ...(soundRef.current.eventFiles ?? {}), [eventType]: file } });
       updateRule(eventType, { playSound: true });
     }
   };
 
   const clearEventSound = (eventType: SoundEventType) => {
-    const next = { ...(sound.eventFiles ?? {}) };
+    const next = { ...(soundRef.current.eventFiles ?? {}) };
     delete next[eventType];
     updateSound({ eventFiles: next });
   };
 
   const previewEventSound = async (eventType: SoundEventType) => {
+    const currentSound = soundRef.current;
     const builtIn = builtInByEvent[eventType];
-    const customFile = sound.eventFiles?.[eventType];
+    const customFile = currentSound.eventFiles?.[eventType];
     setStatus(prev => ({ ...prev, [eventType]: null }));
     const result = customFile ? await window.companion.previewSoundFile(customFile) : await window.companion.previewSound(builtIn);
     if (result.ok && result.dataUrl) {
       try {
-        await playPreview(result.dataUrl, sound.volume);
+        await playPreview(result.dataUrl, currentSound.volume);
         setStatus(prev => ({ ...prev, [eventType]: { ok: true } }));
       } catch {
         setStatus(prev => ({ ...prev, [eventType]: { ok: false, error: t("sound.failed", "播放失败") } }));

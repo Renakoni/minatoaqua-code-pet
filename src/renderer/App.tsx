@@ -155,9 +155,22 @@ export default function App() {
       setDisplayLanguage(settings.language === "zh" || (settings.language === "auto" && navigator.language.toLowerCase().startsWith("zh")) ? "zh" : "en");
       setPetTheme(typeof settings.petTheme === "string" ? settings.petTheme : "");
     };
+    let disposed = false;
+    let settingsBroadcastReceived = false;
+    const offSettings = companion?.onSettings?.(settings => {
+      settingsBroadcastReceived = true;
+      if (!disposed) applySettings(settings);
+    });
     const initialSettings = companion?.getSettings?.();
-    if (initialSettings) void initialSettings.then(applySettings);
-    return companion?.onSettings?.(applySettings);
+    if (initialSettings) {
+      void initialSettings.then(settings => {
+        if (!disposed && !settingsBroadcastReceived) applySettings(settings);
+      });
+    }
+    return () => {
+      disposed = true;
+      offSettings?.();
+    };
   }, []);
 
   // The floating pet is the always-alive window, so it plays notification sounds

@@ -58,6 +58,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
   const eventThrottleRef = useRef<{ timer: number | null; lastFlush: number }>({ timer: null, lastFlush: 0 });
   const pendingEventsRef = useRef<CompanionEvent[]>([]);
   const companionSlotRef = useRef<Map<string, number>>(new Map());
+  const transientTimersRef = useRef<Set<number>>(new Set());
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { mainSessionIdRef.current = mainSessionId; }, [mainSessionId]);
@@ -71,8 +72,16 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
     });
   }
 
+  function scheduleTransientTimer(callback: () => void, delay: number) {
+    const timer = window.setTimeout(() => {
+      transientTimersRef.current.delete(timer);
+      callback();
+    }, delay);
+    transientTimersRef.current.add(timer);
+  }
+
   function scheduleStreamRemoval(eventId: string) {
-    window.setTimeout(() => {
+    scheduleTransientTimer(() => {
       setToolStreams(previous => previous.filter(s => s.event.id !== eventId));
       ribbonTimers.current.delete(eventId);
       ribbonTimestamps.current.delete(eventId);
@@ -94,20 +103,30 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
   }
 
   useEffect(() => {
-    void window.companion.getSettings().then(next => {
+    let disposed = false;
+    let settingsBroadcastReceived = false;
+    let connectionBroadcastReceived = false;
+    const applySettingsSnapshot = (next: CompanionSettings) => {
+      if (disposed) return;
       settingsRef.current = next;
       setSettings(next);
       applyTheme(next.theme, next.petTheme);
       applyUiStyle(next.uiStyle);
-    });
-    void window.companion.getConnectionStatus().then(setConnection);
+    };
     const offSettings = window.companion.onSettings(next => {
-      settingsRef.current = next;
-      setSettings(next);
-      applyTheme(next.theme, next.petTheme);
-      applyUiStyle(next.uiStyle);
+      settingsBroadcastReceived = true;
+      applySettingsSnapshot(next);
     });
-    const offConnection = window.companion.onConnection(setConnection);
+    const offConnection = window.companion.onConnection(next => {
+      connectionBroadcastReceived = true;
+      if (!disposed) setConnection(next);
+    });
+    void window.companion.getSettings().then(next => {
+      if (!settingsBroadcastReceived) applySettingsSnapshot(next);
+    });
+    void window.companion.getConnectionStatus().then(next => {
+      if (!disposed && !connectionBroadcastReceived) setConnection(next);
+    });
     const showEvent = (event: CompanionEvent) => {
       setCurrentEvent(event);
       if (!isInformationalNotification(event)) setPetState(stateFromEvent(event));
@@ -147,7 +166,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
         if (wasActive && isDone) {
           updateExitingSessions(prev => new Set(prev).add(sid));
           const exitId = sid;
-          window.setTimeout(() => {
+          scheduleTransientTimer(() => {
             const revived = sessionsRef.current.get(exitId);
             if (revived?.isActive) return;
             updateExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
@@ -162,7 +181,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
             sessionsChanged = true;
             updateExitingSessions(prev => new Set(prev).add(id));
             const exitId = id;
-            window.setTimeout(() => {
+            scheduleTransientTimer(() => {
               const revived = sessionsRef.current.get(exitId);
               if (revived?.isActive) return;
               updateExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
@@ -179,7 +198,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
           sessionsChanged = true;
           updateExitingSessions(prev => new Set(prev).add(id));
           const exitId = id;
-          window.setTimeout(() => {
+          scheduleTransientTimer(() => {
             const revived = sessionsRef.current.get(exitId);
             if (revived?.isActive) return;
             updateExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
@@ -263,7 +282,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
       }
 
       const timeout = (event.event === "done" || event.event === "error" ? 5.2 : settingsRef.current.bubbleDuration) * 1000;
-      window.setTimeout(() => {
+      scheduleTransientTimer(() => {
         if (!displayOnly) setPetState(current => current === stateFromEvent(event) ? "idle" : current);
         setCurrentEvent(current => current?.id === event.id ? null : current);
       }, timeout);
@@ -277,6 +296,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
     });
 
     return () => {
+      disposed = true;
       offSettings();
       offConnection();
       offEvent();
@@ -285,6 +305,11 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
       ribbonTimers.current.forEach(id => window.clearTimeout(id));
       ribbonTimers.current.clear();
       ribbonTimestamps.current.clear();
+      transientTimersRef.current.forEach(id => window.clearTimeout(id));
+      transientTimersRef.current.clear();
+      if (eventThrottleRef.current.timer !== null) window.clearTimeout(eventThrottleRef.current.timer);
+      eventThrottleRef.current.timer = null;
+      pendingEventsRef.current = [];
     };
   }, [keepEventList]);
 

@@ -1,0 +1,40 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NotificationRulesPanel } from "../src/renderer/clawd-migrated/components/NotificationRulesPanel";
+import { I18nProvider } from "../src/renderer/clawd-migrated/useI18n";
+import { defaultSettings } from "../src/renderer/shared/events";
+
+beforeEach(() => {
+  Reflect.set(window, "companion", {
+    getDefaultSoundPaths: vi.fn(async () => ({ done: null, error: null, permission: null }))
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(window, "companion");
+});
+
+describe("NotificationRulesPanel concurrent edits", () => {
+  it("builds rapid rule and sound updates from the latest local snapshot", () => {
+    const updateSettings = vi.fn();
+    render(
+      <I18nProvider initialLocale="en">
+        <NotificationRulesPanel settings={structuredClone(defaultSettings)} updateSettings={updateSettings} />
+      </I18nProvider>
+    );
+
+    const switches = screen.getAllByRole("switch");
+    fireEvent.click(switches[2]);
+    fireEvent.click(switches[3]);
+    const rules = updateSettings.mock.calls.at(-1)?.[0].notificationRules;
+    expect(rules.find((rule: { eventType: string }) => rule.eventType === "done").playSound).toBe(false);
+    expect(rules.find((rule: { eventType: string }) => rule.eventType === "error").playSound).toBe(false);
+
+    fireEvent.click(switches[1]);
+    fireEvent.change(screen.getByRole("slider"), { target: { value: "0.2" } });
+    expect(updateSettings.mock.calls.at(-1)?.[0].sound).toMatchObject({ enabled: false, volume: 0.2 });
+  });
+});

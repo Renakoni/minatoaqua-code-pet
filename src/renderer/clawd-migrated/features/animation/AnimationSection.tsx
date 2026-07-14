@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Check, ChevronDown, Clock3, FlaskConical, Repeat2, RotateCcw, Shuffle, Sparkles, Wand2, X } from "lucide-react";
 import type { CompanionSettings, IdleAnimConfig } from "../../../shared/events";
 import { defaultSettings } from "../../../shared/events";
@@ -193,6 +193,10 @@ function StateAnimSettings({ stateAnimations, onChange, catalog, options, sprite
 function AnimationTestBlock({ options, spritesheet }: { options: any[]; spritesheet: any }) {
   const { t } = useI18n();
   const [activeKey, setActiveKey] = useState<string | null>(null);
+
+  useEffect(() => () => {
+    void window.companion.previewPetAnimation("__clear_preview");
+  }, []);
 
   function previewAnimation(key: PetAnimationKey) {
     setActiveKey(key);

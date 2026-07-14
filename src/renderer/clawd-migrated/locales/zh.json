@@ -757,6 +757,7 @@
     "softValidationTitle": "配置存在以下问题",
     "saveAnyway": "仍要保存",
     "issueNoEndpoint": "未填写请求地址（ANTHROPIC_BASE_URL）",
+    "endpointInvalid": "请求地址必须是有效的 HTTP(S) URL，且不能包含未填写的模板参数",
     "issueNoApiKey": "未填写 API Key",
     "issueTemplateUnfilled": "参数未填写"
   },
