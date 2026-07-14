@@ -7,10 +7,16 @@ export const MAX_FEEDBACK_OPACITY = 1;
 
 const SETTING_STEP = 0.05;
 const DEFAULT_PET_SCALE = 1;
+const DEFAULT_CLAWD_SCALE = 0.8;
+const DEFAULT_COMPANION_SCALE = 0.5;
 const DEFAULT_PET_OPACITY = 1;
 const DEFAULT_PERMISSION_SCALE = 0.9;
 const MIN_PET_SCALE = 0.7;
 const MAX_PET_SCALE = 1.35;
+const MIN_CLAWD_SCALE = 0.7;
+const MAX_CLAWD_SCALE = 1.35;
+const MIN_COMPANION_SCALE = 0.3;
+const MAX_COMPANION_SCALE = 0.8;
 const MIN_PET_OPACITY = 0.5;
 const MAX_PET_OPACITY = 1;
 const MIN_PERMISSION_SCALE = 0.85;
@@ -114,6 +120,12 @@ export function normalizePetDisplaySettings(settings: Record<string, unknown>): 
   }
   if ("petScale" in settings) {
     normalized.petScale = normalize(finiteNumber(settings.petScale) ?? DEFAULT_PET_SCALE, MIN_PET_SCALE, MAX_PET_SCALE);
+  }
+  if ("clawdScale" in settings) {
+    normalized.clawdScale = normalize(finiteNumber(settings.clawdScale) ?? DEFAULT_CLAWD_SCALE, MIN_CLAWD_SCALE, MAX_CLAWD_SCALE);
+  }
+  if ("companionScale" in settings) {
+    normalized.companionScale = normalize(finiteNumber(settings.companionScale) ?? DEFAULT_COMPANION_SCALE, MIN_COMPANION_SCALE, MAX_COMPANION_SCALE);
   }
   if ("clawdOpacity" in settings) {
     normalized.clawdOpacity = normalize(finiteNumber(settings.clawdOpacity) ?? DEFAULT_PET_OPACITY, MIN_PET_OPACITY, MAX_PET_OPACITY);

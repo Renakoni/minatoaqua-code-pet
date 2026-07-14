@@ -59,8 +59,9 @@ import {
 } from "./claudeProfileStore";
 import { synchronizeClaudeMcpProfileResources } from "./claudeMcpInventory";
 import { applyClaudeProfile, previewClaudeProfileApply } from "./claudeProfileCoordinator";
-import { backupJsonFile } from "./filePersistence";
+import { backupJsonFile, writeTextFileAtomic } from "./filePersistence";
 import { EVENT_SERVER_DEV_ORIGIN, isAcceptedEventServerRequest } from "./eventServerSecurity";
+import { visitJsonlTail } from "./jsonlTail";
 
 type DailyRuntimeStats = {
   events: number;
@@ -1559,6 +1560,8 @@ const CLAUDE_SESSION_CACHE_TTL = 60 * 1000;
 const CLAUDE_SESSION_STALE_TTL = 7 * 24 * 60 * 60 * 1000;
 const CLAUDE_SESSION_SCAN_CONCURRENCY = 10;
 const CLAUDE_SESSION_FILE_SCAN_CONCURRENCY = 4;
+const CLAUDE_SESSION_DETAIL_MAX_BYTES = 16 * 1024 * 1024;
+const CLAUDE_SESSION_DETAIL_MAX_MESSAGES = 240;
 let claudeSessionCache: { data: { sessions: ClaudeSessionIndexItem[]; scannedAt: number; projectsDir: string }; timestamp: number } | null = null;
 let pendingClaudeSessionScan: Promise<{ sessions: ClaudeSessionIndexItem[]; scannedAt: number; projectsDir: string }> | null = null;
 let claudeSessionFileCache = new Map<string, { mtimeMs: number; size: number; item: ClaudeSessionIndexItem }>();
@@ -2305,74 +2308,6 @@ function sessionIdFromPath(filePath: string) {
   return name.replace(/\.jsonl$/i, "") || name;
 }
 
-function scanSingleClaudeSession(filePath: string, encodedProject: string): ClaudeSessionIndexItem {
-  const stat = statSync(filePath);
-  const fallbackTime = stat.mtimeMs;
-  let sessionId = sessionIdFromPath(filePath);
-  let firstPrompt = "";
-  let customTitle = "";
-  let lastText = "";
-  let lastMessageAt = fallbackTime;
-  let createdAt = fallbackTime;
-  let messageCount = 0;
-  let corrupt = false;
-  let model: string | undefined;
-  let projectPath: string | undefined;
-  let branch: string | undefined;
-
-  const text = readTextIfExists(filePath);
-  const lines = text.split(/\r?\n/).filter(Boolean);
-  for (let index = 0; index < lines.length; index++) {
-    try {
-      const parsed = JSON.parse(lines[index]) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
-      const record = parsed as Record<string, unknown>;
-      if (typeof record.sessionId === "string") sessionId = record.sessionId;
-      if (typeof record.session_id === "string") sessionId = record.session_id;
-      if (typeof record.cwd === "string") projectPath = record.cwd;
-      if (typeof record.gitBranch === "string") branch = record.gitBranch;
-      if (typeof record.customTitle === "string" && record.customTitle.trim()) customTitle = record.customTitle.trim();
-
-      const message = record.message && typeof record.message === "object" && !Array.isArray(record.message)
-        ? record.message as Record<string, unknown>
-        : null;
-      if (message && typeof message.model === "string") model = message.model;
-      if (typeof record.model === "string") model = record.model;
-
-      const body = textFromRecord(record);
-      const role = roleFromRecord(record);
-      if (body && (role === "user" || role === "assistant" || role === "system" || role === "tool")) {
-        messageCount++;
-        if (!firstPrompt && role === "user") firstPrompt = body;
-        lastText = body;
-        const ts = timestampFromRecord(record, fallbackTime);
-        if (messageCount === 1) createdAt = ts;
-        lastMessageAt = Math.max(lastMessageAt, ts);
-      }
-    } catch {
-      if (index < lines.length - 1) corrupt = true;
-    }
-  }
-
-  const projectName = projectPath ? projectPath.split(/[\\/]/).filter(Boolean).pop() ?? projectPath : decodeClaudeProjectName(encodedProject);
-  const title = customTitle || firstPrompt || lastText || sessionId;
-  return {
-    sessionId,
-    title: title.slice(0, 180),
-    firstPrompt: firstPrompt ? firstPrompt.slice(0, 240) : undefined,
-    projectName,
-    projectPath,
-    encodedProject,
-    filePath,
-    messageCount,
-    lastMessageAt,
-    createdAt,
-    status: corrupt ? "corrupt" : messageCount > 0 ? "valid" : "empty",
-    model,
-    branch
-  };
-}
-
 function isAllowedClaudeSessionFile(filePath: string) {
   try {
     const paths = getClaudePaths();
@@ -2384,25 +2319,26 @@ function isAllowedClaudeSessionFile(filePath: string) {
   }
 }
 
-function getClaudeSessionDetail(filePath: string) {
+async function getClaudeSessionDetail(filePath: string) {
   if (typeof filePath !== "string" || !isAllowedClaudeSessionFile(filePath)) throw new Error("Invalid Claude session path");
   const paths = getClaudePaths();
   const resolved = resolve(filePath);
   const resolvedProjects = resolve(paths.projectsDir);
   const relative = resolved.slice(resolvedProjects.length + 1);
   const encodedProject = relative.split(/[\\/]/)[0] ?? "";
-  const session = scanSingleClaudeSession(filePath, encodedProject);
-  const lines = readTextIfExists(filePath).split(/\r?\n/).filter(Boolean);
+  const session = await scanSingleClaudeSessionStream(filePath, encodedProject);
   const messages: ClaudeSessionMessage[] = [];
 
-  for (let index = 0; index < lines.length; index++) {
+  await visitJsonlTail(filePath, CLAUDE_SESSION_DETAIL_MAX_BYTES, (rawLine, index) => {
+    const line = rawLine.replace(/^﻿/, "").trim();
+    if (!line) return;
     try {
-      const parsed = JSON.parse(lines[index]) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+      const parsed = JSON.parse(line) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
       const record = parsed as Record<string, unknown>;
       const text = textFromRecord(record);
-      if (!text) continue;
       const role = roleFromRecord(record);
+      if (!text || (role !== "user" && role !== "assistant")) return;
       const message = record.message && typeof record.message === "object" && !Array.isArray(record.message)
         ? record.message as Record<string, unknown>
         : null;
@@ -2414,12 +2350,13 @@ function getClaudeSessionDetail(filePath: string) {
         model: typeof message?.model === "string" ? message.model : typeof record.model === "string" ? record.model : undefined,
         toolName: typeof record.toolName === "string" ? record.toolName : undefined
       });
+      if (messages.length > CLAUDE_SESSION_DETAIL_MAX_MESSAGES) messages.shift();
     } catch {
       // Ignore broken JSONL rows in read-only viewer mode.
     }
-  }
+  });
 
-  return { session, messages: messages.slice(-240), totalMessages: messages.length };
+  return { session, messages, totalMessages: session.messageCount };
 }
 
 // Actionable errors shared by both PowerShell terminal-launch paths.
@@ -2728,7 +2665,7 @@ function switchUnifiedProvider(id: string) {
     mkdirSync(join(homedir(), ".claude"), { recursive: true });
     backupPath = backupJsonFile(livePath);
     const effective = sanitizeClaudeSettingsConfig((target.settingsConfig ?? {}) as Record<string, any>);
-    writeFileSync(livePath, `${JSON.stringify(effective, null, 2)}\n`, "utf-8");
+    writeTextFileAtomic(livePath, `${JSON.stringify(effective, null, 2)}\n`);
   } catch (error) {
     return { ok: false, warnings, error: error instanceof Error ? error.message : String(error) };
   }
@@ -2842,7 +2779,7 @@ function writeCompanionSettings() {
     clearTimeout(companionSettingsSaveTimer);
     companionSettingsSaveTimer = null;
   }
-  try { writeFileSync(settingsPath(), JSON.stringify(companionSettings, null, 2), "utf8"); } catch { /* best effort */ }
+  try { writeTextFileAtomic(settingsPath(), JSON.stringify(companionSettings, null, 2)); } catch { /* best effort */ }
 }
 
 function saveCompanionSettings(immediate = false) {
@@ -2971,7 +2908,7 @@ function writeRuntimeStats() {
   }
   if (!runtimeStats) return;
   try {
-    writeFileSync(runtimeStatsPath(), JSON.stringify(runtimeStats, null, 2), "utf8");
+    writeTextFileAtomic(runtimeStatsPath(), JSON.stringify(runtimeStats, null, 2));
     runtimeStatsDirty = false;
   } catch { /* best effort */ }
 }
@@ -3247,7 +3184,7 @@ function installHooks(): HookOperationResult {
       hooks[eventName] = canonicalizeEventEntries(hooks[eventName], { matcher: "*", hooks: [hookCommand] });
     }
 
-    writeFileSync(path, `${JSON.stringify({ ...settings, hooks }, null, 2)}\n`, "utf-8");
+    writeTextFileAtomic(path, `${JSON.stringify({ ...settings, hooks }, null, 2)}\n`);
     return { success: true, status: getHooksStatus() };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error), status: getHooksStatus() };
@@ -3294,7 +3231,7 @@ function removeHooks(): HookOperationResult {
 
     const nextSettings = { ...settings, hooks };
     if (Object.keys(hooks).length === 0) delete nextSettings.hooks;
-    writeFileSync(path, `${JSON.stringify(nextSettings, null, 2)}\n`, "utf-8");
+    writeTextFileAtomic(path, `${JSON.stringify(nextSettings, null, 2)}\n`);
     return { success: true, removed, status: getHooksStatus() };
   } catch (error) {
     return { success: false, removed: 0, error: error instanceof Error ? error.message : String(error), status: getHooksStatus() };
@@ -3476,16 +3413,6 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("companion:set-pet-interactive", (_, interactive: boolean) => petWindow?.setIgnoreMouseEvents(!interactive, { forward: true }));
   ipcMain.handle("companion:update-permission-card-rect", () => undefined);
-  ipcMain.handle("companion:drag-pet-to", (_, position: { x: number; y: number }) => {
-    petDragWatcher?.noteProgrammaticMove();
-    petWindow?.setPosition(position.x, position.y);
-  });
-  ipcMain.handle("companion:move-pet-by", (_, delta: { x: number; y: number }) => {
-    if (!petWindow) return;
-    const [x, y] = petWindow.getPosition();
-    petDragWatcher?.noteProgrammaticMove();
-    petWindow.setPosition(x + delta.x, y + delta.y);
-  });
   ipcMain.handle("companion:respond-permission", (_, response: { id: string; decision?: string; reason?: string }) => {
     if (response.decision !== "allow" && response.decision !== "deny") return { ok: false };
     // The broker's onSettled records the stat, dismisses the card in both

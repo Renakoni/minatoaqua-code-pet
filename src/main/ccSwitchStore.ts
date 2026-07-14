@@ -22,11 +22,11 @@
  * immediately to avoid holding locks against a running cc-switch instance.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, watch, type FSWatcher } from "fs";
+import { existsSync, mkdirSync, readFileSync, watch, type FSWatcher } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { randomUUID } from "crypto";
-import { backupJsonFile } from "./filePersistence";
+import { backupJsonFile, readJsonObjectFile, writeTextFileAtomic } from "./filePersistence";
 
 type JsonObject = Record<string, unknown>;
 
@@ -168,8 +168,7 @@ export function listCcSwitchProviders(): CcSwitchProvider[] {
 
 function readCcSwitchSettings(): JsonObject {
   try {
-    if (!existsSync(getCcSwitchSettingsPath())) return {};
-    return parseJsonObject(readFileSync(getCcSwitchSettingsPath(), "utf-8"));
+    return readJsonObjectFile(getCcSwitchSettingsPath());
   } catch {
     return {};
   }
@@ -420,9 +419,9 @@ function readLiveJsonObject(path: string): JsonObject {
 }
 
 function writeCurrentPointer(id: string) {
-  const settings = readCcSwitchSettings();
+  const settings = readJsonObjectFile(getCcSwitchSettingsPath());
   settings.currentProviderClaude = id;
-  writeFileSync(getCcSwitchSettingsPath(), `${JSON.stringify(settings, null, 2)}`, "utf-8");
+  writeTextFileAtomic(getCcSwitchSettingsPath(), JSON.stringify(settings, null, 2));
 }
 
 export function switchCcSwitchProvider(id: string): SwitchOutcome {
@@ -465,7 +464,7 @@ export function switchCcSwitchProvider(id: string): SwitchOutcome {
     mkdirSync(join(homedir(), ".claude"), { recursive: true });
     backupPath = backupJsonFile(livePath);
     const effective = buildEffectiveSettings(target, snippet);
-    writeFileSync(livePath, `${JSON.stringify(effective, null, 2)}\n`, "utf-8");
+    writeTextFileAtomic(livePath, `${JSON.stringify(effective, null, 2)}\n`);
   } catch (error) {
     return { ok: false, warnings, error: error instanceof Error ? error.message : String(error) };
   }
