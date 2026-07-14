@@ -76,6 +76,30 @@ export type ClaudeProfileDrift = {
 
 export type ClaudeProfileMcpStatus = "ready" | "config-unreadable" | "inventory-unreadable";
 
+function profileMembershipDiffers(expected: string[], resources: ClaudeProfileResource[]) {
+  const active = new Set(resources.filter(item => item.enabled).map(item => item.id));
+  return expected.length !== active.size || expected.some(id => !active.has(id));
+}
+
+export function getClaudeProfileDrift(
+  store: ClaudeProfileStoreData,
+  inventory: ClaudeProfileInventory,
+  mcpStatus: ClaudeProfileMcpStatus = "ready"
+): ClaudeProfileDrift {
+  const profileId = store.appliedProfileId;
+  if (profileId === null) {
+    return { profileId: null, isDrifted: false, skills: false, plugins: false, mcpServers: false };
+  }
+  const profile = store.profiles.find(item => item.id === profileId);
+  if (!profile) {
+    return { profileId, isDrifted: true, skills: true, plugins: true, mcpServers: true };
+  }
+  const skills = profileMembershipDiffers(profile.skills, inventory.skills);
+  const plugins = profileMembershipDiffers(profile.plugins, inventory.plugins);
+  const mcpServers = mcpStatus === "ready" && profileMembershipDiffers(profile.mcpServers, inventory.mcpServers);
+  return { profileId, isDrifted: skills || plugins || mcpServers, skills, plugins, mcpServers };
+}
+
 export type ClaudeProfilesSnapshot = ClaudeProfileStoreData & {
   inventory: ClaudeProfileInventory;
   drift: ClaudeProfileDrift;

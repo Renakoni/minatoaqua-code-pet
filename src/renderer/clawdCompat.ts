@@ -1,8 +1,10 @@
 import { isSessionStartEvent, type PetEvent } from "../shared/events";
 import {
   createEmptyClaudeProfilesSnapshot,
+  getClaudeProfileDrift,
   type ClaudeProfileMutationResult,
   type ClaudeProfilePreviewResult,
+  type ClaudeProfileResource,
   type ClaudeProfileSaveInput,
   type ClaudeProfilesSnapshot,
   type ClaudeResourcesSnapshot
@@ -155,20 +157,15 @@ const currentSettings: CompanionSettings = {
 let mockClaudeProfiles: ClaudeProfilesSnapshot = createEmptyClaudeProfilesSnapshot(Date.now());
 
 function updateMockClaudeDrift() {
-  const applied = mockClaudeProfiles.profiles.find(profile => profile.id === mockClaudeProfiles.appliedProfileId);
-  const skills = (applied?.skills.length ?? 0) > 0;
-  const plugins = (applied?.plugins.length ?? 0) > 0;
-  const mcpServers = (applied?.mcpServers.length ?? 0) > 0;
   mockClaudeProfiles = {
     ...mockClaudeProfiles,
-    drift: {
-      profileId: mockClaudeProfiles.appliedProfileId,
-      isDrifted: skills || plugins || mcpServers,
-      skills,
-      plugins,
-      mcpServers
-    }
+    drift: getClaudeProfileDrift(mockClaudeProfiles, mockClaudeProfiles.inventory, mockClaudeProfiles.mcpStatus)
   };
+}
+
+function applyMockMembership(resources: ClaudeProfileResource[], selectedIds: string[]) {
+  const selected = new Set(selectedIds);
+  return resources.map(resource => ({ ...resource, enabled: selected.has(resource.id) }));
 }
 
 let eventHistory: EventHistoryEntry[] = [];
@@ -528,14 +525,21 @@ export function installClawdCompat() {
       ? { ok: true, profileId, changes: { skills: { enable: [], disable: [] }, plugins: { enable: [], disable: [] }, mcpServers: { enable: [], disable: [] } } }
       : { ok: false, issues: [{ code: "invalid-profile-reference", message: "Profile not found." }] },
     applyClaudeProfile: async profileId => {
-      if (!mockClaudeProfiles.profiles.some(profile => profile.id === profileId)) {
+      const profile = mockClaudeProfiles.profiles.find(item => item.id === profileId);
+      if (!profile) {
         return { ok: false, issues: [{ code: "invalid-profile-reference", message: "Profile not found." }] };
       }
       mockClaudeProfiles = {
         ...mockClaudeProfiles,
         appliedProfileId: profileId,
-        drift: { profileId, isDrifted: false, skills: false, plugins: false, mcpServers: false }
+        inventory: {
+          ...mockClaudeProfiles.inventory,
+          skills: applyMockMembership(mockClaudeProfiles.inventory.skills, profile.skills),
+          plugins: applyMockMembership(mockClaudeProfiles.inventory.plugins, profile.plugins),
+          mcpServers: applyMockMembership(mockClaudeProfiles.inventory.mcpServers, profile.mcpServers)
+        }
       };
+      updateMockClaudeDrift();
       return { ok: true, profileId, snapshot: mockClaudeProfiles };
     },
     getClaudeSessions: async () => ({ sessions: [], scannedAt: Date.now(), projectsDir: "~/.claude/projects" }),
