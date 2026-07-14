@@ -7,15 +7,15 @@ import { I18nProvider } from "../src/renderer/clawd-migrated/useI18n";
 import { defaultSettings } from "../src/renderer/shared/events";
 import type {
   ClaudeProfile,
-  ClaudeProfilePreviewResult,
   ClaudeProfileSaveInput,
   ClaudeProfilesSnapshot
 } from "../src/shared/claudeProfiles";
 
 let currentSnapshot: ClaudeProfilesSnapshot;
 const saveClaudeProfile = vi.fn<(input: ClaudeProfileSaveInput) => Promise<unknown>>();
-const previewClaudeProfile = vi.fn<(profileId: string) => Promise<ClaudeProfilePreviewResult>>();
+const previewClaudeProfile = vi.fn();
 const applyClaudeProfile = vi.fn<(profileId: string) => Promise<unknown>>();
+const deleteClaudeProfile = vi.fn<(profileId: string) => Promise<unknown>>();
 
 function makeSnapshot(mcpStatus: ClaudeProfilesSnapshot["mcpStatus"] = "ready"): ClaudeProfilesSnapshot {
   const skills = Array.from({ length: 2000 }, (_, index) => ({
@@ -86,15 +86,6 @@ function installCompanionMock() {
     };
     return { ok: true, profileId: profile.id, snapshot: currentSnapshot };
   });
-  previewClaudeProfile.mockResolvedValue({
-    ok: true,
-    profileId: "focused",
-    changes: {
-      skills: { enable: ["skill:skill-100"], disable: currentSnapshot.profiles[0].skills },
-      plugins: { enable: [], disable: ["plugin:review@market"] },
-      mcpServers: { enable: [], disable: ["mcp:filesystem"] }
-    }
-  });
   applyClaudeProfile.mockImplementation(async profileId => {
     currentSnapshot = {
       ...currentSnapshot,
@@ -103,10 +94,18 @@ function installCompanionMock() {
     };
     return { ok: true, profileId, snapshot: currentSnapshot };
   });
+  deleteClaudeProfile.mockImplementation(async profileId => {
+    if (profileId === currentSnapshot.appliedProfileId) return { ok: false, issues: [] };
+    currentSnapshot = {
+      ...currentSnapshot,
+      profiles: currentSnapshot.profiles.filter(profile => profile.id !== profileId)
+    };
+    return { ok: true, profileId, snapshot: currentSnapshot };
+  });
   Reflect.set(window, "companion", {
     getClaudeProfiles: vi.fn(async () => currentSnapshot),
     saveClaudeProfile,
-    deleteClaudeProfile: vi.fn(async () => ({ ok: false, issues: [] })),
+    deleteClaudeProfile,
     previewClaudeProfile,
     applyClaudeProfile
   });
@@ -168,23 +167,20 @@ describe("Unified Claude Profiles page", () => {
     await waitFor(() => expect(saveClaudeProfile).toHaveBeenCalledTimes(1));
     expect(saveClaudeProfile.mock.calls[0][0].skills).toContain("skill:skill-1999");
     expect(previewClaudeProfile).not.toHaveBeenCalled();
-    expect(applyClaudeProfile).not.toHaveBeenCalled();
+    await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("default"));
   });
 
-  it("previews and confirms Apply while stating the running-session boundary", async () => {
+  it("applies a selected profile immediately and confirms the switch with a toast", async () => {
     renderPage();
     await screen.findByRole("combobox", { name: "Current profile" });
 
     fireEvent.change(screen.getByRole("combobox", { name: "Current profile" }), { target: { value: "focused" } });
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
-
-    expect(await screen.findByText("Apply “Focused”?" )).toBeTruthy();
-    expect(screen.getByText("Running Claude Code sessions will not change.")).toBeTruthy();
-    expect(screen.getByText("Enable 1, disable 2000")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Apply profile" }));
 
     await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("focused"));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Apply" })).toBeNull());
+    expect(previewClaudeProfile).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+    expect(await screen.findByText("Switched to: Focused")).toBeTruthy();
+    expect((screen.getByRole("combobox", { name: "Current profile" }) as HTMLSelectElement).value).toBe("focused");
   });
 
   it("starts an empty profile with every resource unselected", async () => {
@@ -203,6 +199,7 @@ describe("Unified Claude Profiles page", () => {
 
     await waitFor(() => expect(saveClaudeProfile).toHaveBeenCalledTimes(1));
     expect(saveClaudeProfile.mock.calls[0][0].skills).toEqual(["skill:skill-1999"]);
+    await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("created"));
   });
 
   it("creates a new profile by copying the selected membership", async () => {
@@ -222,6 +219,23 @@ describe("Unified Claude Profiles page", () => {
     expect(input.skills).toHaveLength(2000);
     expect(input.plugins).toEqual(["plugin:review@market"]);
     expect(input.mcpServers).toEqual(["mcp:filesystem"]);
+    await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("created"));
+  });
+
+  it("switches to Default before deleting the current custom profile", async () => {
+    renderPage();
+    await screen.findByRole("combobox", { name: "Current profile" });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Current profile" }), { target: { value: "focused" } });
+    await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("focused"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByText('Default will become current, then “Focused” will be permanently deleted.')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+
+    await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("default"));
+    await waitFor(() => expect(deleteClaudeProfile).toHaveBeenCalledWith("focused"));
   });
 
   it("pauses profile mutations while MCP state is unreadable", async () => {

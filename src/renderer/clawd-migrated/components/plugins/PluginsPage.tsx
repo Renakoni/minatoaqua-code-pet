@@ -15,7 +15,6 @@ import {
 import { toast } from "sonner";
 import type {
   ClaudeProfile,
-  ClaudeProfilePreviewResult,
   ClaudeProfileResource,
   ClaudeProfileSaveInput,
   ClaudeProfilesSnapshot
@@ -28,7 +27,7 @@ import { ClaudeProfileEditor } from "./ClaudeProfileEditor";
 import { useVirtualRows } from "./useVirtualRows";
 
 type ResourceTab = "skills" | "plugins" | "mcpServers";
-type BusyAction = "refresh" | "save" | "delete" | "preview" | "apply" | null;
+type BusyAction = "refresh" | "save" | "delete" | "apply" | null;
 
 const emptySnapshot: ClaudeProfilesSnapshot = {
   schemaVersion: 1,
@@ -60,7 +59,6 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
-  const [applyPreview, setApplyPreview] = useState<Extract<ClaudeProfilePreviewResult, { ok: true }> | null>(null);
 
   async function refresh(force = false) {
     setBusyAction("refresh");
@@ -79,18 +77,19 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   useEffect(() => { void refresh(false); }, []);
 
   useEffect(() => {
-    setSelectedProfileId(current => snapshot.profiles.some(profile => profile.id === current)
-      ? current
-      : snapshot.appliedProfileId ?? snapshot.profiles[0]?.id ?? "");
-  }, [snapshot]);
+    const appliedProfileId = snapshot.appliedProfileId;
+    setSelectedProfileId(appliedProfileId && snapshot.profiles.some(profile => profile.id === appliedProfileId)
+      ? appliedProfileId
+      : snapshot.profiles[0]?.id ?? "");
+  }, [snapshot.appliedProfileId, snapshot.profiles]);
 
   useEffect(() => setQuery(""), [activeTab]);
 
   const selectedProfile = snapshot.profiles.find(profile => profile.id === selectedProfileId) ?? snapshot.profiles[0];
-  const selectedIsApplied = selectedProfile?.id === snapshot.appliedProfileId;
-  const selectedIsDrifted = Boolean(selectedIsApplied && snapshot.drift.isDrifted);
+  const editorProfile = editor?.initial.id
+    ? snapshot.profiles.find(profile => profile.id === editor.initial.id)
+    : undefined;
   const profileActionsAvailable = snapshot.mcpStatus === "ready" && !loading && !loadError;
-  const needsApply = Boolean(selectedProfile && (!selectedIsApplied || selectedIsDrifted));
 
   const tabs = [
     { id: "skills" as const, label: "Skills", icon: Code2 },
@@ -140,25 +139,30 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     setBusyAction("save");
     setActionError(null);
     const result = await window.companion.saveClaudeProfile(input);
-    setBusyAction(null);
     if (!result.ok) {
+      setBusyAction(null);
       const message = issueMessage(result.issues, zh);
       setActionError(message);
       toast.error(message);
       return;
     }
     setSnapshot(result.snapshot);
-    setSelectedProfileId(result.profileId);
     setEditor(null);
-    toast.success(zh ? "配置方案已保存" : "Profile saved");
+    const profileName = result.snapshot.profiles.find(profile => profile.id === result.profileId)?.name ?? input.name;
+    await switchProfile(result.profileId, profileName);
   }
 
-  async function deleteProfile() {
-    if (!selectedProfile) return;
+  async function deleteProfile(profileId: string) {
+    const profile = snapshot.profiles.find(item => item.id === profileId);
+    if (!profile) return;
     setDeleteConfirm(false);
+    if (profile.id === snapshot.appliedProfileId) {
+      const fallback = snapshot.profiles.find(item => item.id === "default");
+      if (!fallback || !await switchProfile(fallback.id, fallback.name, false)) return;
+    }
     setBusyAction("delete");
     setActionError(null);
-    const result = await window.companion.deleteClaudeProfile(selectedProfile.id);
+    const result = await window.companion.deleteClaudeProfile(profile.id);
     setBusyAction(null);
     if (!result.ok) {
       const message = issueMessage(result.issues, zh);
@@ -172,37 +176,21 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     toast.success(zh ? "配置方案已删除" : "Profile deleted");
   }
 
-  async function prepareApply() {
-    if (!selectedProfile) return;
-    setBusyAction("preview");
-    setActionError(null);
-    const result = await window.companion.previewClaudeProfile(selectedProfile.id);
-    setBusyAction(null);
-    if (!result.ok) {
-      const message = issueMessage(result.issues, zh);
-      setActionError(message);
-      toast.error(message);
-      return;
-    }
-    setApplyPreview(result);
-  }
-
-  async function confirmApply() {
-    if (!selectedProfile) return;
-    setApplyPreview(null);
+  async function switchProfile(profileId: string, profileName: string, notify = true) {
     setBusyAction("apply");
     setActionError(null);
-    const result = await window.companion.applyClaudeProfile(selectedProfile.id);
+    const result = await window.companion.applyClaudeProfile(profileId);
     setBusyAction(null);
     if (!result.ok) {
       const message = issueMessage(result.issues, zh);
       setActionError(message);
       toast.error(message);
-      return;
+      return false;
     }
     setSnapshot(result.snapshot);
     setSelectedProfileId(result.profileId);
-    toast.success(zh ? "配置方案已应用，新会话将使用该方案" : "Profile applied. New sessions will use it.");
+    if (notify) toast.success(zh ? `已成功切换：${profileName}` : `Switched to: ${profileName}`);
+    return true;
   }
 
   if (editor) {
@@ -214,8 +202,8 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
           initial={editor.initial}
           inventory={snapshot.inventory}
           protectedProfile={editor.protectedProfile}
-          canDelete={Boolean(editor.initial.id && editor.initial.id !== snapshot.appliedProfileId)}
-          busy={busyAction === "save" || busyAction === "delete"}
+          canDelete={Boolean(editor.initial.id && !editor.protectedProfile)}
+          busy={busyAction === "save" || busyAction === "delete" || busyAction === "apply"}
           hideSensitiveContent={settings.hideSensitiveContent}
           zh={zh}
           onCancel={() => setEditor(null)}
@@ -223,16 +211,18 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
           onDelete={() => setDeleteConfirm(true)}
         />
         {actionError ? <section className="connection-error"><PlugZap size={18} />{actionError}</section> : null}
-        {deleteConfirm && selectedProfile ? (
+        {deleteConfirm && editorProfile ? (
           <ConfirmDialog
             title={zh ? "删除配置方案？" : "Delete profile?"}
             cancelLabel={zh ? "取消" : "Cancel"}
             confirmLabel={zh ? "删除" : "Delete"}
             danger
             onCancel={() => setDeleteConfirm(false)}
-            onConfirm={() => void deleteProfile()}
+            onConfirm={() => void deleteProfile(editorProfile.id)}
           >
-            <p>{zh ? `“${selectedProfile.name}”将被永久删除。Claude Code 配置不会改变。` : `“${selectedProfile.name}” will be permanently deleted. Claude Code configuration will not change.`}</p>
+            <p>{editorProfile.id === snapshot.appliedProfileId
+              ? (zh ? `将先切换到 Default，然后永久删除“${editorProfile.name}”。` : `Default will become current, then “${editorProfile.name}” will be permanently deleted.`)
+              : (zh ? `“${editorProfile.name}”将被永久删除。` : `“${editorProfile.name}” will be permanently deleted.`)}</p>
           </ConfirmDialog>
         ) : null}
       </div>
@@ -246,7 +236,14 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
         <label className="claude-profile-picker">
           <span>{zh ? "当前方案" : "Current profile"}</span>
           <div>
-            <select value={selectedProfile?.id ?? ""} onChange={event => setSelectedProfileId(event.target.value)} disabled={loading || busyAction === "apply"}>
+            <select
+              value={selectedProfile?.id ?? ""}
+              onChange={event => {
+                const profile = snapshot.profiles.find(item => item.id === event.target.value);
+                if (profile) void switchProfile(profile.id, profile.name);
+              }}
+              disabled={!profileActionsAvailable || busyAction !== null}
+            >
               {snapshot.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
             </select>
             <ChevronDown size={15} aria-hidden="true" />
@@ -270,11 +267,6 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
               </div>
             ) : null}
           </div>
-          {needsApply ? (
-            <button type="button" className="claude-profile-primary-button" onClick={() => void prepareApply()} disabled={!profileActionsAvailable || busyAction !== null}>
-              {busyAction === "preview" ? (zh ? "准备中..." : "Preparing...") : (zh ? "应用" : "Apply")}
-            </button>
-          ) : null}
         </div>
       </section>
 
@@ -321,25 +313,6 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
         {snapshot.inventory.scannedAt ? ` · ${new Date(snapshot.inventory.scannedAt).toLocaleTimeString()}` : ""}
       </p>
 
-      {applyPreview && selectedProfile ? (
-        <ConfirmDialog
-          title={zh ? `应用“${selectedProfile.name}”？` : `Apply “${selectedProfile.name}”?`}
-          cancelLabel={zh ? "取消" : "Cancel"}
-          confirmLabel={zh ? "应用方案" : "Apply profile"}
-          onCancel={() => setApplyPreview(null)}
-          onConfirm={() => void confirmApply()}
-        >
-          <div className="claude-profile-apply-preview">
-            <p>{zh ? "将更新全局用户范围配置：" : "Global user configuration will change:"}</p>
-            <ul>
-              <li><span>Skills</span><strong>{deltaText(applyPreview.changes.skills, zh)}</strong></li>
-              <li><span>Plugins</span><strong>{deltaText(applyPreview.changes.plugins, zh)}</strong></li>
-              <li><span>MCP</span><strong>{deltaText(applyPreview.changes.mcpServers, zh)}</strong></li>
-            </ul>
-            <p>{zh ? "正在运行的 Claude Code 会话不会改变。" : "Running Claude Code sessions will not change."}</p>
-          </div>
-        </ConfirmDialog>
-      ) : null}
     </div>
   );
 }
@@ -439,11 +412,6 @@ function nextCopyName(sourceName: string, profiles: ClaudeProfile[]) {
 
 function issueMessage(issues: Array<{ message: string }>, zh: boolean) {
   return issues[0]?.message ?? (zh ? "操作失败。" : "The operation failed.");
-}
-
-function deltaText(changes: { enable: string[]; disable: string[] }, zh: boolean) {
-  if (changes.enable.length === 0 && changes.disable.length === 0) return zh ? "无变化" : "No changes";
-  return zh ? `启用 ${changes.enable.length}，停用 ${changes.disable.length}` : `Enable ${changes.enable.length}, disable ${changes.disable.length}`;
 }
 
 function fallbackDescription(kind: ClaudeProfileResource["kind"], zh: boolean) {
