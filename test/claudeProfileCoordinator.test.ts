@@ -194,6 +194,44 @@ describe("Unified Claude profile coordinator", () => {
     expect(serialized).not.toContain("inactive.example.test");
   });
 
+  it("re-reads live files on apply and preserves changes made after preview", () => {
+    const paths = tempPaths();
+    seedFiles(paths);
+
+    const preview = previewClaudeProfileApply({
+      profileId: "focused",
+      store: store(),
+      inventory: inventory(),
+      paths
+    });
+    expect(preview.ok).toBe(true);
+
+    const settings = JSON.parse(readFileSync(paths.settingsPath, "utf8")) as Record<string, unknown>;
+    settings.futureSetting = { nested: ["preserve-me"] };
+    writeFileSync(paths.settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+    const claude = JSON.parse(readFileSync(paths.claudeJsonPath, "utf8")) as Record<string, unknown>;
+    claude.futureClaudeField = { enabled: true };
+    writeFileSync(paths.claudeJsonPath, `${JSON.stringify(claude, null, 2)}\n`, "utf8");
+
+    const result = applyClaudeProfile({
+      profileId: "focused",
+      store: store(),
+      inventory: inventory(),
+      paths
+    });
+
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(readFileSync(paths.settingsPath, "utf8"))).toMatchObject({
+      futureSetting: { nested: ["preserve-me"] }
+    });
+    expect(JSON.parse(readFileSync(paths.claudeJsonPath, "utf8"))).toMatchObject({
+      futureClaudeField: { enabled: true },
+      projects: {
+        "C:/project": { mcpServers: { project: { command: "project-server", env: { TOKEN: "project-secret" } } } }
+      }
+    });
+  });
+
   it("rejects malformed Claude JSON before creating backups or inventory", () => {
     const paths = tempPaths();
     mkdirSync(dirname(paths.settingsPath), { recursive: true });
@@ -238,6 +276,66 @@ describe("Unified Claude profile coordinator", () => {
     expect(result.issues.map(item => item.code)).toEqual(["mcp-write-failed"]);
     expect(readFileSync(paths.settingsPath, "utf8")).toBe(original.settingsText);
     expect(parseClaudeProfileStore(JSON.parse(readFileSync(paths.profileStorePath, "utf8"))).appliedProfileId).toBe("default");
+  });
+
+  it("can retry successfully after a target write failure", () => {
+    const paths = tempPaths();
+    seedFiles(paths);
+    const claudeJsonPath = paths.claudeJsonPath;
+    const blocker = join(dirname(claudeJsonPath), "blocked-parent");
+    writeFileSync(blocker, "not a directory", "utf8");
+    paths.claudeJsonPath = join(blocker, ".claude.json");
+
+    const failed = applyClaudeProfile({
+      profileId: "focused",
+      store: store(),
+      inventory: inventory(),
+      paths
+    });
+    expect(failed.ok).toBe(false);
+
+    paths.claudeJsonPath = claudeJsonPath;
+    const retried = applyClaudeProfile({
+      profileId: "focused",
+      store: store(),
+      inventory: inventory(),
+      paths
+    });
+
+    expect(retried.ok).toBe(true);
+    expect(parseClaudeProfileStore(JSON.parse(readFileSync(paths.profileStorePath, "utf8"))).appliedProfileId).toBe("focused");
+    expect(Object.keys((JSON.parse(readFileSync(paths.claudeJsonPath, "utf8")) as { mcpServers: object }).mcpServers)).toEqual(["inactive"]);
+  });
+
+  it("converges after restart from a one-target partial apply", () => {
+    const paths = tempPaths();
+    const original = seedFiles(paths);
+    const first = applyClaudeProfile({
+      profileId: "focused",
+      store: store(),
+      inventory: inventory(),
+      paths
+    });
+    expect(first.ok).toBe(true);
+    const focusedSettings = readFileSync(paths.settingsPath, "utf8");
+    const focusedClaude = readFileSync(paths.claudeJsonPath, "utf8");
+
+    // Simulate process exit after settings replacement but before the MCP and
+    // pointer writes completed.
+    writeFileSync(paths.claudeJsonPath, original.claudeText, "utf8");
+    saveClaudeProfileStore(paths.profileStorePath, store());
+
+    const recovered = applyClaudeProfile({
+      profileId: "focused",
+      store: store(),
+      inventory: inventory(),
+      paths
+    });
+
+    expect(recovered.ok).toBe(true);
+    expect(readFileSync(paths.settingsPath, "utf8")).toBe(focusedSettings);
+    expect(readFileSync(paths.claudeJsonPath, "utf8")).toBe(focusedClaude);
+    expect(parseClaudeProfileStore(JSON.parse(readFileSync(paths.profileStorePath, "utf8"))).appliedProfileId).toBe("focused");
   });
 
   it("rolls both Claude files back when the applied pointer cannot be saved", () => {

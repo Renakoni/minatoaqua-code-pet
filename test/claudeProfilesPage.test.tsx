@@ -118,9 +118,9 @@ function installCompanionMock() {
   });
 }
 
-function renderPage(settings = defaultSettings) {
+function renderPage(settings = defaultSettings, locale: "en" | "zh" = "en") {
   return render(
-    <I18nProvider initialLocale="en">
+    <I18nProvider initialLocale={locale}>
       <PluginsPage settings={settings} updateSettings={vi.fn()} />
     </I18nProvider>
   );
@@ -222,6 +222,40 @@ describe("Unified Claude Profiles page", () => {
     expect(screen.getAllByRole("option")).toHaveLength(1);
   });
 
+  it("supports keyboard navigation and restores focus to the profile trigger", async () => {
+    renderPage();
+    const trigger = await screen.findByRole("button", { name: "Profile: Default" });
+    fireEvent.click(trigger);
+    const search = screen.getByRole("textbox", { name: "Search profiles" });
+    await waitFor(() => expect(document.activeElement).toBe(search));
+
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    const defaultOption = screen.getByRole("option", { name: "Default" });
+    expect(document.activeElement).toBe(defaultOption);
+    fireEvent.keyDown(defaultOption, { key: "ArrowDown" });
+    const focusedOption = screen.getByRole("option", { name: "Focused" });
+    expect(document.activeElement).toBe(focusedOption);
+    fireEvent.keyDown(focusedOption, { key: "Enter" });
+
+    await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("focused"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Profile: Focused" })));
+
+    const focusedTrigger = screen.getByRole("button", { name: "Profile: Focused" });
+    fireEvent.click(focusedTrigger);
+    const reopenedSearch = screen.getByRole("textbox", { name: "Search profiles" });
+    fireEvent.keyDown(reopenedSearch, { key: "Escape" });
+    expect(document.activeElement).toBe(focusedTrigger);
+    expect(screen.queryByRole("listbox", { name: "Profiles" })).toBeNull();
+
+    const newProfile = screen.getByRole("button", { name: "New profile" });
+    fireEvent.click(newProfile);
+    const emptyProfile = screen.getByRole("menuitem", { name: /Empty profile/ });
+    emptyProfile.focus();
+    fireEvent.keyDown(emptyProfile, { key: "Escape" });
+    expect(document.activeElement).toBe(newProfile);
+    expect(screen.queryByRole("menuitem", { name: /Empty profile/ })).toBeNull();
+  });
+
   it("reapplies a drifted current profile and reports Plugin enablement consistently", async () => {
     currentSnapshot = {
       ...currentSnapshot,
@@ -276,10 +310,36 @@ describe("Unified Claude Profiles page", () => {
 
     fireEvent.change(screen.getByPlaceholderText("Search Skills"), { target: { value: "private-only-token" } });
     await waitFor(() => expect(view.container.querySelector('[data-resource-id="skill:skill-0"]')).toBeNull());
+    expect(screen.getByText("No matches")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
     fireEvent.change(await screen.findByPlaceholderText("Search Skills"), { target: { value: "private-only-token" } });
     await waitFor(() => expect(screen.queryByRole("button", { name: "Remove skill-0" })).toBeNull());
+  });
+
+  it("localizes backend operation errors in the Chinese UI", async () => {
+    applyClaudeProfile.mockResolvedValueOnce({
+      ok: false,
+      issues: [{ code: "settings-write-failed", message: "Claude settings could not be replaced." }]
+    });
+    renderPage(defaultSettings, "zh");
+
+    fireEvent.click(await screen.findByRole("button", { name: "方案：Default" }));
+    fireEvent.click(screen.getByRole("option", { name: "Focused" }));
+
+    expect((await screen.findAllByText("无法更新 Claude settings.json。")).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "方案：Default" })).toBeTruthy();
+  });
+
+  it("clears the busy state and reports an unexpected apply rejection", async () => {
+    applyClaudeProfile.mockRejectedValueOnce(new Error("IPC unavailable"));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Profile: Default" }));
+    fireEvent.click(screen.getByRole("option", { name: "Focused" }));
+
+    expect((await screen.findAllByText("The profile could not be applied.")).length).toBeGreaterThan(0);
+    expect((screen.getByRole("button", { name: "Profile: Default" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("starts an empty profile with every resource unselected", async () => {

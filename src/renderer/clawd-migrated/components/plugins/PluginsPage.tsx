@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -61,6 +61,10 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const profileTriggerRef = useRef<HTMLButtonElement>(null);
+  const profileOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const restoreProfileFocusRef = useRef(false);
+  const newProfileTriggerRef = useRef<HTMLButtonElement>(null);
 
   async function refresh(force = false) {
     setBusyAction("refresh");
@@ -68,8 +72,8 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     try {
       const next = await window.companion.getClaudeProfiles(force);
       setSnapshot(next ?? emptySnapshot);
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
+    } catch {
+      setLoadError(zh ? "无法读取配置方案。" : "Claude profiles could not be loaded.");
     } finally {
       setLoading(false);
       setBusyAction(null);
@@ -86,6 +90,12 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   }, [snapshot.appliedProfileId, snapshot.profiles]);
 
   useEffect(() => setQuery(""), [activeTab]);
+
+  useEffect(() => {
+    if (profileMenuOpen || busyAction !== null || !restoreProfileFocusRef.current) return;
+    restoreProfileFocusRef.current = false;
+    profileTriggerRef.current?.focus();
+  }, [busyAction, profileMenuOpen, selectedProfileId]);
 
   const selectedProfile = snapshot.profiles.find(profile => profile.id === selectedProfileId) ?? snapshot.profiles[0];
   const editorProfile = editor?.initial.id
@@ -124,6 +134,48 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     [deferredQuery, items, settings.hideSensitiveContent]
   );
 
+  function closeProfileMenu(restoreFocus = false) {
+    setProfileMenuOpen(false);
+    if (restoreFocus) profileTriggerRef.current?.focus();
+  }
+
+  function selectProfileOption(profile: ClaudeProfile) {
+    const current = profile.id === selectedProfile?.id;
+    closeProfileMenu();
+    if (!current || snapshot.drift.isDrifted) {
+      restoreProfileFocusRef.current = true;
+      void switchProfile(profile.id, profile.name);
+    } else {
+      profileTriggerRef.current?.focus();
+    }
+  }
+
+  function handleProfileMenuKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (!profileMenuOpen) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeProfileMenu(true);
+      return;
+    }
+
+    const currentIndex = profileOptionRefs.current.findIndex(option => option === document.activeElement);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (profileOptions.length === 0) return;
+      const offset = event.key === "ArrowDown" ? 1 : -1;
+      const nextIndex = currentIndex < 0
+        ? (offset > 0 ? 0 : profileOptions.length - 1)
+        : (currentIndex + offset + profileOptions.length) % profileOptions.length;
+      profileOptionRefs.current[nextIndex]?.focus();
+      return;
+    }
+
+    if ((event.key === "Enter" || event.key === " ") && currentIndex >= 0) {
+      event.preventDefault();
+      profileOptionRefs.current[currentIndex]?.click();
+    }
+  }
+
   function startEdit(profile: ClaudeProfile) {
     setActionError(null);
     setEditor({
@@ -153,7 +205,16 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   async function saveProfile(input: ClaudeProfileSaveInput) {
     setBusyAction("save");
     setActionError(null);
-    const result = await window.companion.saveClaudeProfile(input);
+    let result;
+    try {
+      result = await window.companion.saveClaudeProfile(input);
+    } catch {
+      const message = actionFailureMessage("save", zh);
+      setBusyAction(null);
+      setActionError(message);
+      toast.error(message);
+      return;
+    }
     if (!result.ok) {
       setBusyAction(null);
       const message = issueMessage(result.issues, zh);
@@ -177,7 +238,16 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     }
     setBusyAction("delete");
     setActionError(null);
-    const result = await window.companion.deleteClaudeProfile(profile.id);
+    let result;
+    try {
+      result = await window.companion.deleteClaudeProfile(profile.id);
+    } catch {
+      const message = actionFailureMessage("delete", zh);
+      setBusyAction(null);
+      setActionError(message);
+      toast.error(message);
+      return;
+    }
     setBusyAction(null);
     if (!result.ok) {
       const message = issueMessage(result.issues, zh);
@@ -194,7 +264,16 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   async function switchProfile(profileId: string, profileName: string, notify = true) {
     setBusyAction("apply");
     setActionError(null);
-    const result = await window.companion.applyClaudeProfile(profileId);
+    let result;
+    try {
+      result = await window.companion.applyClaudeProfile(profileId);
+    } catch {
+      const message = actionFailureMessage("apply", zh);
+      setBusyAction(null);
+      setActionError(message);
+      toast.error(message);
+      return false;
+    }
     setBusyAction(null);
     if (!result.ok) {
       const message = issueMessage(result.issues, zh);
@@ -252,11 +331,10 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
           <div className="claude-profile-picker">
             <span>{zh ? "方案" : "Profile"}</span>
             <div className="claude-profile-dropdown" onBlur={event => {
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setProfileMenuOpen(false);
-            }} onKeyDown={event => {
-              if (event.key === "Escape") setProfileMenuOpen(false);
-            }}>
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closeProfileMenu();
+            }} onKeyDown={handleProfileMenuKeyDown}>
               <button
+                ref={profileTriggerRef}
                 type="button"
                 className="claude-profile-select-button"
                 onClick={() => {
@@ -287,7 +365,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
                   <div className="claude-profile-options-list" role="listbox" aria-label={zh ? "配置方案" : "Profiles"}>
                     {profileOptions.length === 0 ? (
                       <span className="claude-profile-options-empty">{zh ? "没有匹配方案" : "No matching profiles"}</span>
-                    ) : profileOptions.map(profile => {
+                    ) : profileOptions.map((profile, index) => {
                       const current = profile.id === selectedProfile?.id;
                       return (
                         <button
@@ -296,10 +374,8 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
                           aria-selected={current}
                           key={profile.id}
                           className={current ? "current" : undefined}
-                          onClick={() => {
-                            setProfileMenuOpen(false);
-                            if (!current || snapshot.drift.isDrifted) void switchProfile(profile.id, profile.name);
-                          }}
+                          ref={node => { profileOptionRefs.current[index] = node; }}
+                          onClick={() => selectProfileOption(profile)}
                         >
                           <span>{profile.name}</span>
                           {current ? <Check size={13} aria-hidden="true" /> : null}
@@ -318,8 +394,13 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
             </button>
             <div className="claude-profile-new-menu" onBlur={event => {
               if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setNewMenuOpen(false);
+            }} onKeyDown={event => {
+              if (event.key !== "Escape" || !newMenuOpen) return;
+              event.preventDefault();
+              setNewMenuOpen(false);
+              newProfileTriggerRef.current?.focus();
             }}>
-              <button type="button" className="claude-profile-icon-button" onClick={() => {
+              <button ref={newProfileTriggerRef} type="button" className="claude-profile-icon-button" onClick={() => {
                 setProfileMenuOpen(false);
                 setNewMenuOpen(open => !open);
               }} disabled={!profileActionsAvailable || busyAction !== null} aria-label={zh ? "新建配置方案" : "New profile"} aria-haspopup="menu" aria-expanded={newMenuOpen} title={zh ? "新建" : "New"}>
@@ -368,7 +449,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
       <ProfileResourceTable
         items={filteredItems}
         loading={loading}
-        emptyLabel={emptyText(activeTab, zh)}
+        emptyLabel={deferredQuery.trim() ? (zh ? "没有匹配项" : "No matches") : emptyText(activeTab, zh)}
         hideSensitiveContent={settings.hideSensitiveContent}
         zh={zh}
         resetKey={`${activeTab}:${deferredQuery}:${selectedProfileId}`}
@@ -480,8 +561,49 @@ function profileNameSortGroup(name: string) {
   return 2;
 }
 
-function issueMessage(issues: Array<{ message: string }>, zh: boolean) {
-  return issues[0]?.message ?? (zh ? "操作失败。" : "The operation failed.");
+function issueMessage(issues: Array<{ code: string; message: string; resourceId?: string }>, zh: boolean) {
+  const first = issues.find(item => item.code === "rollback-failed") ?? issues[0];
+  if (!first) return zh ? "操作失败。" : "The operation failed.";
+  if (!zh) return first.message;
+  const localized = ZH_ISSUE_MESSAGES[first.code] ?? "操作失败。";
+  return first.resourceId ? `${localized} (${first.resourceId})` : localized;
+}
+
+const ZH_ISSUE_MESSAGES: Record<string, string> = {
+  "invalid-profile-input": "方案内容无效。",
+  "invalid-profile-reference": "配置方案不存在或已失效。",
+  "duplicate-profile-name": "方案名称已存在。",
+  "protected-profile": "Default 方案受保护，无法执行此操作。",
+  "profile-delete-blocked": "该方案当前无法删除。",
+  "missing-skill": "方案引用的 Skill 已不存在。",
+  "missing-plugin": "方案引用的 Plugin 已不存在。",
+  "missing-mcp-server": "方案引用的 MCP Server 已不存在。",
+  "mcp-state-unavailable": "MCP 状态暂时不可用，请刷新后重试。",
+  "invalid-settings": "Claude settings.json 格式无效。",
+  "settings-read-failed": "无法读取 Claude settings.json。",
+  "invalid-claude-config": "无法安全读取 ~/.claude.json。",
+  "invalid-mcp-inventory": "MCP 保全清单无效。",
+  "mcp-inventory-write-failed": "无法更新 MCP 保全清单。",
+  "settings-backup-failed": "无法备份 Claude settings.json。",
+  "mcp-backup-failed": "无法备份 ~/.claude.json。",
+  "settings-write-failed": "无法更新 Claude settings.json。",
+  "mcp-write-failed": "无法更新 ~/.claude.json。",
+  "profile-pointer-write-failed": "配置已恢复，但无法保存当前方案。",
+  "rollback-failed": "应用失败，且自动恢复未完全成功，请检查备份文件。",
+  "profile-store-write-failed": "无法保存配置方案。",
+  "profile-preview-failed": "无法生成方案预览。",
+  "profile-apply-failed": "无法应用配置方案。"
+};
+
+function actionFailureMessage(action: "save" | "delete" | "apply", zh: boolean) {
+  if (zh) {
+    if (action === "save") return "无法保存配置方案。";
+    if (action === "delete") return "无法删除配置方案。";
+    return "无法应用配置方案。";
+  }
+  if (action === "save") return "The profile could not be saved.";
+  if (action === "delete") return "The profile could not be deleted.";
+  return "The profile could not be applied.";
 }
 
 function fallbackDescription(kind: ClaudeProfileResource["kind"], zh: boolean) {
