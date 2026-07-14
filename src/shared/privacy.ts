@@ -52,13 +52,14 @@ export function redactDisplayEvent<T extends DisplayEvent>(event: T, language: D
 // as a separate field, and the renderer only shows the path when hiding is off).
 // Where the two conflict, this deliberately OVER-redacts rather than risk leaking
 // a path — so trailing prose after a path may also be hidden.
-const POSIX_PATH_ROOTS = "Users|home|root|opt|tmp|var|usr|etc|srv|mnt|bin|sbin|dev|proc|Applications|Volumes|Library|System|private|Network";
+const POSIX_PATH_ROOTS = "Users|home|root|opt|tmp|var|usr|etc|srv|mnt|media|run|workspace|snap|data|bin|sbin|dev|proc|Applications|Volumes|Library|System|private|Network";
 const SENSITIVE_PATH_PATTERNS = [
   // Windows drive paths (segments may contain spaces). Stops before a following
   // " X:\" drive path, a quote, a shell redirect, or end of line.
-  /[A-Za-z]:[\\/](?:(?! [A-Za-z]:[\\/])[^\r\n"'|<>])*/g,
-  // UNC paths: \\server\share\...
-  /\\\\[^\r\n"'|<>]*/g,
+  /(?<![A-Za-z0-9])[A-Za-z]:[\\/](?:(?! [A-Za-z]:[\\/])[^\r\n"'|<>])*/g,
+  // UNC paths: \\server\share\... or //server/share/... . The negative
+  // lookbehind keeps the latter from treating the // in https:// as a path.
+  /(?:\\\\|(?<!:)\/\/)[^\r\n"'|<>]*/g,
   // POSIX absolute paths from a known root, plus ~/ home paths (segments may
   // contain spaces). Stops before a following " /" path, a quote, or line end.
   new RegExp(`(?:~/|/(?:${POSIX_PATH_ROOTS})/)(?:(?! /)[^\\r\\n"'|<>])*`, "g")

@@ -73,6 +73,14 @@ describe("providerTerminalEnv", () => {
   it("keeps string and finite-number env entries and drops the rest", () => {
     expect(providerTerminalEnv({ env: { A: "x", B: 42, C: null, D: {}, E: true, F: NaN } })).toEqual({ A: "x", B: "42" });
   });
+  it("never lets a provider replace PATH, regardless of key casing", () => {
+    expect(providerTerminalEnv({ env: {
+      Path: "C:\\attacker",
+      PATH: "D:\\attacker",
+      path: "E:\\attacker",
+      ANTHROPIC_AUTH_TOKEN: "secret"
+    } })).toEqual({ ANTHROPIC_AUTH_TOKEN: "secret" });
+  });
   it("returns an empty map when env is missing or malformed", () => {
     expect(providerTerminalEnv({})).toEqual({});
     expect(providerTerminalEnv(null)).toEqual({});
@@ -93,7 +101,7 @@ describe("mergeTerminalEnv", () => {
   it("drops undefined base values", () => {
     expect(mergeTerminalEnv({}, { A: "x", B: undefined })).toEqual({ A: "x" });
   });
-  it("overrides case-insensitively — provider PATH over inherited Path, and a child var over a spoofed one", () => {
+  it("overrides case-insensitively for trusted overlays", () => {
     const pathEnv = mergeTerminalEnv({ PATH: "C:\\provider" }, { Path: "C:\\Windows" });
     expect(Object.keys(pathEnv).filter(k => k.toLowerCase() === "path")).toEqual(["PATH"]);
     expect(pathEnv.PATH).toBe("C:\\provider");

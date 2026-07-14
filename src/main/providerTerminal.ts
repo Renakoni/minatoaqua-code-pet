@@ -25,6 +25,10 @@ export function providerTerminalEnv(settingsConfig: unknown): Record<string, str
   const out: Record<string, string> = {};
   if (env && typeof env === "object" && !Array.isArray(env)) {
     for (const [key, value] of Object.entries(env as Record<string, unknown>)) {
+      // PATH controls both which Claude entry point is found and any native
+      // commands used by a PowerShell Claude shim. Provider records may be
+      // imported or shared, so they must never replace the user's trusted PATH.
+      if (key.toLowerCase() === "path") continue;
       if (typeof value === "string") out[key] = value;
       else if (typeof value === "number" && Number.isFinite(value)) out[key] = String(value);
     }

@@ -84,6 +84,7 @@ export function ProviderEditPanel({
   const [customUserAgent, setCustomUserAgent] = useState(String(provider.meta?.customUserAgent ?? ""));
   const [commonConfigEnabled, setCommonConfigEnabled] = useState(provider.meta?.commonConfigEnabled === true);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showRawConfig, setShowRawConfig] = useState(false);
   const [presetIndex, setPresetIndex] = useState<number | "custom">("custom");
   const [presetSearch, setPresetSearch] = useState("");
   const [presetSorted, setPresetSorted] = useState(false);
@@ -538,8 +539,16 @@ export function ProviderEditPanel({
                 <h3>{t("routing.configLabel", "配置（settings.json）")}</h3>
                 <p>{t("routing.configDesc", "切换到此供应商时写入 ~/.claude/settings.json 的完整内容")}</p>
               </div>
+              <button
+                type="button"
+                className="ccs-config-visibility-toggle"
+                onClick={() => setShowRawConfig(current => !current)}
+                title={showRawConfig ? t("routing.hideConfig", "隐藏配置") : t("routing.showConfig", "显示配置")}
+                aria-label={showRawConfig ? t("routing.hideConfig", "隐藏配置") : t("routing.showConfig", "显示配置")}
+                aria-pressed={showRawConfig}
+              >{showRawConfig ? <EyeOff size={16} /> : <Eye size={16} />}</button>
             </div>
-            <JsonConfigEditor value={configText} onChange={setConfigText} ariaLabel={t("routing.configLabel", "配置（settings.json）")} />
+            {showRawConfig ? <JsonConfigEditor value={configText} onChange={setConfigText} ariaLabel={t("routing.configLabel", "配置（settings.json）")} /> : null}
             {configInvalid ? <small className="ccs-field-error">{t("routing.configInvalid", "配置不是合法的 JSON 对象")}</small> : null}
           </section>
         </form>
