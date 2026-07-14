@@ -3,6 +3,7 @@ import { PetEvent, PetState } from "../shared/events";
 import type {
   ClaudeProfileMutationResult,
   ClaudeProfilePreviewResult,
+  ClaudeProfileResourceStateInput,
   ClaudeProfileSaveInput,
   ClaudeProfilesSnapshot,
   ClaudeResourcesSnapshot
@@ -117,6 +118,7 @@ contextBridge.exposeInMainWorld("companion", {
   deleteClaudeProfile: (profileId: string) => ipcRenderer.invoke("companion:delete-claude-profile", profileId) as Promise<ClaudeProfileMutationResult>,
   previewClaudeProfile: (profileId: string) => ipcRenderer.invoke("companion:preview-claude-profile", profileId) as Promise<ClaudeProfilePreviewResult>,
   applyClaudeProfile: (profileId: string) => ipcRenderer.invoke("companion:apply-claude-profile", profileId) as Promise<ClaudeProfileMutationResult>,
+  setClaudeProfileResourceState: (input: ClaudeProfileResourceStateInput) => ipcRenderer.invoke("companion:set-claude-profile-resource-state", input) as Promise<ClaudeProfileMutationResult>,
   getClaudeSessions: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-sessions", force),
   getClaudeSessionDetail: (filePath: string) => ipcRenderer.invoke("companion:get-claude-session-detail", filePath),
   resumeClaudeSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke("companion:resume-claude-session", sessionId, projectPath),

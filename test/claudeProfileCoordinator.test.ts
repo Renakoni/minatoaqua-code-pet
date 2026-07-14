@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { loadClaudeMcpInventory, saveClaudeMcpInventory } from "../src/main/claudeMcpInventory";
 import { applyClaudeProfile, previewClaudeProfileApply, type ClaudeProfileCoordinatorPaths } from "../src/main/claudeProfileCoordinator";
 import { parseClaudeProfileStore, saveClaudeProfileStore } from "../src/main/claudeProfileStore";
-import type { ClaudeProfileInventory, ClaudeProfileStoreData } from "../src/shared/claudeProfiles";
+import { CLAUDE_PROFILE_SCHEMA_VERSION, type ClaudeProfileInventory, type ClaudeProfileStoreData } from "../src/shared/claudeProfiles";
 
 const tempRoots: string[] = [];
 
@@ -41,7 +41,7 @@ function inventory(): ClaudeProfileInventory {
 
 function store(mcpServers = ["mcp:inactive"]): ClaudeProfileStoreData {
   return {
-    schemaVersion: 1,
+    schemaVersion: CLAUDE_PROFILE_SCHEMA_VERSION,
     appliedProfileId: "default",
     profiles: [
       {
@@ -50,6 +50,16 @@ function store(mcpServers = ["mcp:inactive"]): ClaudeProfileStoreData {
         skills: ["skill:beta"],
         plugins: ["plugin:beta@market"],
         mcpServers: ["mcp:active"],
+        isProtected: true,
+        createdAt: 1,
+        updatedAt: 1
+      },
+      {
+        id: "all",
+        name: "All",
+        skills: ["skill:alpha", "skill:beta"],
+        plugins: ["plugin:alpha@market", "plugin:beta@market"],
+        mcpServers: ["mcp:active", "mcp:inactive"],
         isProtected: true,
         createdAt: 1,
         updatedAt: 1

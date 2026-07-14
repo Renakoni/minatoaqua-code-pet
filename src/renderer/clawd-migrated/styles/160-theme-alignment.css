@@ -949,6 +949,7 @@
   --resource-accent: oklch(73% 0.115 82);
   --resource-success: oklch(62% 0.09 154);
   --resource-idle: oklch(52% 0.01 75);
+  --resource-missing: oklch(57% 0.09 48);
   --resource-scrollbar: oklch(68% 0.01 75 / 0.58);
   --resource-shadow: 0 18px 44px oklch(34% 0.012 75 / 0.1);
   color: var(--resource-ink);
@@ -970,6 +971,7 @@
   --resource-accent: oklch(74% 0.015 82);
   --resource-success: oklch(72% 0.07 154);
   --resource-idle: oklch(60% 0.01 78);
+  --resource-missing: oklch(70% 0.07 48);
   --resource-scrollbar: oklch(43% 0.008 78);
   --resource-shadow: none;
 }
@@ -1080,6 +1082,30 @@
 
 .claude-resource-status.idle {
   color: var(--resource-idle);
+}
+
+.claude-resource-status.missing {
+  color: var(--resource-missing);
+}
+
+.claude-profile-resource-action {
+  color: var(--resource-muted);
+  border-color: var(--resource-line-strong);
+  background: var(--resource-control-bg);
+}
+
+.claude-profile-resource-action:hover:not(:disabled) {
+  color: var(--resource-ink);
+  border-color: var(--resource-focus);
+  background: var(--resource-control-hover);
+}
+
+.claude-profile-resource-action:focus-visible {
+  outline-color: var(--resource-focus);
+}
+
+.claude-profile-resource-unavailable {
+  color: var(--resource-faint);
 }
 
 .claude-resource-empty {

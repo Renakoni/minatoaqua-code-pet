@@ -12,11 +12,12 @@ import type {
   ClaudeProfileMutationResult,
   ClaudeProfileOperationIssue,
   ClaudeProfilePreviewResult,
+  ClaudeProfileResourceStateInput,
   ClaudeProfilesSnapshot,
   ClaudeResourceItem,
   ClaudeResourcesSnapshot
 } from "../shared/claudeProfiles";
-import { snapshotAfterClaudeProfileApply } from "../shared/claudeProfiles";
+import { snapshotAfterClaudeProfileApply, snapshotAfterClaudeProfileResourceState } from "../shared/claudeProfiles";
 import { PET_IMAGE_SIZE, getPetWindowHeight, getPetWindowWidth, normalizePetDisplaySettings } from "../shared/petDisplaySettings";
 import { BUILTIN_PET_THEME_ID, BUILTIN_PET_THEME_NAME, packIdFromThemeId, petPackThemeId } from "../shared/petThemeCatalog";
 import { displayedSpriteHeight } from "../shared/spriteFrame";
@@ -59,6 +60,7 @@ import {
 } from "./claudeProfileStore";
 import { synchronizeClaudeMcpProfileResources } from "./claudeMcpInventory";
 import { applyClaudeProfile, previewClaudeProfileApply } from "./claudeProfileCoordinator";
+import { setClaudeProfileResourceEnabled } from "./claudeProfileRuntime";
 import { backupJsonFile, writeTextFileAtomic } from "./filePersistence";
 import { EVENT_SERVER_DEV_ORIGIN, isAcceptedEventServerRequest } from "./eventServerSecurity";
 import { visitJsonlTail } from "./jsonlTail";
@@ -1518,6 +1520,59 @@ async function applyClaudeProfileFromRenderer(profileId: unknown): Promise<Claud
     }
   } catch {
     return { ok: false, issues: [profileIssue("profile-apply-failed", "The Claude profile could not be applied.")] };
+  }
+}
+
+async function setClaudeProfileResourceStateFromRenderer(input: unknown): Promise<ClaudeProfileMutationResult> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, issues: [profileIssue("invalid-profile-input", "Claude profile resource state input is invalid.")] };
+  }
+  const { profileId, resourceId, enabled } = input as Partial<ClaudeProfileResourceStateInput>;
+  if (typeof profileId !== "string" || !profileId.trim() || typeof resourceId !== "string" || !resourceId.trim() || typeof enabled !== "boolean") {
+    return { ok: false, issues: [profileIssue("invalid-profile-input", "Claude profile resource state input is invalid.")] };
+  }
+
+  try {
+    const snapshot = await getClaudeProfilesSnapshot(true);
+    const unavailable = unavailableProfileMutation(snapshot);
+    if (unavailable) return unavailable;
+    if (snapshot.appliedProfileId !== profileId) {
+      return { ok: false, issues: [profileIssue("invalid-profile-reference", "The selected Claude profile is no longer applied.")] };
+    }
+    const profile = snapshot.profiles.find(item => item.id === profileId);
+    if (!profile) {
+      return { ok: false, issues: [profileIssue("invalid-profile-reference", `Claude profile ${profileId} does not exist.`)] };
+    }
+    const resource = [
+      ...snapshot.inventory.skills,
+      ...snapshot.inventory.plugins,
+      ...snapshot.inventory.mcpServers
+    ].find(item => item.id === resourceId);
+    if (!resource) {
+      const code = resourceId.startsWith("skill:") ? "missing-skill" : resourceId.startsWith("plugin:") ? "missing-plugin" : "missing-mcp-server";
+      return { ok: false, issues: [{ code, message: `Claude profile references missing resource ${resourceId}.`, resourceId }] };
+    }
+    const membership = resource.kind === "skill" ? profile.skills : resource.kind === "plugin" ? profile.plugins : profile.mcpServers;
+    if (!membership.includes(resourceId)) {
+      return { ok: false, issues: [profileIssue("invalid-profile-reference", `Resource ${resourceId} is not a member of profile ${profileId}.`)] };
+    }
+    if (resource.enabled === enabled) return { ok: true, profileId, snapshot };
+
+    const paths = profileCoordinatorPaths();
+    const result = setClaudeProfileResourceEnabled(resource, enabled, {
+      settingsPath: paths.settingsPath,
+      claudeJsonPath: paths.claudeJsonPath,
+      mcpInventoryPath: paths.mcpInventoryPath
+    });
+    if (!result.ok) return result;
+    claudeResourceCache = null;
+    try {
+      return { ok: true, profileId, snapshot: await getClaudeProfilesSnapshot(true) };
+    } catch {
+      return { ok: true, profileId, snapshot: snapshotAfterClaudeProfileResourceState(snapshot, resourceId, enabled) };
+    }
+  } catch {
+    return { ok: false, issues: [profileIssue("resource-state-failed", "The Claude resource state could not be changed.")] };
   }
 }
 
@@ -3536,6 +3591,7 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:delete-claude-profile", (_, profileId: unknown) => deleteClaudeProfileFromRenderer(profileId));
   ipcMain.handle("companion:preview-claude-profile", (_, profileId: unknown) => previewClaudeProfileFromRenderer(profileId));
   ipcMain.handle("companion:apply-claude-profile", (_, profileId: unknown) => applyClaudeProfileFromRenderer(profileId));
+  ipcMain.handle("companion:set-claude-profile-resource-state", (_, input: unknown) => setClaudeProfileResourceStateFromRenderer(input));
   ipcMain.handle("companion:get-claude-sessions", (_, force?: boolean) => getClaudeSessionSnapshot(Boolean(force)));
   ipcMain.handle("companion:get-claude-session-detail", (_, filePath: string) => getClaudeSessionDetail(filePath));
   ipcMain.handle("companion:resume-claude-session", (_, targetSessionId: string, projectPath?: string) => resumeClaudeSession(targetSessionId, projectPath));
