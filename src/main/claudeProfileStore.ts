@@ -7,6 +7,7 @@ import {
   type ClaudeProfileDrift,
   type ClaudeProfileInventory,
   type ClaudeProfileMcpStatus,
+  type ClaudeProfileOperationIssue,
   type ClaudeProfileResource,
   type ClaudeProfileStoreData,
   type ClaudeProfilesSnapshot,
@@ -17,6 +18,118 @@ import { writeTextFileAtomic } from "./filePersistence";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type ClaudeProfileStoreMutationResult =
+  | { ok: true; profileId: string; store: ClaudeProfileStoreData }
+  | { ok: false; issues: ClaudeProfileOperationIssue[] };
+
+function mutationIssue(code: string, message: string, resourceId?: string): ClaudeProfileOperationIssue {
+  return { code, message, ...(resourceId ? { resourceId } : {}) };
+}
+
+function parseMutationMembership(
+  value: unknown,
+  field: "skills" | "plugins" | "mcpServers",
+  inventory: ClaudeProfileInventory,
+  issues: ClaudeProfileOperationIssue[]
+): string[] | null {
+  if (!Array.isArray(value) || value.some(item => typeof item !== "string" || !item.trim()) || new Set(value).size !== value.length) {
+    issues.push(mutationIssue("invalid-profile-input", `Claude profile ${field} must be a unique string list.`));
+    return null;
+  }
+  const ids = new Set(inventory[field].map(item => item.id));
+  const missingCode = field === "skills" ? "missing-skill" : field === "plugins" ? "missing-plugin" : "missing-mcp-server";
+  for (const resourceId of value) {
+    if (!ids.has(resourceId)) issues.push(mutationIssue(missingCode, `Claude profile references missing resource ${resourceId}.`, resourceId));
+  }
+  return [...value];
+}
+
+export function upsertClaudeProfile(
+  store: ClaudeProfileStoreData,
+  inventory: ClaudeProfileInventory,
+  input: unknown,
+  now = Date.now(),
+  createId: () => string = randomUUID
+): ClaudeProfileStoreMutationResult {
+  if (!isPlainObject(input)) {
+    return { ok: false, issues: [mutationIssue("invalid-profile-input", "Claude profile input must be an object.")] };
+  }
+
+  const issues: ClaudeProfileOperationIssue[] = [];
+  const id = input.id === undefined ? undefined : typeof input.id === "string" && input.id.trim() === input.id && input.id
+    ? input.id
+    : null;
+  if (id === null) issues.push(mutationIssue("invalid-profile-input", "Claude profile id is invalid."));
+
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name || name.length > 64) issues.push(mutationIssue("invalid-profile-input", "Claude profile name must be 1 to 64 characters."));
+
+  const description = input.description === undefined ? undefined : typeof input.description === "string" ? input.description.trim() : null;
+  if (description === null || (description?.length ?? 0) > 240) {
+    issues.push(mutationIssue("invalid-profile-input", "Claude profile description must be at most 240 characters."));
+  }
+
+  const skills = parseMutationMembership(input.skills, "skills", inventory, issues);
+  const plugins = parseMutationMembership(input.plugins, "plugins", inventory, issues);
+  const mcpServers = parseMutationMembership(input.mcpServers, "mcpServers", inventory, issues);
+  const existing = id ? store.profiles.find(profile => profile.id === id) : undefined;
+  if (id && !existing) issues.push(mutationIssue("invalid-profile-reference", `Claude profile ${id} does not exist.`));
+  if (existing?.isProtected && name !== existing.name) {
+    issues.push(mutationIssue("protected-profile", "The protected Default profile cannot be renamed."));
+  }
+  if (store.profiles.some(profile => profile.id !== id && profile.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+    issues.push(mutationIssue("duplicate-profile-name", `A Claude profile named ${name} already exists.`));
+  }
+  if (issues.length > 0 || !skills || !plugins || !mcpServers || description === null) return { ok: false, issues };
+
+  const profileId = existing?.id ?? createId();
+  if (!existing && store.profiles.some(profile => profile.id === profileId)) {
+    return { ok: false, issues: [mutationIssue("duplicate-profile-id", "A generated Claude profile id already exists.")] };
+  }
+  const profile: ClaudeProfile = {
+    id: profileId,
+    name: existing?.isProtected ? existing.name : name,
+    ...(description ? { description } : {}),
+    skills,
+    plugins,
+    mcpServers,
+    isProtected: existing?.isProtected ?? false,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  };
+  return {
+    ok: true,
+    profileId,
+    store: {
+      ...store,
+      profiles: existing
+        ? store.profiles.map(item => item.id === profileId ? profile : item)
+        : [...store.profiles, profile]
+    }
+  };
+}
+
+export function removeClaudeProfile(store: ClaudeProfileStoreData, profileId: unknown): ClaudeProfileStoreMutationResult {
+  if (typeof profileId !== "string" || !profileId.trim()) {
+    return { ok: false, issues: [mutationIssue("invalid-profile-reference", "Claude profile id is invalid.")] };
+  }
+  const profile = store.profiles.find(item => item.id === profileId);
+  if (!profile) {
+    return { ok: false, issues: [mutationIssue("invalid-profile-reference", `Claude profile ${profileId} does not exist.`)] };
+  }
+  if (profile.isProtected) {
+    return { ok: false, issues: [mutationIssue("protected-profile", "The protected Default profile cannot be deleted.")] };
+  }
+  if (store.appliedProfileId === profileId) {
+    return { ok: false, issues: [mutationIssue("applied-profile", "Apply another profile before deleting this one.")] };
+  }
+  return {
+    ok: true,
+    profileId,
+    store: { ...store, profiles: store.profiles.filter(item => item.id !== profileId) }
+  };
 }
 
 function requireStringList(value: unknown, field: string): string[] {

@@ -81,3 +81,40 @@ export type ClaudeProfilesSnapshot = ClaudeProfileStoreData & {
   drift: ClaudeProfileDrift;
   mcpStatus: ClaudeProfileMcpStatus;
 };
+
+export type ClaudeProfileSaveInput = {
+  id?: string;
+  name: string;
+  description?: string;
+  skills: string[];
+  plugins: string[];
+  mcpServers: string[];
+};
+
+export type ClaudeProfileOperationIssue = {
+  code: string;
+  message: string;
+  resourceId?: string;
+  target?: "settings" | "mcp";
+};
+
+export type ClaudeProfileChanges = {
+  enable: string[];
+  disable: string[];
+};
+
+export type ClaudeProfilePreviewResult =
+  | {
+      ok: true;
+      profileId: string;
+      changes: {
+        skills: ClaudeProfileChanges;
+        plugins: ClaudeProfileChanges;
+        mcpServers: ClaudeProfileChanges;
+      };
+    }
+  | { ok: false; issues: ClaudeProfileOperationIssue[] };
+
+export type ClaudeProfileMutationResult =
+  | { ok: true; profileId: string; snapshot: ClaudeProfilesSnapshot }
+  | { ok: false; issues: ClaudeProfileOperationIssue[] };

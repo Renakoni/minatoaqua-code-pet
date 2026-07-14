@@ -9,7 +9,9 @@ import {
   getClaudeProfileDrift,
   loadOrCreateClaudeProfileStore,
   parseClaudeProfileStore,
-  saveClaudeProfileStore
+  removeClaudeProfile,
+  saveClaudeProfileStore,
+  upsertClaudeProfile
 } from "../src/main/claudeProfileStore";
 import type { ClaudeProfileInventory, ClaudeResourcesSnapshot } from "../src/shared/claudeProfiles";
 
@@ -98,6 +100,86 @@ describe("Claude profile store", () => {
       createdAt: 456,
       updatedAt: 456
     }]);
+  });
+
+  it("creates and updates curated profiles without changing the applied pointer", () => {
+    const initial = createInitialClaudeProfileStore(inventory(), 100);
+    const created = upsertClaudeProfile(initial, inventory(), {
+      name: "Bioinformatics",
+      description: "Sequence analysis",
+      skills: ["skill:impeccable"],
+      plugins: ["plugin:notify@market"],
+      mcpServers: []
+    }, 200, () => "bio");
+
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.store.appliedProfileId).toBe("default");
+    expect(created.store.profiles[1]).toEqual({
+      id: "bio",
+      name: "Bioinformatics",
+      description: "Sequence analysis",
+      skills: ["skill:impeccable"],
+      plugins: ["plugin:notify@market"],
+      mcpServers: [],
+      isProtected: false,
+      createdAt: 200,
+      updatedAt: 200
+    });
+
+    const updated = upsertClaudeProfile(created.store, inventory(), {
+      id: "bio",
+      name: "Bioinformatics",
+      skills: ["skill:graphify"],
+      plugins: [],
+      mcpServers: ["mcp:filesystem"]
+    }, 300);
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.store.profiles[1].createdAt).toBe(200);
+    expect(updated.store.profiles[1].updatedAt).toBe(300);
+    expect(updated.store.profiles[1].skills).toEqual(["skill:graphify"]);
+  });
+
+  it("rejects unsafe profile edits and unknown resource membership", () => {
+    const initial = createInitialClaudeProfileStore(inventory(), 100);
+    const result = upsertClaudeProfile(initial, inventory(), {
+      id: "default",
+      name: "Renamed",
+      skills: ["skill:missing"],
+      plugins: [],
+      mcpServers: []
+    }, 200);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.map(issue => issue.code)).toEqual(["missing-skill", "protected-profile"]);
+  });
+
+  it("protects Default and the currently applied profile from deletion", () => {
+    const initial = createInitialClaudeProfileStore(inventory(), 100);
+    const created = upsertClaudeProfile(initial, inventory(), {
+      name: "Focused",
+      skills: [],
+      plugins: [],
+      mcpServers: []
+    }, 200, () => "focused");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    expect(removeClaudeProfile(created.store, "default")).toMatchObject({
+      ok: false,
+      issues: [{ code: "protected-profile" }]
+    });
+    expect(removeClaudeProfile({ ...created.store, appliedProfileId: "focused" }, "focused")).toMatchObject({
+      ok: false,
+      issues: [{ code: "applied-profile" }]
+    });
+    expect(removeClaudeProfile(created.store, "focused")).toMatchObject({
+      ok: true,
+      profileId: "focused",
+      store: { profiles: [{ id: "default" }] }
+    });
   });
 
   it("creates the versioned store once and returns the persisted data later", () => {

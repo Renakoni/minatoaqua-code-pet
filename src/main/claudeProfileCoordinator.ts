@@ -1,6 +1,12 @@
 /** Main-process-only coordinator for one all-or-nothing Unified Profile apply. */
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import type { ClaudeProfileInventory, ClaudeProfileResource, ClaudeProfileStoreData } from "../shared/claudeProfiles";
+import type {
+  ClaudeProfileChanges,
+  ClaudeProfileInventory,
+  ClaudeProfilePreviewResult,
+  ClaudeProfileResource,
+  ClaudeProfileStoreData
+} from "../shared/claudeProfiles";
 import {
   buildSafeClaudeMcpResources,
   loadClaudeMcpInventory,
@@ -55,22 +61,8 @@ export type ClaudeProfileCoordinatorInput = {
 
 type SuccessfulSettingsPreview = Extract<ClaudeProfileSettingsPreview, { ok: true }>;
 
-export type ClaudeProfileCoordinatorChanges = {
-  enable: string[];
-  disable: string[];
-};
-
-export type ClaudeProfileCoordinatorPreview =
-  | {
-      ok: true;
-      profileId: string;
-      changes: {
-        skills: ClaudeProfileCoordinatorChanges;
-        plugins: ClaudeProfileCoordinatorChanges;
-        mcpServers: ClaudeProfileCoordinatorChanges;
-      };
-    }
-  | { ok: false; issues: ClaudeProfileCoordinatorIssue[] };
+export type ClaudeProfileCoordinatorChanges = ClaudeProfileChanges;
+export type ClaudeProfileCoordinatorPreview = ClaudeProfilePreviewResult;
 
 type PreparedClaudeProfileApply =
   | {

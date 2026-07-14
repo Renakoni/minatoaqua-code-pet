@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { PetEvent, PetState } from "../shared/events";
-import type { ClaudeProfilesSnapshot, ClaudeResourcesSnapshot } from "../shared/claudeProfiles";
+import type {
+  ClaudeProfileMutationResult,
+  ClaudeProfilePreviewResult,
+  ClaudeProfileSaveInput,
+  ClaudeProfilesSnapshot,
+  ClaudeResourcesSnapshot
+} from "../shared/claudeProfiles";
 
 export interface PetSnapshot {
   state: PetState;
@@ -109,6 +115,10 @@ contextBridge.exposeInMainWorld("companion", {
   getPlugins: () => ipcRenderer.invoke("companion:get-plugins"),
   getClaudeResources: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-resources", force) as Promise<ClaudeResourcesSnapshot>,
   getClaudeProfiles: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-profiles", force) as Promise<ClaudeProfilesSnapshot>,
+  saveClaudeProfile: (input: ClaudeProfileSaveInput) => ipcRenderer.invoke("companion:save-claude-profile", input) as Promise<ClaudeProfileMutationResult>,
+  deleteClaudeProfile: (profileId: string) => ipcRenderer.invoke("companion:delete-claude-profile", profileId) as Promise<ClaudeProfileMutationResult>,
+  previewClaudeProfile: (profileId: string) => ipcRenderer.invoke("companion:preview-claude-profile", profileId) as Promise<ClaudeProfilePreviewResult>,
+  applyClaudeProfile: (profileId: string) => ipcRenderer.invoke("companion:apply-claude-profile", profileId) as Promise<ClaudeProfileMutationResult>,
   getClaudeSessions: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-sessions", force),
   getClaudeSessionDetail: (filePath: string) => ipcRenderer.invoke("companion:get-claude-session-detail", filePath),
   resumeClaudeSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke("companion:resume-claude-session", sessionId, projectPath),
