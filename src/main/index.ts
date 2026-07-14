@@ -2971,7 +2971,7 @@ function writeRuntimeStats() {
   }
   if (!runtimeStats) return;
   try {
-    writeFileSync(runtimeStatsPath(), JSON.stringify(runtimeStats, null, 2), "utf8");
+    writeTextFileAtomic(runtimeStatsPath(), JSON.stringify(runtimeStats, null, 2));
     runtimeStatsDirty = false;
   } catch { /* best effort */ }
 }
