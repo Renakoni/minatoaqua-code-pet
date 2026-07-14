@@ -267,7 +267,7 @@
 .animation-page-secondary {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.78fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: start;
 }
@@ -330,7 +330,7 @@
 }
 
 .animation-page .idle-anim-settings {
-  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -383,7 +383,7 @@
 
 .animation-page .idle-anim-settings > .animation-section-block,
 .animation-page .idle-anim-settings > .animation-ranges {
-  grid-column: 1 / -1;
+  grid-column: auto;
 }
 
 .animation-page .animation-section-block {
@@ -419,6 +419,10 @@
   border-radius: 9px;
   background: var(--anim-line);
   overflow: hidden;
+}
+
+.animation-page .idle-anim-settings > .animation-section-block .idle-sprite-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
 }
 
 .animation-page .idle-sprite-preview {
@@ -672,16 +676,8 @@
 }
 
 @media (max-width: 980px) {
-  .animation-page-secondary,
-  .animation-page .idle-anim-settings {
-    grid-template-columns: 1fr;
-  }
-
-  .animation-page .animation-master-row,
-  .animation-page .animation-summary-row,
-  .animation-page .idle-anim-settings > .animation-section-block,
-  .animation-page .idle-anim-settings > .animation-ranges {
-    grid-column: auto;
+  .animation-page .idle-anim-settings > .animation-section-block .idle-sprite-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   }
 }
 
