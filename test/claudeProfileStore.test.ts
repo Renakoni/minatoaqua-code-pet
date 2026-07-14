@@ -135,6 +135,30 @@ describe("Claude profile store", () => {
     expect(existsSync(filePath)).toBe(false);
   });
 
+  it("does not report MCP drift from a degraded read of an established store", () => {
+    const filePath = tempFile();
+    const healthy = createClaudeProfilesSnapshot(filePath, resources(), 456);
+    const unavailableMcp = healthy.inventory.mcpServers.map(server => ({ ...server, enabled: false }));
+
+    const degraded = createClaudeProfilesSnapshot(
+      filePath,
+      resources(),
+      789,
+      unavailableMcp,
+      "config-unreadable"
+    );
+
+    expect(degraded.appliedProfileId).toBe("default");
+    expect(degraded.mcpStatus).toBe("config-unreadable");
+    expect(degraded.drift).toEqual({
+      profileId: "default",
+      isDrifted: false,
+      skills: false,
+      plugins: false,
+      mcpServers: false
+    });
+  });
+
   it("treats an omitted applied-profile pointer as not applied", () => {
     const store = createInitialClaudeProfileStore(inventory(), 456);
     const withoutPointer: Record<string, unknown> = { ...store };

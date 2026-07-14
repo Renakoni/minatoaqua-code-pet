@@ -102,7 +102,8 @@ function membershipDiffers(expected: string[], resources: ClaudeProfileResource[
 
 export function getClaudeProfileDrift(
   store: ClaudeProfileStoreData,
-  inventory: ClaudeProfileInventory
+  inventory: ClaudeProfileInventory,
+  mcpStatus: ClaudeProfileMcpStatus = "ready"
 ): ClaudeProfileDrift {
   const profileId = store.appliedProfileId;
   if (profileId === null) {
@@ -114,7 +115,7 @@ export function getClaudeProfileDrift(
   }
   const skills = membershipDiffers(profile.skills, inventory.skills);
   const plugins = membershipDiffers(profile.plugins, inventory.plugins);
-  const mcpServers = membershipDiffers(profile.mcpServers, inventory.mcpServers);
+  const mcpServers = mcpStatus === "ready" && membershipDiffers(profile.mcpServers, inventory.mcpServers);
   return { profileId, isDrifted: skills || plugins || mcpServers, skills, plugins, mcpServers };
 }
 
@@ -185,5 +186,5 @@ export function createClaudeProfilesSnapshot(
   const store = mcpStatus !== "ready" && !existsSync(filePath)
     ? createInitialClaudeProfileStore(inventory, now)
     : loadOrCreateClaudeProfileStore(filePath, inventory, now);
-  return { ...store, inventory, drift: getClaudeProfileDrift(store, inventory), mcpStatus };
+  return { ...store, inventory, drift: getClaudeProfileDrift(store, inventory, mcpStatus), mcpStatus };
 }
