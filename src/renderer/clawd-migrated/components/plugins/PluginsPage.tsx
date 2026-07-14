@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import {
   createEmptyClaudeProfilesSnapshot,
+  DEFAULT_CLAUDE_PROFILE_ID,
   type ClaudeProfile,
   type ClaudeProfileResource,
   type ClaudeProfileSaveInput,
@@ -51,7 +52,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [snapshot, setSnapshot] = useState<ClaudeProfilesSnapshot>(emptySnapshot);
-  const [selectedProfileId, setSelectedProfileId] = useState("default");
+  const [selectedProfileId, setSelectedProfileId] = useState(DEFAULT_CLAUDE_PROFILE_ID);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -233,7 +234,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     if (!profile) return;
     setDeleteConfirm(false);
     if (profile.id === snapshot.appliedProfileId) {
-      const fallback = snapshot.profiles.find(item => item.id === "default");
+      const fallback = snapshot.profiles.find(item => item.id === DEFAULT_CLAUDE_PROFILE_ID);
       if (!fallback || !await switchProfile(fallback.id, fallback.name, false)) return;
     }
     setBusyAction("delete");

@@ -16,6 +16,7 @@ import type {
   ClaudeResourceItem,
   ClaudeResourcesSnapshot
 } from "../shared/claudeProfiles";
+import { snapshotAfterClaudeProfileApply } from "../shared/claudeProfiles";
 import { PET_IMAGE_SIZE, getPetWindowHeight, getPetWindowWidth, normalizePetDisplaySettings } from "../shared/petDisplaySettings";
 import { BUILTIN_PET_THEME_ID, BUILTIN_PET_THEME_NAME, packIdFromThemeId, petPackThemeId } from "../shared/petThemeCatalog";
 import { displayedSpriteHeight } from "../shared/spriteFrame";
@@ -1508,7 +1509,11 @@ async function applyClaudeProfileFromRenderer(profileId: unknown): Promise<Claud
     });
     if (!result.ok) return result;
     claudeResourceCache = null;
-    return { ok: true, profileId, snapshot: await getClaudeProfilesSnapshot(true) };
+    try {
+      return { ok: true, profileId, snapshot: await getClaudeProfilesSnapshot(true) };
+    } catch {
+      return { ok: true, profileId, snapshot: snapshotAfterClaudeProfileApply(snapshot, profileId) };
+    }
   } catch {
     return { ok: false, issues: [profileIssue("profile-apply-failed", "The Claude profile could not be applied.")] };
   }
