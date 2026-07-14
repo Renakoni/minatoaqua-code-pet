@@ -19,7 +19,7 @@ import { spritesheetAssetsFromPack } from "../shared/petPackAssets";
 import { packIdFromThemeId, resolveThemeCatalog } from "../shared/petThemeCatalog";
 import { displayedSpriteHeight } from "../shared/spriteFrame";
 import { dragAnimationForDirection, type DragDirection } from "../shared/petDrag";
-import { type IdleAnimationConfig, planIdleAnimation, startIdleAnimator } from "./state/petIdleAnimator";
+import { keepIdleAnimationConfigReference, type IdleAnimationConfig, planIdleAnimation, startIdleAnimator } from "./state/petIdleAnimator";
 import { nextPetState } from "./state/petStateMachine";
 import { isPetElement } from "./petHitTest";
 
@@ -151,7 +151,7 @@ export default function App() {
       // reference when the config is unchanged so unrelated saves don't reset
       // the rotation timers below.
       const idleAnim = settings.idleAnim && typeof settings.idleAnim === "object" ? settings.idleAnim : null;
-      setIdleAnimConfig(previous => JSON.stringify(previous) === JSON.stringify(idleAnim) ? previous : idleAnim);
+      setIdleAnimConfig(previous => keepIdleAnimationConfigReference(previous, idleAnim));
       setDisplayLanguage(settings.language === "zh" || (settings.language === "auto" && navigator.language.toLowerCase().startsWith("zh")) ? "zh" : "en");
       setPetTheme(typeof settings.petTheme === "string" ? settings.petTheme : "");
     };

@@ -29,6 +29,13 @@ export interface IdleAnimationPlan {
   repeatMax: number;
 }
 
+export function keepIdleAnimationConfigReference(
+  previous: IdleAnimationConfig | null,
+  next: IdleAnimationConfig | null
+): IdleAnimationConfig | null {
+  return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+}
+
 function toSeconds(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
@@ -61,9 +68,11 @@ export function planIdleAnimation(
   };
 }
 
-// Start the rotation. onAnimation receives the sprite to show, or null to
-// return to the plain idle pose. Returns a stop function that cancels any
-// pending timer and clears the current sprite.
+// Start the rotation. The selected pool is the complete set of animations the
+// idle pet may show: one member becomes the resting pose immediately, and
+// batch gaps return to that member instead of an implicit, possibly
+// deselected idle sprite. Returns a stop function that cancels pending work
+// and clears the current sprite when rotation itself stops.
 export function startIdleAnimator(
   plan: IdleAnimationPlan,
   onAnimation: (key: PetAnimationKey | null) => void,
@@ -71,6 +80,7 @@ export function startIdleAnimator(
 ): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
+  const restingSprite = plan.pool[Math.floor(rng() * plan.pool.length)];
 
   function schedule(fn: () => void, delayMs: number) {
     timer = setTimeout(() => { if (!stopped) fn(); }, delayMs);
@@ -90,7 +100,7 @@ export function startIdleAnimator(
     function show() {
       onAnimation(sprite);
       schedule(() => {
-        onAnimation(null);
+        onAnimation(restingSprite);
         count++;
         if (count < repeats) schedule(show, IDLE_SPRITE_GAP_MS);
         else scheduleNext();
@@ -99,6 +109,7 @@ export function startIdleAnimator(
     show();
   }
 
+  onAnimation(restingSprite);
   scheduleNext();
 
   return () => {
