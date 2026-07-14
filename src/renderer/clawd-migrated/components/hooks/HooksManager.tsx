@@ -85,7 +85,8 @@ export function HooksManager({ compact = false, actionsOnly = false, success = f
           {success ? <><CheckCircle2 size={16} />{t("doctor.installed", "已安装")}</> : action === "installing" ? t("doctor.installing", "安装中...") : t("doctor.oneClickInstall", "一键安装")}
         </button>}
         {showManage && showRepair && <button onClick={handleRepair} disabled={!!action}>
-          {action === "repairing" ? t("doctor.repairing", "修复中...") : t("doctor.repairConfig", "修复配置")}
+          <Wrench size={13} aria-hidden="true" />
+          <span>{action === "repairing" ? t("doctor.repairing", "修复中...") : t("doctor.repairConfig", "修复配置")}</span>
         </button>}
       </div>}
 
