@@ -1,3 +1,4 @@
+import type { IncomingHttpHeaders } from "node:http";
 import { describe, expect, it } from "vitest";
 import { EVENT_SERVER_DEV_ORIGIN, isAcceptedEventServerRequest } from "../src/main/eventServerSecurity";
 
@@ -22,6 +23,7 @@ describe("event server request boundary", () => {
       "content-type": "application/json"
     })).toBe(false);
     expect(isAcceptedEventServerRequest("GET", { origin: "https://attacker.example" })).toBe(false);
-    expect(isAcceptedEventServerRequest("GET", { origin: [EVENT_SERVER_DEV_ORIGIN, "https://attacker.example"] })).toBe(false);
+    const duplicateOrigin = { origin: [EVENT_SERVER_DEV_ORIGIN, "https://attacker.example"] } as unknown as IncomingHttpHeaders;
+    expect(isAcceptedEventServerRequest("GET", duplicateOrigin)).toBe(false);
   });
 });
