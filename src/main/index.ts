@@ -41,8 +41,8 @@ import { createDoubleClickDetector, installPetParentNotifyWatcher, readSystemDou
 import { pointInBounds, trayMenuLayout, type TrayMenuMetrics, type TraySubmenuSide } from "./trayMenuPosition";
 import { createTrayMenuController } from "./trayMenuController";
 import { buildPowerShellLaunch, CHARA_DESK_CLAUDE_ENV, CHARA_DESK_RESUME_ID_ENV, launchDetachedTerminal, launchFailedMessage, mergeTerminalEnv, normalizeCmdCwd, notAFolderMessage, PS_RESUME_CLAUDE, PS_RUN_CLAUDE, providerTerminalEnv, resolveClaudeExecutable, resolveSessionCwd, sessionFolderUnavailableMessage, trustedCmdPath, trustedPowerShellPath, uncNotSupportedMessage } from "./providerTerminal";
-import { createClaudeProfilesSnapshot } from "./claudeProfileStore";
-import { buildSafeClaudeMcpResources, readClaudeMcpLiveConfig, synchronizeClaudeMcpInventory } from "./claudeMcpInventory";
+import { buildClaudeProfileInventory, createClaudeProfilesSnapshot } from "./claudeProfileStore";
+import { synchronizeClaudeMcpProfileResources } from "./claudeMcpInventory";
 import { backupJsonFile } from "./filePersistence";
 
 type DailyRuntimeStats = {
@@ -1365,10 +1365,13 @@ async function getClaudeProfilesSnapshot(force = false) {
   // Default must capture the live global state, not a startup-warmup cache
   // that may predate an external Claude configuration change.
   const resources = await getClaudeResourcesSnapshot(force || !existsSync(profilePath) || !existsSync(mcpInventoryPath));
-  const liveMcp = readClaudeMcpLiveConfig(resources.paths.claudeJson);
-  const mcpInventory = synchronizeClaudeMcpInventory(mcpInventoryPath, liveMcp.servers);
-  const safeMcpResources = buildSafeClaudeMcpResources(mcpInventory, Object.keys(liveMcp.servers));
-  return createClaudeProfilesSnapshot(profilePath, resources, Date.now(), safeMcpResources);
+  const scannedMcpResources = buildClaudeProfileInventory(resources).mcpServers;
+  const mcpSnapshot = synchronizeClaudeMcpProfileResources(
+    resources.paths.claudeJson,
+    mcpInventoryPath,
+    scannedMcpResources
+  );
+  return createClaudeProfilesSnapshot(profilePath, resources, Date.now(), mcpSnapshot.resources, mcpSnapshot.status);
 }
 
 function isAllowedClaudeResourcePath(targetPath: string) {

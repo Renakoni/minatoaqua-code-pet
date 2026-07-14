@@ -1,6 +1,6 @@
 /** Main-process-only preservation store for full global MCP definitions. */
 import { existsSync, readFileSync } from "node:fs";
-import type { ClaudeProfileResource } from "../shared/claudeProfiles";
+import type { ClaudeProfileMcpStatus, ClaudeProfileResource } from "../shared/claudeProfiles";
 import { writeTextFileAtomic } from "./filePersistence";
 
 type JsonObject = Record<string, unknown>;
@@ -22,6 +22,21 @@ export type ClaudeMcpLiveConfig = {
 
 function isPlainObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((item, index) => jsonValuesEqual(item, right[index]));
+  }
+  if (!isPlainObject(left) || !isPlainObject(right)) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every(key => Object.prototype.hasOwnProperty.call(right, key) && jsonValuesEqual(left[key], right[key]));
 }
 
 function parseDefinitions(value: unknown, label: string) {
@@ -84,7 +99,7 @@ export function mergeClaudeMcpInventory(
   const servers = new Map(Object.entries(current?.servers ?? {}));
   let changed = current === null;
   for (const [name, definition] of Object.entries(liveServers)) {
-    if (JSON.stringify(servers.get(name)) !== JSON.stringify(definition)) changed = true;
+    if (!jsonValuesEqual(servers.get(name), definition)) changed = true;
     servers.set(name, { ...definition });
   }
   if (!changed && current) return { changed: false, data: current };
@@ -124,4 +139,48 @@ export function buildSafeClaudeMcpResources(
       description: "Claude Code MCP server",
       enabled: active.has(name)
     }));
+}
+
+export type ClaudeMcpProfileResourcesSnapshot = {
+  resources: ClaudeProfileResource[];
+  status: ClaudeProfileMcpStatus;
+};
+
+export function synchronizeClaudeMcpProfileResources(
+  claudeJsonPath: string,
+  inventoryPath: string,
+  fallbackResources: ClaudeProfileResource[]
+): ClaudeMcpProfileResourcesSnapshot {
+  let live: ClaudeMcpLiveConfig;
+  try {
+    live = readClaudeMcpLiveConfig(claudeJsonPath);
+  } catch {
+    try {
+      const inventory = loadClaudeMcpInventory(inventoryPath);
+      if (inventory) {
+        const fallbackActiveNames = fallbackResources.filter(item => item.enabled).map(item => item.name);
+        return {
+          resources: buildSafeClaudeMcpResources(inventory, fallbackActiveNames),
+          status: "config-unreadable"
+        };
+      }
+    } catch {
+      // The read snapshot remains available even if both MCP sources are unreadable.
+    }
+    return { resources: fallbackResources, status: "config-unreadable" };
+  }
+
+  try {
+    const inventory = synchronizeClaudeMcpInventory(inventoryPath, live.servers);
+    return {
+      resources: buildSafeClaudeMcpResources(inventory, Object.keys(live.servers)),
+      status: "ready"
+    };
+  } catch {
+    const liveOnly = mergeClaudeMcpInventory(null, live.servers).data;
+    return {
+      resources: buildSafeClaudeMcpResources(liveOnly, Object.keys(live.servers)),
+      status: "inventory-unreadable"
+    };
+  }
 }

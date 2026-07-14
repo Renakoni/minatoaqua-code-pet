@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -105,6 +105,7 @@ describe("Claude profile store", () => {
     const first = createClaudeProfilesSnapshot(filePath, resources(), 456);
     expect(first.schemaVersion).toBe(1);
     expect(first.inventory.scannedAt).toBe(123);
+    expect(first.mcpStatus).toBe("ready");
     expect(first.drift).toEqual({
       profileId: "default",
       isDrifted: false,
@@ -122,6 +123,16 @@ describe("Claude profile store", () => {
       appliedProfileId: first.appliedProfileId
     });
     expect(readFileSync(filePath, "utf8")).toBe(persistedText);
+  });
+
+  it("does not persist an incomplete first Default when MCP state is unreadable", () => {
+    const filePath = tempFile();
+
+    const snapshot = createClaudeProfilesSnapshot(filePath, resources(), 456, [], "config-unreadable");
+
+    expect(snapshot.mcpStatus).toBe("config-unreadable");
+    expect(snapshot.profiles[0].mcpServers).toEqual([]);
+    expect(existsSync(filePath)).toBe(false);
   });
 
   it("treats an omitted applied-profile pointer as not applied", () => {

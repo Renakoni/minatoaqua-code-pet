@@ -74,7 +74,10 @@ export type ClaudeProfileDrift = {
   mcpServers: boolean;
 };
 
+export type ClaudeProfileMcpStatus = "ready" | "config-unreadable" | "inventory-unreadable";
+
 export type ClaudeProfilesSnapshot = ClaudeProfileStoreData & {
   inventory: ClaudeProfileInventory;
   drift: ClaudeProfileDrift;
+  mcpStatus: ClaudeProfileMcpStatus;
 };

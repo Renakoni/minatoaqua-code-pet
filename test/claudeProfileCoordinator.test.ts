@@ -163,6 +163,37 @@ describe("Unified Claude profile coordinator", () => {
     expect(existsSync(paths.mcpInventoryPath)).toBe(false);
   });
 
+  it("exports only resource deltas from a successful preview", () => {
+    const paths = tempPaths();
+    seedFiles(paths);
+    const settings = JSON.parse(readFileSync(paths.settingsPath, "utf8")) as Record<string, unknown>;
+    settings.env = { ANTHROPIC_AUTH_TOKEN: "settings-secret" };
+    writeFileSync(paths.settingsPath, JSON.stringify(settings), "utf8");
+
+    const result = previewClaudeProfileApply({
+      profileId: "focused",
+      store: store(),
+      inventory: inventory(),
+      paths
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      profileId: "focused",
+      changes: {
+        skills: { enable: ["skill:alpha"], disable: ["skill:beta"] },
+        plugins: { enable: ["plugin:alpha@market"], disable: ["plugin:beta@market"] },
+        mcpServers: { enable: ["mcp:inactive"], disable: ["mcp:active"] }
+      }
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("settings-secret");
+    expect(serialized).not.toContain("active-secret");
+    expect(serialized).not.toContain("inactive-secret");
+    expect(serialized).not.toContain("project-secret");
+    expect(serialized).not.toContain("inactive.example.test");
+  });
+
   it("rejects malformed Claude JSON before creating backups or inventory", () => {
     const paths = tempPaths();
     mkdirSync(dirname(paths.settingsPath), { recursive: true });

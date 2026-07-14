@@ -6,6 +6,7 @@ import {
   type ClaudeProfile,
   type ClaudeProfileDrift,
   type ClaudeProfileInventory,
+  type ClaudeProfileMcpStatus,
   type ClaudeProfileResource,
   type ClaudeProfileStoreData,
   type ClaudeProfilesSnapshot,
@@ -174,10 +175,15 @@ export function createClaudeProfilesSnapshot(
   filePath: string,
   resources: ClaudeResourcesSnapshot,
   now = Date.now(),
-  mcpServers?: ClaudeProfileResource[]
+  mcpServers?: ClaudeProfileResource[],
+  mcpStatus: ClaudeProfileMcpStatus = "ready"
 ): ClaudeProfilesSnapshot {
   const scannedInventory = buildClaudeProfileInventory(resources);
   const inventory = mcpServers ? { ...scannedInventory, mcpServers } : scannedInventory;
-  const store = loadOrCreateClaudeProfileStore(filePath, inventory, now);
-  return { ...store, inventory, drift: getClaudeProfileDrift(store, inventory) };
+  // Do not persist a first Default captured from an incomplete MCP read. A
+  // later healthy snapshot will seed the store from the complete live state.
+  const store = mcpStatus !== "ready" && !existsSync(filePath)
+    ? createInitialClaudeProfileStore(inventory, now)
+    : loadOrCreateClaudeProfileStore(filePath, inventory, now);
+  return { ...store, inventory, drift: getClaudeProfileDrift(store, inventory), mcpStatus };
 }

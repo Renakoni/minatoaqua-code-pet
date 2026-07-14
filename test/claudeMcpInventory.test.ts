@@ -6,7 +6,8 @@ import {
   buildSafeClaudeMcpResources,
   loadClaudeMcpInventory,
   readClaudeMcpLiveConfig,
-  synchronizeClaudeMcpInventory
+  synchronizeClaudeMcpInventory,
+  synchronizeClaudeMcpProfileResources
 } from "../src/main/claudeMcpInventory";
 
 const tempRoots: string[] = [];
@@ -70,6 +71,21 @@ describe("Claude MCP inventory", () => {
     expect(updated.updatedAt).toBe(200);
   });
 
+  it("does not rewrite an unchanged definition whose object keys were reordered", () => {
+    const inventoryPath = tempFile("claude-mcp-inventory.json");
+    synchronizeClaudeMcpInventory(inventoryPath, {
+      server: { command: "mcp-server", env: { TOKEN: "secret", MODE: "safe" } }
+    }, 100);
+    const original = readFileSync(inventoryPath, "utf8");
+
+    const unchanged = synchronizeClaudeMcpInventory(inventoryPath, {
+      server: { env: { MODE: "safe", TOKEN: "secret" }, command: "mcp-server" }
+    }, 200);
+
+    expect(unchanged.updatedAt).toBe(100);
+    expect(readFileSync(inventoryPath, "utf8")).toBe(original);
+  });
+
   it("reads only the top-level global MCP map", () => {
     const claudeJsonPath = tempFile(".claude.json");
     mkdirSync(dirname(claudeJsonPath), { recursive: true });
@@ -97,5 +113,53 @@ describe("Claude MCP inventory", () => {
     })).toThrow("malformed JSON");
     expect(readFileSync(inventoryPath, "utf8")).toBe(malformed);
     expect(() => loadClaudeMcpInventory(inventoryPath)).toThrow("malformed JSON");
+  });
+
+  it("returns last-known safe identities when the live MCP config is malformed", () => {
+    const inventoryPath = tempFile("claude-mcp-inventory.json");
+    const claudeJsonPath = join(dirname(inventoryPath), ".claude.json");
+    synchronizeClaudeMcpInventory(inventoryPath, {
+      filesystem: { command: "mcp-filesystem", env: { TOKEN: "preserved-secret" } }
+    }, 100);
+    writeFileSync(claudeJsonPath, '{"mcpServers":', "utf8");
+
+    const snapshot = synchronizeClaudeMcpProfileResources(claudeJsonPath, inventoryPath, []);
+
+    expect(snapshot).toEqual({
+      status: "config-unreadable",
+      resources: [{
+        id: "mcp:filesystem",
+        kind: "mcp",
+        name: "filesystem",
+        description: "Claude Code MCP server",
+        enabled: false
+      }]
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("preserved-secret");
+  });
+
+  it("returns live safe identities without replacing a malformed inventory", () => {
+    const inventoryPath = tempFile("claude-mcp-inventory.json");
+    const claudeJsonPath = join(dirname(inventoryPath), ".claude.json");
+    const malformed = '{"schemaVersion":1,"servers":';
+    writeFileSync(inventoryPath, malformed, "utf8");
+    writeFileSync(claudeJsonPath, JSON.stringify({
+      mcpServers: { browser: { url: "https://mcp.example.test", headers: { Authorization: "live-secret" } } }
+    }), "utf8");
+
+    const snapshot = synchronizeClaudeMcpProfileResources(claudeJsonPath, inventoryPath, []);
+
+    expect(snapshot).toEqual({
+      status: "inventory-unreadable",
+      resources: [{
+        id: "mcp:browser",
+        kind: "mcp",
+        name: "browser",
+        description: "Claude Code MCP server",
+        enabled: true
+      }]
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("live-secret");
+    expect(readFileSync(inventoryPath, "utf8")).toBe(malformed);
   });
 });

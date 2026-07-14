@@ -1,6 +1,6 @@
 /** Main-process-only coordinator for one all-or-nothing Unified Profile apply. */
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import type { ClaudeProfileInventory, ClaudeProfileStoreData } from "../shared/claudeProfiles";
+import type { ClaudeProfileInventory, ClaudeProfileResource, ClaudeProfileStoreData } from "../shared/claudeProfiles";
 import {
   buildSafeClaudeMcpResources,
   loadClaudeMcpInventory,
@@ -55,7 +55,24 @@ export type ClaudeProfileCoordinatorInput = {
 
 type SuccessfulSettingsPreview = Extract<ClaudeProfileSettingsPreview, { ok: true }>;
 
+export type ClaudeProfileCoordinatorChanges = {
+  enable: string[];
+  disable: string[];
+};
+
 export type ClaudeProfileCoordinatorPreview =
+  | {
+      ok: true;
+      profileId: string;
+      changes: {
+        skills: ClaudeProfileCoordinatorChanges;
+        plugins: ClaudeProfileCoordinatorChanges;
+        mcpServers: ClaudeProfileCoordinatorChanges;
+      };
+    }
+  | { ok: false; issues: ClaudeProfileCoordinatorIssue[] };
+
+type PreparedClaudeProfileApply =
   | {
       ok: true;
       profileId: string;
@@ -89,7 +106,7 @@ function issue(
   return { code, message, ...options };
 }
 
-export function previewClaudeProfileApply(input: ClaudeProfileCoordinatorInput): ClaudeProfileCoordinatorPreview {
+function prepareClaudeProfileApply(input: ClaudeProfileCoordinatorInput): PreparedClaudeProfileApply {
   let liveMcp;
   try {
     liveMcp = readClaudeMcpLiveConfig(input.paths.claudeJsonPath);
@@ -148,6 +165,29 @@ export function previewClaudeProfileApply(input: ClaudeProfileCoordinatorInput):
   };
 }
 
+function profileChanges(selectedIds: string[], resources: ClaudeProfileResource[]): ClaudeProfileCoordinatorChanges {
+  const selected = new Set(selectedIds);
+  return {
+    enable: resources.filter(resource => selected.has(resource.id) && !resource.enabled).map(resource => resource.id),
+    disable: resources.filter(resource => !selected.has(resource.id) && resource.enabled).map(resource => resource.id)
+  };
+}
+
+export function previewClaudeProfileApply(input: ClaudeProfileCoordinatorInput): ClaudeProfileCoordinatorPreview {
+  const prepared = prepareClaudeProfileApply(input);
+  if (!prepared.ok) return prepared;
+  const profile = input.store.profiles.find(item => item.id === prepared.profileId)!;
+  return {
+    ok: true,
+    profileId: prepared.profileId,
+    changes: {
+      skills: profileChanges(profile.skills, prepared.inventory.skills),
+      plugins: profileChanges(profile.plugins, prepared.inventory.plugins),
+      mcpServers: profileChanges(profile.mcpServers, prepared.inventory.mcpServers)
+    }
+  };
+}
+
 type FileBackup = { existed: boolean; backupPath: string | null };
 
 function createBackup(filePath: string): FileBackup {
@@ -192,10 +232,13 @@ function rollbackCompletedWrites(
 }
 
 export function applyClaudeProfile(input: ClaudeProfileCoordinatorInput): ClaudeProfileCoordinatorResult {
-  const preview = previewClaudeProfileApply(input);
+  const preview = prepareClaudeProfileApply(input);
   if (!preview.ok) return preview;
 
   if (preview.mcpInventoryChanged) {
+    // This preservation-only write intentionally sits outside the two-file
+    // transaction. Keeping additive definitions after rollback prevents an
+    // outgoing MCP definition from losing its only preserved copy.
     try {
       saveClaudeMcpInventory(input.paths.mcpInventoryPath, preview.mcpInventory);
     } catch {
