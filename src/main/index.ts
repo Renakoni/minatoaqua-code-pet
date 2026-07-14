@@ -59,7 +59,7 @@ import {
 } from "./claudeProfileStore";
 import { synchronizeClaudeMcpProfileResources } from "./claudeMcpInventory";
 import { applyClaudeProfile, previewClaudeProfileApply } from "./claudeProfileCoordinator";
-import { backupJsonFile } from "./filePersistence";
+import { backupJsonFile, writeTextFileAtomic } from "./filePersistence";
 import { EVENT_SERVER_DEV_ORIGIN, isAcceptedEventServerRequest } from "./eventServerSecurity";
 import { visitJsonlTail } from "./jsonlTail";
 
@@ -2665,7 +2665,7 @@ function switchUnifiedProvider(id: string) {
     mkdirSync(join(homedir(), ".claude"), { recursive: true });
     backupPath = backupJsonFile(livePath);
     const effective = sanitizeClaudeSettingsConfig((target.settingsConfig ?? {}) as Record<string, any>);
-    writeFileSync(livePath, `${JSON.stringify(effective, null, 2)}\n`, "utf-8");
+    writeTextFileAtomic(livePath, `${JSON.stringify(effective, null, 2)}\n`);
   } catch (error) {
     return { ok: false, warnings, error: error instanceof Error ? error.message : String(error) };
   }
@@ -2779,7 +2779,7 @@ function writeCompanionSettings() {
     clearTimeout(companionSettingsSaveTimer);
     companionSettingsSaveTimer = null;
   }
-  try { writeFileSync(settingsPath(), JSON.stringify(companionSettings, null, 2), "utf8"); } catch { /* best effort */ }
+  try { writeTextFileAtomic(settingsPath(), JSON.stringify(companionSettings, null, 2)); } catch { /* best effort */ }
 }
 
 function saveCompanionSettings(immediate = false) {
@@ -2908,7 +2908,7 @@ function writeRuntimeStats() {
   }
   if (!runtimeStats) return;
   try {
-    writeFileSync(runtimeStatsPath(), JSON.stringify(runtimeStats, null, 2), "utf8");
+    writeTextFileAtomic(runtimeStatsPath(), JSON.stringify(runtimeStats, null, 2));
     runtimeStatsDirty = false;
   } catch { /* best effort */ }
 }
@@ -3184,7 +3184,7 @@ function installHooks(): HookOperationResult {
       hooks[eventName] = canonicalizeEventEntries(hooks[eventName], { matcher: "*", hooks: [hookCommand] });
     }
 
-    writeFileSync(path, `${JSON.stringify({ ...settings, hooks }, null, 2)}\n`, "utf-8");
+    writeTextFileAtomic(path, `${JSON.stringify({ ...settings, hooks }, null, 2)}\n`);
     return { success: true, status: getHooksStatus() };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error), status: getHooksStatus() };
@@ -3231,7 +3231,7 @@ function removeHooks(): HookOperationResult {
 
     const nextSettings = { ...settings, hooks };
     if (Object.keys(hooks).length === 0) delete nextSettings.hooks;
-    writeFileSync(path, `${JSON.stringify(nextSettings, null, 2)}\n`, "utf-8");
+    writeTextFileAtomic(path, `${JSON.stringify(nextSettings, null, 2)}\n`);
     return { success: true, removed, status: getHooksStatus() };
   } catch (error) {
     return { success: false, removed: 0, error: error instanceof Error ? error.message : String(error), status: getHooksStatus() };
