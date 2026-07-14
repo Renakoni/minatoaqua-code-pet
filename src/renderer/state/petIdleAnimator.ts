@@ -1,10 +1,9 @@
 import { PetAnimationKey } from "../../shared/petAnimationKeys";
 import { MINATO_AQUA_CATALOG, normalizeMappableAnimationKeys, type PetThemeCatalog } from "../../shared/petThemeCatalog";
 
-// Random idle-animation rotation for the floating pet window, mirroring the
-// settings panel's preview scheduler: wait a uniform random interval, pick one
-// random sprite from the pool, show it for a fixed beat, repeat it a random
-// number of times with a fixed gap, then schedule the next batch.
+// Random idle-animation rotation shared by the floating pet and settings
+// preview: hold the current sprite for a random interval, play the next pool
+// member for a random number of beats, then keep it as the new current sprite.
 //
 // The scheduler is React-free with injectable timers/rng so the choreography
 // is unit-testable with fake timers.
@@ -69,10 +68,10 @@ export function planIdleAnimation(
 }
 
 // Start the rotation. The selected pool is the complete set of animations the
-// idle pet may show: one member becomes the resting pose immediately, and
-// batch gaps return to that member instead of an implicit, possibly
-// deselected idle sprite. Returns a stop function that cancels pending work
-// and clears the current sprite when rotation itself stops.
+// idle pet may show. Each batch promotes its sprite to the resting pose for the
+// next interval, and a shuffle bag visits every other selected sprite before
+// any can repeat. Returns a stop function that cancels pending work and clears
+// the current sprite when rotation itself stops.
 export function startIdleAnimator(
   plan: IdleAnimationPlan,
   onAnimation: (key: PetAnimationKey | null) => void,
@@ -80,7 +79,8 @@ export function startIdleAnimator(
 ): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
-  const restingSprite = plan.pool[Math.floor(rng() * plan.pool.length)];
+  let currentSprite = plan.pool[Math.floor(rng() * plan.pool.length)];
+  let remainingSprites = plan.pool.filter(sprite => sprite !== currentSprite);
 
   function schedule(fn: () => void, delayMs: number) {
     timer = setTimeout(() => { if (!stopped) fn(); }, delayMs);
@@ -90,27 +90,38 @@ export function startIdleAnimator(
     schedule(playBatch, plan.intervalMinMs + rng() * (plan.intervalMaxMs - plan.intervalMinMs));
   }
 
+  function takeNextSprite(): PetAnimationKey {
+    if (remainingSprites.length === 0) {
+      remainingSprites = plan.pool.filter(sprite => sprite !== currentSprite);
+    }
+    const index = Math.floor(rng() * remainingSprites.length);
+    return remainingSprites.splice(index, 1)[0];
+  }
+
   function playBatch() {
-    // One sprite per batch, repeated a random number of times — matching the
-    // panel preview's rhythm exactly (show beat, then gap between repeats).
-    const sprite = plan.pool[Math.floor(rng() * plan.pool.length)];
+    const previousSprite = currentSprite;
+    const sprite = takeNextSprite();
     const span = plan.repeatMax - plan.repeatMin;
     const repeats = plan.repeatMin + (span > 0 ? Math.floor(rng() * (span + 1)) : 0);
     let count = 0;
     function show() {
       onAnimation(sprite);
       schedule(() => {
-        onAnimation(restingSprite);
         count++;
-        if (count < repeats) schedule(show, IDLE_SPRITE_GAP_MS);
-        else scheduleNext();
+        if (count < repeats) {
+          onAnimation(previousSprite);
+          schedule(show, IDLE_SPRITE_GAP_MS);
+        } else {
+          currentSprite = sprite;
+          scheduleNext();
+        }
       }, IDLE_SPRITE_SHOW_MS);
     }
     show();
   }
 
-  onAnimation(restingSprite);
-  scheduleNext();
+  onAnimation(currentSprite);
+  if (plan.pool.length > 1) scheduleNext();
 
   return () => {
     stopped = true;

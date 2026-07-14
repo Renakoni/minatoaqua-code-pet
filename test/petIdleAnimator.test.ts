@@ -110,10 +110,9 @@ describe("startIdleAnimator: selected-pool choreography", () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it("keeps every resting and gap frame inside the selected pool", () => {
+  it("promotes each batch sprite to the resting pose for the next interval", () => {
     const seen: Array<string | null> = [];
-    // rng: 0 → resting sprite index 0; 0.5 → delay 15s; 0.9 → batch sprite
-    // index 1. The resting sprite replaces the old implicit idle/null gap.
+    // rng: 0 → initial sprite 0; 0.5 → delay 15s; 0.9 → next sprite 1.
     const stop = startIdleAnimator(plan, key => seen.push(key), rngSequence([0, 0.5, 0.9]));
 
     expect(seen).toEqual(["extra_action_5"]);
@@ -132,7 +131,14 @@ describe("startIdleAnimator: selected-pool choreography", () => {
     expect(seen).toEqual(["extra_action_5", "extra_action_9", "extra_action_5", "extra_action_9"]);
 
     vi.advanceTimersByTime(IDLE_SPRITE_SHOW_MS);
-    expect(seen).toEqual(["extra_action_5", "extra_action_9", "extra_action_5", "extra_action_9", "extra_action_5"]);
+    expect(seen).toEqual(["extra_action_5", "extra_action_9", "extra_action_5", "extra_action_9"]);
+
+    // The batch sprite remains active for the next full interval instead of
+    // snapping back to the animator's initial sprite.
+    vi.advanceTimersByTime(9_999);
+    expect(seen.at(-1)).toBe("extra_action_9");
+    vi.advanceTimersByTime(1);
+    expect(seen.at(-1)).toBe("extra_action_5");
 
     stop();
   });
@@ -143,8 +149,7 @@ describe("startIdleAnimator: selected-pool choreography", () => {
     const stop = startIdleAnimator(singleSprite, key => seen.push(key), rngSequence([0, 0, 0]));
 
     vi.advanceTimersByTime(10_000 + IDLE_SPRITE_SHOW_MS + 10_000);
-    expect(seen.length).toBeGreaterThan(1);
-    expect(seen.every(key => key === "extra_action_9")).toBe(true);
+    expect(seen).toEqual(["extra_action_9"]);
 
     stop();
     expect(seen.at(-1)).toBeNull();
@@ -162,17 +167,42 @@ describe("startIdleAnimator: selected-pool choreography", () => {
     stopRemaining();
   });
 
-  it("schedules the next batch after a batch completes", () => {
+  it("schedules the next transition after the promoted sprite's full interval", () => {
     const seen: Array<string | null> = [];
-    // Rest on sprite 0; batch 1 uses sprite 1, then batch 2 uses sprite 1.
     const singleRepeat: IdleAnimationPlan = { ...plan, repeatMin: 1, repeatMax: 1 };
     const stop = startIdleAnimator(singleRepeat, key => seen.push(key), rngSequence([0, 0, 0.9, 0, 0.9]));
 
     vi.advanceTimersByTime(10_000 + IDLE_SPRITE_SHOW_MS);
+    expect(seen).toEqual(["extra_action_5", "extra_action_9"]);
+
+    vi.advanceTimersByTime(9_999);
+    expect(seen).toEqual(["extra_action_5", "extra_action_9"]);
+    vi.advanceTimersByTime(1);
     expect(seen).toEqual(["extra_action_5", "extra_action_9", "extra_action_5"]);
 
-    vi.advanceTimersByTime(10_000);
-    expect(seen).toEqual(["extra_action_5", "extra_action_9", "extra_action_5", "extra_action_9"]);
+    stop();
+  });
+
+  it("visits every selected sprite before repeating one", () => {
+    const seen: Array<string | null> = [];
+    const threeSprites: IdleAnimationPlan = {
+      ...plan,
+      pool: ["extra_action_5", "extra_action_7", "extra_action_9"],
+      intervalMinMs: 10_000,
+      intervalMaxMs: 10_000,
+      repeatMin: 1,
+      repeatMax: 1
+    };
+    // Start on 5, then take 9 and 7 from the first shuffle bag. Only after
+    // both have appeared may the refilled bag select 5 again.
+    const stop = startIdleAnimator(threeSprites, key => seen.push(key), rngSequence([
+      0, 0, 0.99,
+      0, 0.99,
+      0, 0
+    ]));
+
+    vi.advanceTimersByTime(3 * (10_000 + IDLE_SPRITE_SHOW_MS));
+    expect(seen).toEqual(["extra_action_5", "extra_action_9", "extra_action_7", "extra_action_5"]);
 
     stop();
   });
@@ -190,7 +220,7 @@ describe("startIdleAnimator: selected-pool choreography", () => {
       "extra_action_5",
       "extra_action_9", "extra_action_5",
       "extra_action_9", "extra_action_5",
-      "extra_action_9", "extra_action_5"
+      "extra_action_9"
     ]);
 
     stop();
