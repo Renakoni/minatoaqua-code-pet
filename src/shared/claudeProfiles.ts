@@ -66,6 +66,18 @@ export type ClaudeProfileStoreData = {
   appliedProfileId: string | null;
 };
 
+export type ClaudeProfileDrift = {
+  profileId: string | null;
+  isDrifted: boolean;
+  skills: boolean;
+  plugins: boolean;
+  mcpServers: boolean;
+};
+
+export type ClaudeProfileMcpStatus = "ready" | "config-unreadable" | "inventory-unreadable";
+
 export type ClaudeProfilesSnapshot = ClaudeProfileStoreData & {
   inventory: ClaudeProfileInventory;
+  drift: ClaudeProfileDrift;
+  mcpStatus: ClaudeProfileMcpStatus;
 };

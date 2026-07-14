@@ -459,7 +459,9 @@ export function installClawdCompat() {
       schemaVersion: 1,
       profiles: [{ id: "default", name: "Default", skills: [], plugins: [], mcpServers: [], isProtected: true, createdAt: 0, updatedAt: 0 }],
       appliedProfileId: "default",
-      inventory: { skills: [], plugins: [], mcpServers: [], scannedAt: Date.now() }
+      inventory: { skills: [], plugins: [], mcpServers: [], scannedAt: Date.now() },
+      drift: { profileId: "default", isDrifted: false, skills: false, plugins: false, mcpServers: false },
+      mcpStatus: "ready"
     }),
     getClaudeSessions: async () => ({ sessions: [], scannedAt: Date.now(), projectsDir: "~/.claude/projects" }),
     getClaudeSessionDetail: async () => null,

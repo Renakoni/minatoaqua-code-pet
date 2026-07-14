@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import {
   buildClaudeProfileInventory,
   createClaudeProfilesSnapshot,
   createInitialClaudeProfileStore,
+  getClaudeProfileDrift,
   loadOrCreateClaudeProfileStore,
   parseClaudeProfileStore,
   saveClaudeProfileStore
@@ -104,6 +105,14 @@ describe("Claude profile store", () => {
     const first = createClaudeProfilesSnapshot(filePath, resources(), 456);
     expect(first.schemaVersion).toBe(1);
     expect(first.inventory.scannedAt).toBe(123);
+    expect(first.mcpStatus).toBe("ready");
+    expect(first.drift).toEqual({
+      profileId: "default",
+      isDrifted: false,
+      skills: false,
+      plugins: false,
+      mcpServers: false
+    });
 
     const persistedText = readFileSync(filePath, "utf8");
     expect(persistedText).not.toContain("secret");
@@ -114,6 +123,40 @@ describe("Claude profile store", () => {
       appliedProfileId: first.appliedProfileId
     });
     expect(readFileSync(filePath, "utf8")).toBe(persistedText);
+  });
+
+  it("does not persist an incomplete first Default when MCP state is unreadable", () => {
+    const filePath = tempFile();
+
+    const snapshot = createClaudeProfilesSnapshot(filePath, resources(), 456, [], "config-unreadable");
+
+    expect(snapshot.mcpStatus).toBe("config-unreadable");
+    expect(snapshot.profiles[0].mcpServers).toEqual([]);
+    expect(existsSync(filePath)).toBe(false);
+  });
+
+  it("does not report MCP drift from a degraded read of an established store", () => {
+    const filePath = tempFile();
+    const healthy = createClaudeProfilesSnapshot(filePath, resources(), 456);
+    const unavailableMcp = healthy.inventory.mcpServers.map(server => ({ ...server, enabled: false }));
+
+    const degraded = createClaudeProfilesSnapshot(
+      filePath,
+      resources(),
+      789,
+      unavailableMcp,
+      "config-unreadable"
+    );
+
+    expect(degraded.appliedProfileId).toBe("default");
+    expect(degraded.mcpStatus).toBe("config-unreadable");
+    expect(degraded.drift).toEqual({
+      profileId: "default",
+      isDrifted: false,
+      skills: false,
+      plugins: false,
+      mcpServers: false
+    });
   });
 
   it("treats an omitted applied-profile pointer as not applied", () => {
@@ -176,5 +219,22 @@ describe("Claude profile store", () => {
     const store = createInitialClaudeProfileStore(inventory(), 456);
     store.profiles[0].skills.push("skill:graphify");
     expect(() => parseClaudeProfileStore(store)).toThrow("Duplicate Claude profile skills");
+  });
+
+  it("marks a crash-time partial apply as drift instead of trusting the pointer", () => {
+    const persisted = createInitialClaudeProfileStore(inventory(), 456);
+    const current = inventory();
+    current.mcpServers = [
+      { id: "mcp:filesystem", kind: "mcp", name: "filesystem", enabled: false },
+      { id: "mcp:browser", kind: "mcp", name: "browser", enabled: true }
+    ];
+
+    expect(getClaudeProfileDrift(persisted, current)).toEqual({
+      profileId: "default",
+      isDrifted: true,
+      skills: false,
+      plugins: false,
+      mcpServers: true
+    });
   });
 });

@@ -4,7 +4,10 @@ import {
   CLAUDE_PROFILE_SCHEMA_VERSION,
   DEFAULT_CLAUDE_PROFILE_ID,
   type ClaudeProfile,
+  type ClaudeProfileDrift,
   type ClaudeProfileInventory,
+  type ClaudeProfileMcpStatus,
+  type ClaudeProfileResource,
   type ClaudeProfileStoreData,
   type ClaudeProfilesSnapshot,
   type ClaudeResourceItem,
@@ -92,6 +95,30 @@ export function buildClaudeProfileInventory(resources: ClaudeResourcesSnapshot):
   };
 }
 
+function membershipDiffers(expected: string[], resources: ClaudeProfileResource[]) {
+  const active = new Set(resources.filter(item => item.enabled).map(item => item.id));
+  return expected.length !== active.size || expected.some(id => !active.has(id));
+}
+
+export function getClaudeProfileDrift(
+  store: ClaudeProfileStoreData,
+  inventory: ClaudeProfileInventory,
+  mcpStatus: ClaudeProfileMcpStatus = "ready"
+): ClaudeProfileDrift {
+  const profileId = store.appliedProfileId;
+  if (profileId === null) {
+    return { profileId: null, isDrifted: false, skills: false, plugins: false, mcpServers: false };
+  }
+  const profile = store.profiles.find(item => item.id === profileId);
+  if (!profile) {
+    return { profileId, isDrifted: true, skills: true, plugins: true, mcpServers: true };
+  }
+  const skills = membershipDiffers(profile.skills, inventory.skills);
+  const plugins = membershipDiffers(profile.plugins, inventory.plugins);
+  const mcpServers = mcpStatus === "ready" && membershipDiffers(profile.mcpServers, inventory.mcpServers);
+  return { profileId, isDrifted: skills || plugins || mcpServers, skills, plugins, mcpServers };
+}
+
 export function createInitialClaudeProfileStore(inventory: ClaudeProfileInventory, now = Date.now()): ClaudeProfileStoreData {
   const defaultProfile: ClaudeProfile = {
     id: DEFAULT_CLAUDE_PROFILE_ID,
@@ -148,8 +175,16 @@ export function loadOrCreateClaudeProfileStore(
 export function createClaudeProfilesSnapshot(
   filePath: string,
   resources: ClaudeResourcesSnapshot,
-  now = Date.now()
+  now = Date.now(),
+  mcpServers?: ClaudeProfileResource[],
+  mcpStatus: ClaudeProfileMcpStatus = "ready"
 ): ClaudeProfilesSnapshot {
-  const inventory = buildClaudeProfileInventory(resources);
-  return { ...loadOrCreateClaudeProfileStore(filePath, inventory, now), inventory };
+  const scannedInventory = buildClaudeProfileInventory(resources);
+  const inventory = mcpServers ? { ...scannedInventory, mcpServers } : scannedInventory;
+  // Do not persist a first Default captured from an incomplete MCP read. A
+  // later healthy snapshot will seed the store from the complete live state.
+  const store = mcpStatus !== "ready" && !existsSync(filePath)
+    ? createInitialClaudeProfileStore(inventory, now)
+    : loadOrCreateClaudeProfileStore(filePath, inventory, now);
+  return { ...store, inventory, drift: getClaudeProfileDrift(store, inventory, mcpStatus), mcpStatus };
 }

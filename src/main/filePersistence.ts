@@ -11,14 +11,18 @@ export function backupJsonFile(filePath: string, now = Date.now()) {
   return backupPath;
 }
 
-export function writeTextFileAtomic(filePath: string, contents: string) {
+export function writeFileAtomic(filePath: string, contents: string | Uint8Array) {
   const parent = dirname(filePath);
   mkdirSync(parent, { recursive: true });
   const tempPath = join(parent, `.${basename(filePath)}.${process.pid}.${randomUUID()}.tmp`);
   try {
-    writeFileSync(tempPath, contents, "utf8");
+    writeFileSync(tempPath, contents);
     renameSync(tempPath, filePath);
   } finally {
     try { rmSync(tempPath, { force: true }); } catch { /* best-effort temp cleanup */ }
   }
+}
+
+export function writeTextFileAtomic(filePath: string, contents: string) {
+  writeFileAtomic(filePath, contents);
 }
