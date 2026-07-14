@@ -1124,6 +1124,10 @@ function claudeMcpInventoryPath() {
 const CLAUDE_RESOURCE_CACHE_TTL = 30 * 1000;
 let claudeResourceCache: { data: ClaudeResourcesSnapshot; timestamp: number } | null = null;
 let pendingClaudeResourceScan: Promise<ClaudeResourcesSnapshot> | null = null;
+let queuedForcedClaudeResourceScan: {
+  after: Promise<ClaudeResourcesSnapshot>;
+  result: Promise<ClaudeResourcesSnapshot>;
+} | null = null;
 
 function readTextIfExists(filePath: string) {
   try {
@@ -1361,10 +1365,25 @@ function getClaudeResourcesSnapshot(force = false): Promise<ClaudeResourcesSnaps
     return Promise.resolve(claudeResourceCache.data);
   }
   if (pendingClaudeResourceScan) {
-    // A forced read must not reuse a scan that may have started before an external change.
-    return force
-      ? pendingClaudeResourceScan.then(() => getClaudeResourcesSnapshot(true))
-      : pendingClaudeResourceScan;
+    if (!force) return pendingClaudeResourceScan;
+    if (queuedForcedClaudeResourceScan?.after === pendingClaudeResourceScan) {
+      return queuedForcedClaudeResourceScan.result;
+    }
+
+    // Forced readers that arrive during the same scan share one subsequent
+    // fresh scan. Clear the marker before that scan starts so later readers
+    // can still queue another generation when required.
+    const currentScan = pendingClaudeResourceScan;
+    const result = currentScan
+      .then(() => {
+        if (queuedForcedClaudeResourceScan?.after === currentScan) queuedForcedClaudeResourceScan = null;
+        return getClaudeResourcesSnapshot(true);
+      })
+      .finally(() => {
+        if (queuedForcedClaudeResourceScan?.after === currentScan) queuedForcedClaudeResourceScan = null;
+      });
+    queuedForcedClaudeResourceScan = { after: currentScan, result };
+    return result;
   }
 
   pendingClaudeResourceScan = new Promise<ClaudeResourcesSnapshot>(resolve => {
