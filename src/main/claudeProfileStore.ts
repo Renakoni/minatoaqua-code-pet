@@ -3,8 +3,8 @@ import { existsSync, readFileSync, renameSync } from "node:fs";
 import {
   CLAUDE_PROFILE_SCHEMA_VERSION,
   DEFAULT_CLAUDE_PROFILE_ID,
+  getClaudeProfileDrift,
   type ClaudeProfile,
-  type ClaudeProfileDrift,
   type ClaudeProfileInventory,
   type ClaudeProfileMcpStatus,
   type ClaudeProfileOperationIssue,
@@ -15,6 +15,8 @@ import {
   type ClaudeResourcesSnapshot
 } from "../shared/claudeProfiles";
 import { writeTextFileAtomic } from "./filePersistence";
+
+export { getClaudeProfileDrift } from "../shared/claudeProfiles";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -208,34 +210,10 @@ export function buildClaudeProfileInventory(resources: ClaudeResourcesSnapshot):
   };
 }
 
-function membershipDiffers(expected: string[], resources: ClaudeProfileResource[]) {
-  const active = new Set(resources.filter(item => item.enabled).map(item => item.id));
-  return expected.length !== active.size || expected.some(id => !active.has(id));
-}
-
 function membershipsEqual(left: string[], right: string[]) {
   if (left.length !== right.length) return false;
   const rightMembers = new Set(right);
   return left.every(id => rightMembers.has(id));
-}
-
-export function getClaudeProfileDrift(
-  store: ClaudeProfileStoreData,
-  inventory: ClaudeProfileInventory,
-  mcpStatus: ClaudeProfileMcpStatus = "ready"
-): ClaudeProfileDrift {
-  const profileId = store.appliedProfileId;
-  if (profileId === null) {
-    return { profileId: null, isDrifted: false, skills: false, plugins: false, mcpServers: false };
-  }
-  const profile = store.profiles.find(item => item.id === profileId);
-  if (!profile) {
-    return { profileId, isDrifted: true, skills: true, plugins: true, mcpServers: true };
-  }
-  const skills = membershipDiffers(profile.skills, inventory.skills);
-  const plugins = membershipDiffers(profile.plugins, inventory.plugins);
-  const mcpServers = mcpStatus === "ready" && membershipDiffers(profile.mcpServers, inventory.mcpServers);
-  return { profileId, isDrifted: skills || plugins || mcpServers, skills, plugins, mcpServers };
 }
 
 export function createInitialClaudeProfileStore(inventory: ClaudeProfileInventory, now = Date.now()): ClaudeProfileStoreData {

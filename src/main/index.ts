@@ -1355,12 +1355,17 @@ function scanClaudeResourcesFresh(): ClaudeResourcesSnapshot {
   };
 }
 
-function getClaudeResourcesSnapshot(force = false) {
+function getClaudeResourcesSnapshot(force = false): Promise<ClaudeResourcesSnapshot> {
   const now = Date.now();
   if (!force && claudeResourceCache && now - claudeResourceCache.timestamp < CLAUDE_RESOURCE_CACHE_TTL) {
     return Promise.resolve(claudeResourceCache.data);
   }
-  if (pendingClaudeResourceScan) return pendingClaudeResourceScan;
+  if (pendingClaudeResourceScan) {
+    // A forced read must not reuse a scan that may have started before an external change.
+    return force
+      ? pendingClaudeResourceScan.then(() => getClaudeResourcesSnapshot(true))
+      : pendingClaudeResourceScan;
+  }
 
   pendingClaudeResourceScan = new Promise<ClaudeResourcesSnapshot>(resolve => {
     setImmediate(() => resolve(scanClaudeResourcesFresh()));
