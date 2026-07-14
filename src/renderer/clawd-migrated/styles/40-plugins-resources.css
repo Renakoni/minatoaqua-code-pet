@@ -410,6 +410,11 @@
 }
 .claude-profile-select-button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .claude-profile-select-button > svg { color: oklch(61% 0.01 78); transition: transform 150ms ease; }
+.claude-profile-select-button[aria-expanded="true"] {
+  border-bottom-color: transparent;
+  border-radius: 7px 7px 0 0;
+  background: oklch(18.5% 0.007 75);
+}
 .claude-profile-select-button[aria-expanded="true"] > svg { transform: rotate(180deg); }
 .claude-profile-select-button:disabled { opacity: .5; cursor: wait; }
 .claude-profile-select-button:focus-visible {
@@ -418,16 +423,19 @@
 }
 .claude-profile-options {
   position: absolute;
-  top: calc(100% + 5px);
+  top: calc(100% - 1px);
   left: 0;
   z-index: 10;
   width: 100%;
-  min-width: 220px;
-  padding: 4px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 4px 4px;
+  overflow: hidden;
   border: 1px solid oklch(31% 0.009 75);
-  border-radius: 7px;
+  border-top: 0;
+  border-radius: 0 0 7px 7px;
   background: oklch(18.5% 0.007 75);
-  box-shadow: 0 14px 30px oklch(8% 0.008 75 / .42);
+  box-shadow: 0 12px 24px oklch(8% 0.008 75 / .36);
 }
 .claude-profile-options-search {
   min-height: 32px;
@@ -466,6 +474,7 @@
 }
 .claude-profile-options-list::-webkit-scrollbar { display: none; }
 .claude-profile-options-list > button {
+  appearance: none;
   width: 100%;
   min-height: 30px;
   display: grid;
@@ -473,6 +482,7 @@
   align-items: center;
   gap: 7px;
   padding: 0 7px;
+  border: 0;
   border-radius: 5px;
   color: oklch(70% 0.011 78);
   background: transparent;
@@ -484,7 +494,7 @@
 .claude-profile-options-list > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .claude-profile-options-list > button:hover,
 .claude-profile-options-list > button:focus-visible { color: oklch(91% 0.012 78); background: oklch(23% 0.009 75); outline: 0; }
-.claude-profile-options-list > button.current { color: oklch(88% 0.035 82); background: oklch(22% 0.014 78); }
+.claude-profile-options-list > button.current { color: oklch(88% 0.035 82); background: oklch(22% 0.01 78); }
 .claude-profile-options-list > button svg { justify-self: end; color: oklch(72% 0.06 154); }
 .claude-profile-options-empty {
   min-height: 34px;
