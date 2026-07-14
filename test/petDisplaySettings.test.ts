@@ -42,10 +42,19 @@ describe("normalizePetDisplaySettings", () => {
       feedbackScale: 1.35,
       feedbackOpacity: 0.5
     });
-    expect(normalizePetDisplaySettings({ petScale: 1.45, clawdOpacity: 0.45, permissionScale: 2 })).toEqual({
+    expect(normalizePetDisplaySettings({ petScale: 1.45, clawdScale: 0, companionScale: 2, clawdOpacity: 0.45, permissionScale: 2 })).toEqual({
       petScale: 1.35,
+      clawdScale: 0.7,
+      companionScale: 0.8,
       clawdOpacity: 0.5,
       permissionScale: 1.25
+    });
+  });
+
+  it("uses safe defaults for invalid Clawd scales", () => {
+    expect(normalizePetDisplaySettings({ clawdScale: Number.NaN, companionScale: -Infinity })).toEqual({
+      clawdScale: 0.8,
+      companionScale: 0.5
     });
   });
 
