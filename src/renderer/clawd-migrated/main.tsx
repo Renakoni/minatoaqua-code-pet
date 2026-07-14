@@ -45,7 +45,7 @@ import { OverviewSection } from "./features/overview/OverviewSection";
 import { connectionSurfaceKey } from "./features/overview/connectionState";
 import { useConnectionSurface } from "./features/overview/useConnectionSurface";
 import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
-import { planIdleAnimation, startIdleAnimator } from "../state/petIdleAnimator";
+import { keepIdleAnimationConfigReference, type IdleAnimationConfig, planIdleAnimation, startIdleAnimator } from "../state/petIdleAnimator";
 import { getPetTheme } from "./utils/petThemes";
 import { usePetPacks } from "./usePetPacks";
 import { spritesheetAssetsFromPack } from "../../shared/petPackAssets";
@@ -221,6 +221,7 @@ function PetApp() {
   const dragStart = useRef<{ mx: number; my: number; ox: number; oy: number }>({ mx: 0, my: 0, ox: 0, oy: 0 });
   const offRef = useRef(settings.positionOffsets ?? {});
   const [randomBubble, setRandomBubble] = useState<string | null>(null);
+  const [idleAnimConfig, setIdleAnimConfig] = useState<IdleAnimationConfig | null>(settings.idleAnim ?? null);
   const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
 
   // Git 操作气泡：触发时在 Clawd 头顶弹出，2.2 秒后自动消失
@@ -278,13 +279,17 @@ function PetApp() {
   // 随机待机池是完整的可播放集合：启动或配置变化时立即选择一个成员，
   // 播放间隔也回到池内成员，不隐式回退到可能已取消选择的 idle。
   useEffect(() => {
-    const plan = planIdleAnimation(settings.idleAnim);
+    setIdleAnimConfig(previous => keepIdleAnimationConfigReference(previous, settings.idleAnim ?? null));
+  }, [settings.idleAnim]);
+
+  useEffect(() => {
+    const plan = planIdleAnimation(idleAnimConfig);
     if (!plan || petState !== "idle" || editMode || mainIdle !== "random") {
       setRandomBubble(null);
       return;
     }
     return startIdleAnimator(plan, setRandomBubble);
-  }, [petState, editMode, settings.idleAnim, mainIdle]);
+  }, [petState, editMode, idleAnimConfig, mainIdle]);
 
   // 同步 effectiveIdleBubble 到设置面板
   useEffect(() => {

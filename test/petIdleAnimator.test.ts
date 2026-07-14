@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   IDLE_SPRITE_GAP_MS,
   IDLE_SPRITE_SHOW_MS,
+  keepIdleAnimationConfigReference,
   planIdleAnimation,
   startIdleAnimator,
   type IdleAnimationPlan
@@ -73,6 +74,27 @@ describe("planIdleAnimation: config → runnable plan", () => {
     expect(planIdleAnimation({ ...baseConfig, selectedSprites: ["running_left", "running_right", "waving"] }, packCatalog)?.pool)
       .toEqual(["waving"]);
     expect(planIdleAnimation({ ...baseConfig, selectedSprites: ["running_left"] }, packCatalog)).toBeNull();
+  });
+});
+
+describe("keepIdleAnimationConfigReference", () => {
+  const config = {
+    enabled: true,
+    selectedSprites: ["extra_action_5", "extra_action_9"],
+    intervalMin: 10,
+    intervalMax: 20,
+    repeatMin: 1,
+    repeatMax: 2
+  };
+
+  it("keeps the stable reference for an equivalent settings broadcast", () => {
+    const equivalent = { ...config, selectedSprites: [...config.selectedSprites] };
+    expect(keepIdleAnimationConfigReference(config, equivalent)).toBe(config);
+  });
+
+  it("uses the new reference when the idle configuration changes", () => {
+    const changed = { ...config, selectedSprites: ["extra_action_9"] };
+    expect(keepIdleAnimationConfigReference(config, changed)).toBe(changed);
   });
 });
 

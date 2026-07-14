@@ -29,6 +29,13 @@ export interface IdleAnimationPlan {
   repeatMax: number;
 }
 
+export function keepIdleAnimationConfigReference(
+  previous: IdleAnimationConfig | null,
+  next: IdleAnimationConfig | null
+): IdleAnimationConfig | null {
+  return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+}
+
 function toSeconds(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
