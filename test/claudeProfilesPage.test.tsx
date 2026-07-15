@@ -180,6 +180,7 @@ describe("Unified Claude Profiles page", () => {
   });
 
   it("uses the cache while prewarming, then refreshes live when opened", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
     const view = render(
       <I18nProvider initialLocale="en">
         <PluginsPage active={false} settings={defaultSettings} updateSettings={vi.fn()} />
@@ -188,6 +189,7 @@ describe("Unified Claude Profiles page", () => {
 
     await screen.findByRole("button", { name: "Profile: Default" });
     expect(getClaudeProfiles).toHaveBeenCalledWith(false);
+    expect(intervalSpy).not.toHaveBeenCalledWith(expect.any(Function), 10 * 60 * 1000);
 
     view.rerender(
       <I18nProvider initialLocale="en">
@@ -195,6 +197,8 @@ describe("Unified Claude Profiles page", () => {
       </I18nProvider>
     );
     await waitFor(() => expect(getClaudeProfiles).toHaveBeenLastCalledWith(true));
+    expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 10 * 60 * 1000);
+    intervalSpy.mockRestore();
   });
 
   it("refreshes a retained page when it becomes active again", async () => {

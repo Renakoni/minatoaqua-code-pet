@@ -94,11 +94,15 @@ export function PluginsPage({ settings, active = true }: { settings: CompanionSe
 
   useEffect(() => {
     void refresh(initiallyActiveRef.current);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!active) return undefined;
     const timer = window.setInterval(() => {
       if (busyActionRef.current === null) void refresh(true);
     }, PROFILE_STATUS_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [refresh]);
+  }, [active, refresh]);
 
   useEffect(() => {
     const wasActive = wasActiveRef.current;
