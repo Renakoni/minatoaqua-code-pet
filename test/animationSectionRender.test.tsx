@@ -73,4 +73,14 @@ describe("imported-theme Animation page localization", () => {
 
     expect(window.companion.previewPetAnimation).toHaveBeenLastCalledWith("__clear_preview");
   });
+
+  it("aligns range fills to the slider thumb travel area", () => {
+    const view = renderSection("en");
+    const tracks = view.container.querySelectorAll<HTMLElement>(".range-track");
+    const repeatTrack = tracks[1];
+
+    expect(repeatTrack.style.getPropertyValue("--range-left")).toBe("0%");
+    expect(repeatTrack.style.getPropertyValue("--range-width")).toBe("25%");
+    expect(repeatTrack.querySelector(".range-fill-boundary > .range-fill")).toBeTruthy();
+  });
 });

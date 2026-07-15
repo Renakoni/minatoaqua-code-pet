@@ -310,12 +310,6 @@
 .claude-resource-status.active {
   color: oklch(72% 0.07 154);
 }
-.claude-resource-status.idle {
-  color: oklch(60% 0.01 78);
-}
-.claude-resource-status.missing {
-  color: oklch(69% 0.07 48);
-}
 .claude-profile-resource-action {
   min-width: 72px;
   min-height: 28px;
