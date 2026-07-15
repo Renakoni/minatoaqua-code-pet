@@ -372,7 +372,8 @@
   --resource-focus: oklch(56% 0.125 232 / 0.45);
   --resource-accent: var(--aqua-wave-strong);
   --resource-success: var(--aqua-success);
-  --resource-idle: var(--aqua-muted);
+  --resource-idle: oklch(62% 0.13 84);
+  --resource-missing: var(--aqua-danger);
   --resource-scrollbar: oklch(62% 0.1 220 / 0.46);
   --resource-shadow: var(--aqua-shadow-card);
   --anim-ink: var(--aqua-ink);

@@ -225,7 +225,7 @@ function TransferColumn({
                     <strong>{resource.name}</strong>
                     <small title={description}>{description}</small>
                   </span>
-                  <span className={`claude-profile-live-state ${available && resource.enabled ? "active" : "idle"}`}>
+                  <span className={`claude-profile-live-state ${!available ? "missing" : resource.enabled ? "active" : "idle"}`}>
                     {!available ? (zh ? "缺失" : "Missing") : resource.enabled ? (zh ? "已启用" : "Enabled") : (zh ? "已禁用" : "Disabled")}
                   </span>
                 </button>

@@ -930,6 +930,8 @@
 }
 
 .range-track {
+  --range-thumb-radius: 8.5px;
+  --range-thumb-size: 17px;
   position: relative;
   min-width: 0;
   height: 26px;
@@ -950,11 +952,18 @@
   background: oklch(45% 0.006 75 / 0.22);
 }
 
+.range-fill-boundary {
+  position: absolute;
+  left: var(--range-thumb-radius);
+  right: var(--range-thumb-radius);
+  height: 6px;
+  z-index: 1;
+}
+
 .range-fill {
   left: var(--range-left, 0%);
   width: var(--range-width, 0%);
   background: var(--settings-accent, var(--honey));
-  z-index: 1;
 }
 
 .range-track input[type="range"] {
@@ -979,8 +988,8 @@
 .range-track input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 17px;
-  height: 17px;
+  width: var(--range-thumb-size);
+  height: var(--range-thumb-size);
   margin-top: -5.5px;
   border: 2px solid var(--settings-surface-raised, var(--paper));
   border-radius: 999px;
