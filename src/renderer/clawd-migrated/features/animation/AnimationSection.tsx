@@ -389,7 +389,9 @@ function RangeSlider({ label, min, max, step, low, high, format, onChange }: {
         <b>{format(low)} - {format(high)}</b>
       </span>
       <div className="range-track" style={{ "--range-left": `${leftPercent}%`, "--range-width": `${rightPercent - leftPercent}%` } as React.CSSProperties}>
-        <div className="range-fill" />
+        <div className="range-fill-boundary">
+          <div className="range-fill" />
+        </div>
         <input
           type="range" min={min} max={max} step={step} value={low}
           onChange={event => { const value = Number(event.target.value); if (value <= high) onChange(value, high); }}
