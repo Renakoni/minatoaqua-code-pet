@@ -236,7 +236,7 @@ export function PetThemeGrid({ activeThemeId, petPacks, onSelectTheme, refreshPe
           <span className="pet-theme-import-mark"><Plus size={22} /></span>
           <span className="pet-theme-card-copy">
             <strong>{t("petImport.importCard", "导入宠物")}</strong>
-            <small>{t("petImport.importHint", "Codex 宠物包 (.zip)")}</small>
+            <small>{t("petImport.importHint", "codex-pet 宠物包 (.zip)")}</small>
           </span>
         </button>
       </div>
