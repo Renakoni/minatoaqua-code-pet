@@ -3,8 +3,10 @@ import {
   createEmptyClaudeProfilesSnapshot,
   getClaudeProfileDrift,
   snapshotAfterClaudeProfileApply,
+  snapshotAfterClaudeProfileResourceState,
   type ClaudeProfileMutationResult,
   type ClaudeProfilePreviewResult,
+  type ClaudeProfileResourceStateInput,
   type ClaudeProfileSaveInput,
   type ClaudeProfilesSnapshot,
   type ClaudeResourcesSnapshot
@@ -93,6 +95,7 @@ type CompanionApi = {
   deleteClaudeProfile: (profileId: string) => Promise<ClaudeProfileMutationResult>;
   previewClaudeProfile: (profileId: string) => Promise<ClaudeProfilePreviewResult>;
   applyClaudeProfile: (profileId: string) => Promise<ClaudeProfileMutationResult>;
+  setClaudeProfileResourceState: (input: ClaudeProfileResourceStateInput) => Promise<ClaudeProfileMutationResult>;
   getClaudeSessions: (force?: boolean) => Promise<unknown>;
   getClaudeSessionDetail: (filePath: string) => Promise<unknown>;
   resumeClaudeSession: (sessionId: string, projectPath?: string) => Promise<unknown>;
@@ -159,6 +162,12 @@ function updateMockClaudeDrift() {
     ...mockClaudeProfiles,
     drift: getClaudeProfileDrift(mockClaudeProfiles, mockClaudeProfiles.inventory, mockClaudeProfiles.mcpStatus)
   };
+}
+
+function sameProfileMembership(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const members = new Set(right);
+  return left.every(id => members.has(id));
 }
 
 let eventHistory: EventHistoryEntry[] = [];
@@ -478,7 +487,14 @@ export function installClawdCompat() {
       const existing = input.id ? mockClaudeProfiles.profiles.find(profile => profile.id === input.id) : undefined;
       if (input.id && !existing) return { ok: false, issues: [{ code: "invalid-profile-reference", message: "Profile not found." }] };
       if (existing?.isProtected && input.name.trim() !== existing.name) {
-        return { ok: false, issues: [{ code: "protected-profile", message: "The protected Default profile cannot be renamed." }] };
+        return { ok: false, issues: [{ code: "protected-profile", message: "Built-in profiles cannot be renamed." }] };
+      }
+      if (existing?.id === "all" && (
+        !sameProfileMembership(existing.skills, input.skills)
+        || !sameProfileMembership(existing.plugins, input.plugins)
+        || !sameProfileMembership(existing.mcpServers, input.mcpServers)
+      )) {
+        return { ok: false, issues: [{ code: "protected-profile", message: "The All profile updates automatically." }] };
       }
       if (mockClaudeProfiles.profiles.some(profile => profile.id !== input.id && profile.name.toLocaleLowerCase() === input.name.trim().toLocaleLowerCase())) {
         return { ok: false, issues: [{ code: "duplicate-profile-name", message: "A profile with this name already exists." }] };
@@ -522,6 +538,26 @@ export function installClawdCompat() {
       }
       mockClaudeProfiles = snapshotAfterClaudeProfileApply(mockClaudeProfiles, profileId);
       return { ok: true, profileId, snapshot: mockClaudeProfiles };
+    },
+    setClaudeProfileResourceState: async input => {
+      if (mockClaudeProfiles.mcpStatus !== "ready") {
+        return { ok: false, issues: [{ code: "mcp-state-unavailable", message: "Claude MCP state is temporarily unavailable." }] };
+      }
+      const profile = mockClaudeProfiles.profiles.find(item => item.id === input.profileId);
+      const resource = [
+        ...mockClaudeProfiles.inventory.skills,
+        ...mockClaudeProfiles.inventory.plugins,
+        ...mockClaudeProfiles.inventory.mcpServers
+      ].find(item => item.id === input.resourceId);
+      if (!profile || mockClaudeProfiles.appliedProfileId !== input.profileId || !resource) {
+        return { ok: false, issues: [{ code: "invalid-profile-reference", message: "Profile resource not found." }] };
+      }
+      const membership = resource.kind === "skill" ? profile.skills : resource.kind === "plugin" ? profile.plugins : profile.mcpServers;
+      if (!membership.includes(resource.id)) {
+        return { ok: false, issues: [{ code: "invalid-profile-reference", message: "Resource is not selected by this profile." }] };
+      }
+      mockClaudeProfiles = snapshotAfterClaudeProfileResourceState(mockClaudeProfiles, resource.id, input.enabled);
+      return { ok: true, profileId: profile.id, snapshot: mockClaudeProfiles };
     },
     getClaudeSessions: async () => ({ sessions: [], scannedAt: Date.now(), projectsDir: "~/.claude/projects" }),
     getClaudeSessionDetail: async () => null,

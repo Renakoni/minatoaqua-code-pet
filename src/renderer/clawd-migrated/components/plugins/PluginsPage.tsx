@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -9,12 +9,15 @@ import {
   Pencil,
   Plus,
   PlugZap,
+  Power,
+  PowerOff,
   RefreshCw,
   Search,
   Server
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  ALL_CLAUDE_PROFILE_ID,
   createEmptyClaudeProfilesSnapshot,
   DEFAULT_CLAUDE_PROFILE_ID,
   type ClaudeProfile,
@@ -35,7 +38,9 @@ import {
 import { useVirtualRows } from "./useVirtualRows";
 
 type ResourceTab = ClaudeProfileResourceTab;
-type BusyAction = "refresh" | "save" | "delete" | "apply" | null;
+type BusyAction = "refresh" | "save" | "delete" | "apply" | "resource" | null;
+
+const PROFILE_STATUS_REFRESH_MS = 10 * 60 * 1000;
 
 const emptySnapshot: ClaudeProfilesSnapshot = createEmptyClaudeProfilesSnapshot();
 
@@ -55,6 +60,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   const [selectedProfileId, setSelectedProfileId] = useState(DEFAULT_CLAUDE_PROFILE_ID);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
+  const [busyResourceId, setBusyResourceId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -66,8 +72,9 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   const profileOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const restoreProfileFocusRef = useRef(false);
   const newProfileTriggerRef = useRef<HTMLButtonElement>(null);
+  const busyActionRef = useRef<BusyAction>(null);
 
-  async function refresh(force = false) {
+  const refresh = useCallback(async (force = false) => {
     setBusyAction("refresh");
     setLoadError(null);
     try {
@@ -79,9 +86,17 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
       setLoading(false);
       setBusyAction(null);
     }
-  }
+  }, [zh]);
 
-  useEffect(() => { void refresh(false); }, []);
+  useEffect(() => { busyActionRef.current = busyAction; }, [busyAction]);
+
+  useEffect(() => {
+    void refresh(true);
+    const timer = window.setInterval(() => {
+      if (busyActionRef.current === null) void refresh(true);
+    }, PROFILE_STATUS_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
 
   useEffect(() => {
     const appliedProfileId = snapshot.appliedProfileId;
@@ -103,6 +118,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     ? snapshot.profiles.find(profile => profile.id === editor.initial.id)
     : undefined;
   const profileActionsAvailable = snapshot.mcpStatus === "ready" && !loading && !loadError;
+  const selectedProfileEditable = selectedProfile?.id !== ALL_CLAUDE_PROFILE_ID;
   const profileOptions = useMemo(() => {
     const needle = profileQuery.trim().toLocaleLowerCase();
     return snapshot.profiles
@@ -288,6 +304,40 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     return true;
   }
 
+  async function changeResourceState(item: ClaudeProfileResource, enabled: boolean) {
+    if (!selectedProfile) return;
+    setBusyAction("resource");
+    setBusyResourceId(item.id);
+    setActionError(null);
+    let result;
+    try {
+      result = await window.companion.setClaudeProfileResourceState({
+        profileId: selectedProfile.id,
+        resourceId: item.id,
+        enabled
+      });
+    } catch {
+      const message = zh ? "无法更新资源状态。" : "The resource state could not be changed.";
+      setBusyAction(null);
+      setBusyResourceId(null);
+      setActionError(message);
+      toast.error(message);
+      return;
+    }
+    setBusyAction(null);
+    setBusyResourceId(null);
+    if (!result.ok) {
+      const message = issueMessage(result.issues, zh);
+      setActionError(message);
+      toast.error(message);
+      return;
+    }
+    setSnapshot(result.snapshot);
+    toast.success(enabled
+      ? (zh ? `已启用：${item.name}` : `Enabled: ${item.name}`)
+      : (zh ? `已禁用：${item.name}` : `Disabled: ${item.name}`));
+  }
+
   if (editor) {
     return (
       <div className="claude-resources-page claude-resources-page-dark claude-profiles-page">
@@ -389,7 +439,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
           </div>
 
           <div className="claude-profile-toolbar-actions">
-            <button type="button" className="claude-profile-icon-button" onClick={() => selectedProfile && startEdit(selectedProfile)} disabled={!profileActionsAvailable || !selectedProfile || busyAction !== null} aria-label={zh ? "编辑配置方案" : "Edit profile"} title={zh ? "编辑" : "Edit"}>
+            <button type="button" className="claude-profile-icon-button" onClick={() => selectedProfile && startEdit(selectedProfile)} disabled={!profileActionsAvailable || !selectedProfile || !selectedProfileEditable || busyAction !== null} aria-label={zh ? "编辑配置方案" : "Edit profile"} title={!selectedProfileEditable ? (zh ? "All 方案自动更新" : "All updates automatically") : (zh ? "编辑" : "Edit")}>
               <Pencil size={16} />
             </button>
             <div className="claude-profile-new-menu" onBlur={event => {
@@ -448,11 +498,15 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
 
       <ProfileResourceTable
         items={filteredItems}
+        availableIds={new Set(snapshot.inventory[activeTab].map(item => item.id))}
         loading={loading}
         emptyLabel={deferredQuery.trim() ? (zh ? "没有匹配项" : "No matches") : emptyText(activeTab, zh)}
         hideSensitiveContent={settings.hideSensitiveContent}
         zh={zh}
+        actionsAvailable={profileActionsAvailable && busyAction === null}
+        busyResourceId={busyResourceId}
         resetKey={`${activeTab}:${deferredQuery}:${selectedProfileId}`}
+        onSetEnabled={(item, enabled) => void changeResourceState(item, enabled)}
       />
 
       <p className="note claude-resource-path-note dark">
@@ -466,18 +520,26 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
 
 function ProfileResourceTable({
   items,
+  availableIds,
   loading,
   emptyLabel,
   hideSensitiveContent,
   zh,
-  resetKey
+  actionsAvailable,
+  busyResourceId,
+  resetKey,
+  onSetEnabled
 }: {
   items: ClaudeProfileResource[];
+  availableIds: Set<string>;
   loading: boolean;
   emptyLabel: string;
   hideSensitiveContent: boolean;
   zh: boolean;
+  actionsAvailable: boolean;
+  busyResourceId: string | null;
   resetKey: string;
+  onSetEnabled: (item: ClaudeProfileResource, enabled: boolean) => void;
 }) {
   const rowHeight = 76;
   const virtual = useVirtualRows(items, rowHeight, resetKey);
@@ -491,8 +553,8 @@ function ProfileResourceTable({
         <>
           <div className="claude-resource-table-head">
             <span>{zh ? "资源" : "Resource"}</span>
-            <span>{zh ? "当前环境" : "Live state"}</span>
-            <span>{zh ? "方案" : "Profile"}</span>
+            <span>{zh ? "状态" : "Status"}</span>
+            <span>{zh ? "操作" : "Action"}</span>
           </div>
           <div className="claude-profile-readonly-space" style={{ height: virtual.totalHeight }}>
             {virtual.visible.map((item, offset) => {
@@ -501,9 +563,13 @@ function ProfileResourceTable({
                 <ResourceRow
                   key={item.id}
                   item={item}
+                  available={availableIds.has(item.id)}
                   hideSensitiveContent={hideSensitiveContent}
                   zh={zh}
+                  actionsAvailable={actionsAvailable}
+                  busy={busyResourceId === item.id}
                   style={{ height: rowHeight, transform: `translateY(${index * rowHeight}px)` }}
+                  onSetEnabled={onSetEnabled}
                 />
               );
             })}
@@ -514,7 +580,16 @@ function ProfileResourceTable({
   );
 }
 
-function ResourceRow({ item, hideSensitiveContent, zh, style }: { item: ClaudeProfileResource; hideSensitiveContent: boolean; zh: boolean; style?: React.CSSProperties }) {
+function ResourceRow({ item, available, hideSensitiveContent, zh, actionsAvailable, busy, style, onSetEnabled }: {
+  item: ClaudeProfileResource;
+  available: boolean;
+  hideSensitiveContent: boolean;
+  zh: boolean;
+  actionsAvailable: boolean;
+  busy: boolean;
+  style?: React.CSSProperties;
+  onSetEnabled: (item: ClaudeProfileResource, enabled: boolean) => void;
+}) {
   const description = hideSensitiveContent
     ? fallbackDescription(item.kind, zh)
     : item.description ?? item.detail ?? fallbackDescription(item.kind, zh);
@@ -524,13 +599,21 @@ function ResourceRow({ item, hideSensitiveContent, zh, style }: { item: ClaudePr
         <div className="claude-resource-name-line"><strong>{item.name}</strong></div>
         <p title={description}>{description}</p>
       </div>
-      <div className="claude-resource-row-origin">
-        <span>{zh ? "CLAUDE CODE" : "CLAUDE CODE"}</span>
-        <strong>{item.enabled ? (zh ? "当前启用" : "Active now") : (zh ? "当前未启用" : "Inactive now")}</strong>
+      <div className={`claude-resource-status ${!available ? "missing" : item.enabled ? "active" : "idle"}`}>
+        <span>{!available ? (zh ? "缺失" : "Missing") : item.enabled ? (zh ? "已启用" : "Enabled") : (zh ? "已禁用" : "Disabled")}</span>
       </div>
-      <div className="claude-resource-status active">
-        <span>{zh ? "已启用" : "Enabled"}</span>
-      </div>
+      {available ? (
+        <button
+          type="button"
+          className="claude-profile-resource-action"
+          disabled={!actionsAvailable || busy}
+          onClick={() => onSetEnabled(item, !item.enabled)}
+          aria-label={`${item.enabled ? (zh ? "禁用" : "Disable") : (zh ? "启用" : "Enable")} ${item.name}`}
+        >
+          {item.enabled ? <PowerOff size={13} aria-hidden="true" /> : <Power size={13} aria-hidden="true" />}
+          {busy ? "..." : item.enabled ? (zh ? "禁用" : "Disable") : (zh ? "启用" : "Enable")}
+        </button>
+      ) : <span className="claude-profile-resource-unavailable">{zh ? "不可操作" : "Unavailable"}</span>}
     </article>
   );
 }
@@ -575,7 +658,7 @@ const ZH_ISSUE_MESSAGES: Record<string, string> = {
   "invalid-profile-reference": "配置方案不存在或已失效。",
   "duplicate-profile-name": "方案名称已存在。",
   "duplicate-profile-id": "生成的方案 ID 已存在，请重试。",
-  "protected-profile": "Default 方案受保护，无法执行此操作。",
+  "protected-profile": "内置方案受保护，无法执行此操作。",
   "applied-profile": "请先应用其他方案，再删除此方案。",
   "profile-delete-blocked": "该方案当前无法删除。",
   "missing-skill": "方案引用的 Skill 已不存在。",
@@ -595,7 +678,8 @@ const ZH_ISSUE_MESSAGES: Record<string, string> = {
   "rollback-failed": "应用失败，且自动恢复未完全成功，请检查备份文件。",
   "profile-store-write-failed": "无法保存配置方案。",
   "profile-preview-failed": "无法生成方案预览。",
-  "profile-apply-failed": "无法应用配置方案。"
+  "profile-apply-failed": "无法应用配置方案。",
+  "resource-state-failed": "无法更新资源状态。"
 };
 
 function actionFailureMessage(action: "save" | "delete" | "apply", zh: boolean) {

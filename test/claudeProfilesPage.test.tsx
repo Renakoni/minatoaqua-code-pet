@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PluginsPage } from "../src/renderer/clawd-migrated/components/plugins/PluginsPage";
 import { I18nProvider } from "../src/renderer/clawd-migrated/useI18n";
 import { defaultSettings } from "../src/renderer/shared/events";
-import type {
-  ClaudeProfile,
-  ClaudeProfileSaveInput,
-  ClaudeProfilesSnapshot
+import {
+  CLAUDE_PROFILE_SCHEMA_VERSION,
+  type ClaudeProfile,
+  type ClaudeProfileResourceStateInput,
+  type ClaudeProfileSaveInput,
+  type ClaudeProfilesSnapshot
 } from "../src/shared/claudeProfiles";
 
 let currentSnapshot: ClaudeProfilesSnapshot;
@@ -16,6 +18,8 @@ const saveClaudeProfile = vi.fn<(input: ClaudeProfileSaveInput) => Promise<unkno
 const previewClaudeProfile = vi.fn();
 const applyClaudeProfile = vi.fn<(profileId: string) => Promise<unknown>>();
 const deleteClaudeProfile = vi.fn<(profileId: string) => Promise<unknown>>();
+const setClaudeProfileResourceState = vi.fn<(input: ClaudeProfileResourceStateInput) => Promise<unknown>>();
+const getClaudeProfiles = vi.fn(async (_force?: boolean) => currentSnapshot);
 
 function makeSnapshot(mcpStatus: ClaudeProfilesSnapshot["mcpStatus"] = "ready"): ClaudeProfilesSnapshot {
   const skills = Array.from({ length: 2000 }, (_, index) => ({
@@ -46,9 +50,19 @@ function makeSnapshot(mcpStatus: ClaudeProfilesSnapshot["mcpStatus"] = "ready"):
     createdAt: 2,
     updatedAt: 2
   };
+  const allProfile: ClaudeProfile = {
+    id: "all",
+    name: "All",
+    skills: skills.map(skill => skill.id),
+    plugins: ["plugin:review@market"],
+    mcpServers: ["mcp:filesystem"],
+    isProtected: true,
+    createdAt: 1,
+    updatedAt: 1
+  };
   return {
-    schemaVersion: 1,
-    profiles: [defaultProfile, focusedProfile],
+    schemaVersion: CLAUDE_PROFILE_SCHEMA_VERSION,
+    profiles: [defaultProfile, allProfile, focusedProfile],
     appliedProfileId: "default",
     inventory: {
       skills,
@@ -109,12 +123,29 @@ function installCompanionMock() {
     };
     return { ok: true, profileId, snapshot: currentSnapshot };
   });
+  setClaudeProfileResourceState.mockImplementation(async input => {
+    const update = (items: typeof currentSnapshot.inventory.skills) => items.map(item => item.id === input.resourceId
+      ? { ...item, enabled: input.enabled }
+      : item);
+    currentSnapshot = {
+      ...currentSnapshot,
+      inventory: {
+        ...currentSnapshot.inventory,
+        skills: update(currentSnapshot.inventory.skills),
+        plugins: update(currentSnapshot.inventory.plugins),
+        mcpServers: update(currentSnapshot.inventory.mcpServers)
+      },
+      drift: { profileId: input.profileId, isDrifted: true, skills: true, plugins: false, mcpServers: false }
+    };
+    return { ok: true, profileId: input.profileId, snapshot: currentSnapshot };
+  });
   Reflect.set(window, "companion", {
-    getClaudeProfiles: vi.fn(async () => currentSnapshot),
+    getClaudeProfiles,
     saveClaudeProfile,
     deleteClaudeProfile,
     previewClaudeProfile,
-    applyClaudeProfile
+    applyClaudeProfile,
+    setClaudeProfileResourceState
   });
 }
 
@@ -138,6 +169,16 @@ afterEach(() => {
 });
 
 describe("Unified Claude Profiles page", () => {
+  it("forces a live scan on entry and schedules a ten-minute status refresh", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    renderPage();
+
+    await screen.findByRole("button", { name: "Profile: Default" });
+    expect(getClaudeProfiles).toHaveBeenCalledWith(true);
+    expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 10 * 60 * 1000);
+    intervalSpy.mockRestore();
+  });
+
   it("keeps the resource page compact and moves resources between two virtualized editor columns", async () => {
     const view = renderPage();
 
@@ -178,6 +219,40 @@ describe("Unified Claude Profiles page", () => {
     await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("default"));
   });
 
+  it("separates live status from temporary resource actions", async () => {
+    const view = renderPage();
+    await screen.findByRole("button", { name: "Profile: Default" });
+
+    expect(screen.getByText("Status")).toBeTruthy();
+    expect(screen.getByText("Action")).toBeTruthy();
+    const firstRow = view.container.querySelector<HTMLElement>('[data-resource-id="skill:skill-0"]')!;
+    expect(within(firstRow).getByText("Enabled")).toBeTruthy();
+    fireEvent.click(within(firstRow).getByRole("button", { name: "Disable skill-0" }));
+
+    await waitFor(() => expect(setClaudeProfileResourceState).toHaveBeenCalledWith({
+      profileId: "default",
+      resourceId: "skill:skill-0",
+      enabled: false
+    }));
+    await waitFor(() => {
+      const updatedRow = view.container.querySelector<HTMLElement>('[data-resource-id="skill:skill-0"]')!;
+      expect(within(updatedRow).getByText("Disabled")).toBeTruthy();
+      expect(within(updatedRow).getByRole("button", { name: "Enable skill-0" })).toBeTruthy();
+    });
+    expect(currentSnapshot.profiles.find(profile => profile.id === "default")?.skills).toContain("skill:skill-0");
+  });
+
+  it("keeps the dynamic All profile read-only", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Profile: Default" }));
+    fireEvent.click(screen.getByRole("option", { name: "All" }));
+
+    await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("all"));
+    const edit = screen.getByRole("button", { name: "Edit profile" }) as HTMLButtonElement;
+    expect(edit.disabled).toBe(true);
+    expect(edit.title).toBe("All updates automatically");
+  });
+
   it("applies a selected profile immediately and confirms the switch with a toast", async () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Profile: Default" }));
@@ -194,7 +269,7 @@ describe("Unified Claude Profiles page", () => {
   });
 
   it("uses a searchable in-app profile menu with current-first natural ordering", async () => {
-    const focused = currentSnapshot.profiles[1];
+    const focused = currentSnapshot.profiles.find(profile => profile.id === "focused")!;
     currentSnapshot = {
       ...currentSnapshot,
       profiles: [
@@ -211,6 +286,7 @@ describe("Unified Claude Profiles page", () => {
     expect(screen.getAllByRole("option").map(option => option.textContent)).toEqual([
       "Default",
       "#Archive",
+      "All",
       "alpha",
       "cABle",
       "Focused",
@@ -235,6 +311,9 @@ describe("Unified Claude Profiles page", () => {
     const defaultOption = screen.getByRole("option", { name: "Default" });
     expect(document.activeElement).toBe(defaultOption);
     fireEvent.keyDown(defaultOption, { key: "ArrowDown" });
+    const allOption = screen.getByRole("option", { name: "All" });
+    expect(document.activeElement).toBe(allOption);
+    fireEvent.keyDown(allOption, { key: "ArrowDown" });
     const focusedOption = screen.getByRole("option", { name: "Focused" });
     expect(document.activeElement).toBe(focusedOption);
     fireEvent.keyDown(focusedOption, { key: "Enter" });
@@ -275,7 +354,6 @@ describe("Unified Claude Profiles page", () => {
     await waitFor(() => expect(applyClaudeProfile).toHaveBeenCalledWith("default"));
     fireEvent.click(screen.getByRole("button", { name: "Plugins 1" }));
 
-    expect(await screen.findByText("Active now")).toBeTruthy();
     expect(screen.getByText("Enabled")).toBeTruthy();
     expect(screen.queryByText("Included")).toBeNull();
   });
@@ -294,8 +372,8 @@ describe("Unified Claude Profiles page", () => {
     fireEvent.change(screen.getByPlaceholderText("Search Skills"), { target: { value: "retired-skill" } });
 
     expect(await screen.findByText("No longer available in the current environment")).toBeTruthy();
-    expect(screen.getByText("Inactive now")).toBeTruthy();
-    expect(screen.getByText("Enabled")).toBeTruthy();
+    expect(screen.getByText("Missing")).toBeTruthy();
+    expect(screen.getByText("Unavailable")).toBeTruthy();
   });
 
   it("does not search hidden resource details in the main list or editor", async () => {

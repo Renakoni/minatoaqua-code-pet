@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import {
+  ALL_CLAUDE_PROFILE_ID,
   CLAUDE_PROFILE_SCHEMA_VERSION,
   DEFAULT_CLAUDE_PROFILE_ID,
   getClaudeProfileDrift,
@@ -79,7 +80,15 @@ export function upsertClaudeProfile(
   const existing = id ? store.profiles.find(profile => profile.id === id) : undefined;
   if (id && !existing) issues.push(mutationIssue("invalid-profile-reference", `Claude profile ${id} does not exist.`));
   if (existing?.isProtected && name !== existing.name) {
-    issues.push(mutationIssue("protected-profile", "The protected Default profile cannot be renamed."));
+    issues.push(mutationIssue("protected-profile", "Built-in Claude profiles cannot be renamed."));
+  }
+  if (existing?.id === ALL_CLAUDE_PROFILE_ID && skills && plugins && mcpServers && (
+    existing.description !== (description || undefined)
+    || !membershipsEqual(existing.skills, skills)
+    || !membershipsEqual(existing.plugins, plugins)
+    || !membershipsEqual(existing.mcpServers, mcpServers)
+  )) {
+    issues.push(mutationIssue("protected-profile", "The built-in All profile updates automatically and cannot be edited."));
   }
   if (store.profiles.some(profile => profile.id !== id && profile.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
     issues.push(mutationIssue("duplicate-profile-name", `A Claude profile named ${name} already exists.`));
@@ -122,7 +131,7 @@ export function removeClaudeProfile(store: ClaudeProfileStoreData, profileId: un
     return { ok: false, issues: [mutationIssue("invalid-profile-reference", `Claude profile ${profileId} does not exist.`)] };
   }
   if (profile.isProtected) {
-    return { ok: false, issues: [mutationIssue("protected-profile", "The protected Default profile cannot be deleted.")] };
+    return { ok: false, issues: [mutationIssue("protected-profile", "Built-in Claude profiles cannot be deleted.")] };
   }
   if (store.appliedProfileId === profileId) {
     return { ok: false, issues: [mutationIssue("applied-profile", "Apply another profile before deleting this one.")] };
@@ -177,6 +186,8 @@ export function parseClaudeProfileStore(value: unknown): ClaudeProfileStoreData 
   if (ids.size !== profiles.length) throw new Error("Duplicate Claude profile id");
   const defaultProfile = profiles.find(profile => profile.id === DEFAULT_CLAUDE_PROFILE_ID);
   if (!defaultProfile || !defaultProfile.isProtected) throw new Error("Protected Default Claude profile is missing");
+  const allProfile = profiles.find(profile => profile.id === ALL_CLAUDE_PROFILE_ID);
+  if (!allProfile || !allProfile.isProtected) throw new Error("Protected All Claude profile is missing");
   const appliedProfileId = value.appliedProfileId ?? null;
   if (appliedProfileId !== null && (typeof appliedProfileId !== "string" || !ids.has(appliedProfileId))) {
     throw new Error("Applied Claude profile does not exist");
@@ -220,6 +231,16 @@ export function createInitialClaudeProfileStore(inventory: ClaudeProfileInventor
   const defaultProfile: ClaudeProfile = {
     id: DEFAULT_CLAUDE_PROFILE_ID,
     name: "Default",
+    skills: inventory.skills.filter(item => item.enabled).map(item => item.id),
+    plugins: inventory.plugins.filter(item => item.enabled).map(item => item.id),
+    mcpServers: inventory.mcpServers.filter(item => item.enabled).map(item => item.id),
+    isProtected: true,
+    createdAt: now,
+    updatedAt: now
+  };
+  const allProfile: ClaudeProfile = {
+    id: ALL_CLAUDE_PROFILE_ID,
+    name: "All",
     skills: inventory.skills.map(item => item.id),
     plugins: inventory.plugins.map(item => item.id),
     mcpServers: inventory.mcpServers.map(item => item.id),
@@ -229,32 +250,33 @@ export function createInitialClaudeProfileStore(inventory: ClaudeProfileInventor
   };
   return {
     schemaVersion: CLAUDE_PROFILE_SCHEMA_VERSION,
-    profiles: [defaultProfile],
+    profiles: [defaultProfile, allProfile],
     appliedProfileId: DEFAULT_CLAUDE_PROFILE_ID
   };
 }
 
-function synchronizeUntouchedDefaultProfile(
+function synchronizeAllProfile(
   store: ClaudeProfileStoreData,
-  inventory: ClaudeProfileInventory
+  inventory: ClaudeProfileInventory,
+  now: number
 ): ClaudeProfileStoreData {
-  const defaultProfile = store.profiles.find(profile => profile.id === DEFAULT_CLAUDE_PROFILE_ID);
-  if (!defaultProfile || defaultProfile.createdAt !== defaultProfile.updatedAt) return store;
+  const allProfile = store.profiles.find(profile => profile.id === ALL_CLAUDE_PROFILE_ID);
+  if (!allProfile) return store;
 
   const skills = inventory.skills.map(item => item.id);
   const plugins = inventory.plugins.map(item => item.id);
   const mcpServers = inventory.mcpServers.map(item => item.id);
   const unchanged = (
-    membershipsEqual(defaultProfile.skills, skills)
-    && membershipsEqual(defaultProfile.plugins, plugins)
-    && membershipsEqual(defaultProfile.mcpServers, mcpServers)
+    membershipsEqual(allProfile.skills, skills)
+    && membershipsEqual(allProfile.plugins, plugins)
+    && membershipsEqual(allProfile.mcpServers, mcpServers)
   );
   if (unchanged) return store;
 
   return {
     ...store,
-    profiles: store.profiles.map(profile => profile.id === DEFAULT_CLAUDE_PROFILE_ID
-      ? { ...profile, skills, plugins, mcpServers }
+    profiles: store.profiles.map(profile => profile.id === ALL_CLAUDE_PROFILE_ID
+      ? { ...profile, skills, plugins, mcpServers, updatedAt: now }
       : profile)
   };
 }
@@ -267,7 +289,8 @@ export function saveClaudeProfileStore(filePath: string, data: ClaudeProfileStor
 export function loadOrCreateClaudeProfileStore(
   filePath: string,
   inventory: ClaudeProfileInventory,
-  now = Date.now()
+  now = Date.now(),
+  recoverInvalid = true
 ): ClaudeProfileStoreData {
   if (existsSync(filePath)) {
     const raw = readFileSync(filePath, "utf8");
@@ -275,10 +298,13 @@ export function loadOrCreateClaudeProfileStore(
       const parsed = JSON.parse(raw) as unknown;
       return parseClaudeProfileStore(parsed);
     } catch {
-      // Never overwrite an invalid or unsupported-version store.
-      // Preserve it for inspection or a future migration, then recover with a
-      // fresh Default captured from the current live Claude inventory.
+      if (!recoverInvalid) return createInitialClaudeProfileStore(inventory, now);
+      // Never overwrite an invalid or unsupported-version store. Preserve it
+      // for inspection, then rebuild v2 from the current live inventory.
       quarantineInvalidJsonFile(filePath, now, "Claude profile store");
+      const initial = createInitialClaudeProfileStore(inventory, now);
+      saveClaudeProfileStore(filePath, initial);
+      return initial;
     }
   }
   const initial = createInitialClaudeProfileStore(inventory, now);
@@ -295,13 +321,13 @@ export function createClaudeProfilesSnapshot(
 ): ClaudeProfilesSnapshot {
   const scannedInventory = buildClaudeProfileInventory(resources);
   const inventory = mcpServers ? { ...scannedInventory, mcpServers } : scannedInventory;
-  // Do not persist a first Default captured from an incomplete MCP read. A
+  // Do not persist built-in profiles captured from an incomplete MCP read. A
   // later healthy snapshot will seed the store from the complete live state.
   let store = mcpStatus !== "ready" && !existsSync(filePath)
     ? createInitialClaudeProfileStore(inventory, now)
-    : loadOrCreateClaudeProfileStore(filePath, inventory, now);
+    : loadOrCreateClaudeProfileStore(filePath, inventory, now, mcpStatus === "ready");
   if (mcpStatus === "ready") {
-    const synchronizedStore = synchronizeUntouchedDefaultProfile(store, inventory);
+    const synchronizedStore = synchronizeAllProfile(store, inventory, now);
     if (synchronizedStore !== store) {
       saveClaudeProfileStore(filePath, synchronizedStore);
       store = synchronizedStore;

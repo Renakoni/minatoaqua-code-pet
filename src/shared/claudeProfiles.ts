@@ -57,8 +57,9 @@ export type ClaudeProfile = {
   updatedAt: number;
 };
 
-export const CLAUDE_PROFILE_SCHEMA_VERSION = 1 as const;
+export const CLAUDE_PROFILE_SCHEMA_VERSION = 2 as const;
 export const DEFAULT_CLAUDE_PROFILE_ID = "default";
+export const ALL_CLAUDE_PROFILE_ID = "all";
 
 export type ClaudeProfileStoreData = {
   schemaVersion: typeof CLAUDE_PROFILE_SCHEMA_VERSION;
@@ -122,6 +123,22 @@ export function snapshotAfterClaudeProfileApply(
   return { ...projected, drift: getClaudeProfileDrift(projected, inventory, snapshot.mcpStatus) };
 }
 
+export function snapshotAfterClaudeProfileResourceState(
+  snapshot: ClaudeProfilesSnapshot,
+  resourceId: string,
+  enabled: boolean
+): ClaudeProfilesSnapshot {
+  const update = (items: ClaudeProfileResource[]) => items.map(item => item.id === resourceId ? { ...item, enabled } : item);
+  const inventory: ClaudeProfileInventory = {
+    ...snapshot.inventory,
+    skills: update(snapshot.inventory.skills),
+    plugins: update(snapshot.inventory.plugins),
+    mcpServers: update(snapshot.inventory.mcpServers)
+  };
+  const projected = { ...snapshot, inventory };
+  return { ...projected, drift: getClaudeProfileDrift(projected, inventory, snapshot.mcpStatus) };
+}
+
 export type ClaudeProfilesSnapshot = ClaudeProfileStoreData & {
   inventory: ClaudeProfileInventory;
   drift: ClaudeProfileDrift;
@@ -134,6 +151,15 @@ export function createEmptyClaudeProfilesSnapshot(scannedAt = 0): ClaudeProfiles
     profiles: [{
       id: DEFAULT_CLAUDE_PROFILE_ID,
       name: "Default",
+      skills: [],
+      plugins: [],
+      mcpServers: [],
+      isProtected: true,
+      createdAt: 0,
+      updatedAt: 0
+    }, {
+      id: ALL_CLAUDE_PROFILE_ID,
+      name: "All",
       skills: [],
       plugins: [],
       mcpServers: [],
@@ -184,3 +210,9 @@ export type ClaudeProfilePreviewResult =
 export type ClaudeProfileMutationResult =
   | { ok: true; profileId: string; snapshot: ClaudeProfilesSnapshot }
   | { ok: false; issues: ClaudeProfileOperationIssue[] };
+
+export type ClaudeProfileResourceStateInput = {
+  profileId: string;
+  resourceId: string;
+  enabled: boolean;
+};

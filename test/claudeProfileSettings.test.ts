@@ -7,7 +7,7 @@ import {
   previewClaudeProfileSettings,
   previewClaudeProfileSettingsFile
 } from "../src/main/claudeProfileSettings";
-import type { ClaudeProfileInventory, ClaudeProfileStoreData } from "../src/shared/claudeProfiles";
+import { CLAUDE_PROFILE_SCHEMA_VERSION, type ClaudeProfileInventory, type ClaudeProfileStoreData } from "../src/shared/claudeProfiles";
 
 const tempRoots: string[] = [];
 
@@ -38,7 +38,7 @@ function inventory(): ClaudeProfileInventory {
 
 function store(overrides: Partial<ClaudeProfileStoreData["profiles"][number]> = {}): ClaudeProfileStoreData {
   return {
-    schemaVersion: 1,
+    schemaVersion: CLAUDE_PROFILE_SCHEMA_VERSION,
     appliedProfileId: "default",
     profiles: [
       {
@@ -46,6 +46,16 @@ function store(overrides: Partial<ClaudeProfileStoreData["profiles"][number]> = 
         name: "Default",
         skills: [],
         plugins: [],
+        mcpServers: [],
+        isProtected: true,
+        createdAt: 1,
+        updatedAt: 1
+      },
+      {
+        id: "all",
+        name: "All",
+        skills: ["skill:alpha", "skill:beta"],
+        plugins: ["plugin:alpha@market", "plugin:beta@market"],
         mcpServers: [],
         isProtected: true,
         createdAt: 1,
