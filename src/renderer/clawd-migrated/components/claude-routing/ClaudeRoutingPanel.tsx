@@ -1,5 +1,4 @@
-import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Plus } from "lucide-react";
@@ -7,19 +6,10 @@ import { toast } from "sonner";
 import type { ClaudeProviderListResult, ClaudeProviderTestResult } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ProviderEditPanel } from "./ProviderEditPanel";
 import { RoutingToaster } from "./RoutingToaster";
 import { SortableClaudeProviderCard } from "./ProviderCard";
 import type { ClaudeProvider } from "./types";
-
-function loadProviderEditPanel() {
-  return import("./ProviderEditPanel").then(module => ({ default: module.ProviderEditPanel }));
-}
-
-function preloadProviderEditPanel() {
-  void loadProviderEditPanel().catch(() => undefined);
-}
-
-const ProviderEditPanel = lazy(loadProviderEditPanel);
 
 type ProviderListProps = {
   providers: ClaudeProvider[];
@@ -82,25 +72,6 @@ const ProviderList = memo(function ProviderList({
   );
 });
 
-function ProviderEditorFallback({ label }: { label: string }) {
-  return createPortal(
-    <div className="ccs-fullscreen-panel ccs-provider-editor-loading" role="status" aria-label={label} aria-busy="true">
-      <header className="ccs-fullscreen-header">
-        <span className="ccs-provider-editor-loading-square" />
-        <span className="ccs-provider-editor-loading-title" />
-      </header>
-      <main className="ccs-fullscreen-body">
-        <div className="ccs-provider-editor-loading-surface">
-          <span />
-          <span />
-          <span />
-        </div>
-      </main>
-    </div>,
-    document.body
-  );
-}
-
 function formatI18n(template: string, values: Record<string, string | number>) {
   return Object.entries(values).reduce((text, [key, value]) => text.split(`{${key}}`).join(String(value)), template);
 }
@@ -124,8 +95,10 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
   const [orderOverride, setOrderOverride] = useState<string[] | null>(null);
   const [editingProvider, setEditingProvider] = useState<ClaudeProvider | null>(null);
   const [creating, setCreating] = useState(false);
+  const [addEditorMounted, setAddEditorMounted] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<ClaudeProvider | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const addEditorPrewarmTimerRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -143,17 +116,10 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     return () => { unsubscribe?.(); };
   }, [companion, refresh]);
 
-  useEffect(() => {
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-      cancelIdleCallback?: (id: number) => void;
-    };
-    if (idleWindow.requestIdleCallback) {
-      const idleId = idleWindow.requestIdleCallback(preloadProviderEditPanel);
-      return () => idleWindow.cancelIdleCallback?.(idleId);
+  useEffect(() => () => {
+    if (addEditorPrewarmTimerRef.current !== null) {
+      window.clearTimeout(addEditorPrewarmTimerRef.current);
     }
-    const timer = window.setTimeout(preloadProviderEditPanel, 300);
-    return () => window.clearTimeout(timer);
   }, []);
 
   const providers = useMemo(() => listing?.providers ?? [], [listing]);
@@ -196,8 +162,19 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     });
   }, [companion, refresh, sortedProviders, t]);
 
-  const closeEditor = useCallback(() => {
+  const closeAddEditor = useCallback(() => {
+    setAddEditorMounted(false);
+    if (addEditorPrewarmTimerRef.current !== null) {
+      window.clearTimeout(addEditorPrewarmTimerRef.current);
+    }
+    addEditorPrewarmTimerRef.current = window.setTimeout(() => {
+      addEditorPrewarmTimerRef.current = null;
+      setAddEditorMounted(true);
+    }, 50);
     setCreating(false);
+  }, []);
+
+  const closeEditEditor = useCallback(() => {
     setEditingProvider(null);
   }, []);
 
@@ -224,8 +201,9 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     toast.success(originalId ? t("routing.providerUpdated", "供应商已更新") : t("routing.providerAdded", "供应商已添加"));
     if (result.provider) mergeSavedProvider(result.provider, originalId);
     else void refresh();
-    closeEditor();
-  }, [closeEditor, companion, mergeSavedProvider, refresh, t]);
+    if (originalId) closeEditEditor();
+    else closeAddEditor();
+  }, [closeAddEditor, closeEditEditor, companion, mergeSavedProvider, refresh, t]);
 
   async function confirmDelete() {
     if (!pendingDelete) return;
@@ -291,6 +269,11 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
   }, [companion, t]);
 
   const openNewProvider = useCallback(() => {
+    if (addEditorPrewarmTimerRef.current !== null) {
+      window.clearTimeout(addEditorPrewarmTimerRef.current);
+      addEditorPrewarmTimerRef.current = null;
+    }
+    setAddEditorMounted(true);
     setCreating(true);
     setEditingProvider(null);
   }, []);
@@ -321,8 +304,6 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
         <button
           className="cc-switch-add"
           onClick={openNewProvider}
-          onPointerEnter={preloadProviderEditPanel}
-          onFocus={preloadProviderEditPanel}
           title={t("routing.addProvider", "添加供应商")}
           aria-label={t("routing.addProvider", "添加供应商")}
         ><Plus size={18} /></button>
@@ -346,17 +327,27 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
         onRemove={setPendingDelete}
       />
 
-      {creating || editingProvider ? (
-        <Suspense fallback={<ProviderEditorFallback label={t("routing.loadingEditor", "正在打开供应商编辑器")} />}>
-          <ProviderEditPanel
-            provider={editingProvider ?? emptyProvider}
-            mode={editingProvider ? "edit" : "add"}
-            hasCommonConfig={listing?.hasCommonConfig}
-            onSave={saveEditorProvider}
-            onClose={closeEditor}
-            onTestEndpoint={testEditorEndpoint}
-          />
-        </Suspense>
+      {addEditorMounted ? (
+        <ProviderEditPanel
+          provider={emptyProvider}
+          mode="add"
+          visible={creating}
+          hasCommonConfig={listing?.hasCommonConfig}
+          onSave={saveEditorProvider}
+          onClose={closeAddEditor}
+          onTestEndpoint={testEditorEndpoint}
+        />
+      ) : null}
+
+      {editingProvider ? (
+        <ProviderEditPanel
+          provider={editingProvider}
+          mode="edit"
+          hasCommonConfig={listing?.hasCommonConfig}
+          onSave={saveEditorProvider}
+          onClose={closeEditEditor}
+          onTestEndpoint={testEditorEndpoint}
+        />
       ) : null}
 
       {pendingDelete ? (
