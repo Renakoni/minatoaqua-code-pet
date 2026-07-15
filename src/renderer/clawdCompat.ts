@@ -46,6 +46,7 @@ type PetApi = NonNullable<Window["petAPI"]>;
 
 type CompanionApi = {
   initialState: CompanionInitialState;
+  notifyPetRendered?: () => void;
   getSettings: () => Promise<CompanionSettings>;
   saveSettings: (next: Partial<CompanionSettings>) => Promise<CompanionSettings>;
   getConnectionStatus: () => Promise<CompanionConnectionStatus>;

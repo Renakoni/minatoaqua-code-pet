@@ -19,6 +19,7 @@ export function SessionsPage({ active = true, hideSensitiveContent = false }: { 
   const [snapshot, setSnapshot] = useState<ClaudeSessionSnapshot>(emptySnapshot);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [detail, setDetail] = useState<ClaudeSessionDetail | null>(null);
+  const [detailPath, setDetailPath] = useState<string | null>(null);
   const [detailRevision, setDetailRevision] = useState(0);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -79,16 +80,24 @@ export function SessionsPage({ active = true, hideSensitiveContent = false }: { 
   useEffect(() => {
     if (!selected?.filePath) {
       setDetail(null);
+      setDetailPath(null);
+      setDetailLoading(false);
       return;
     }
     let cancelled = false;
     setDetailLoading(true);
     window.companion.getClaudeSessionDetail(selected.filePath)
-      .then(next => { if (!cancelled) setDetail(next); })
+      .then(next => {
+        if (cancelled) return;
+        setDetail(next);
+        setDetailPath(selected.filePath);
+      })
       .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); })
       .finally(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
   }, [detailRevision, selected?.filePath]);
+
+  const selectedDetailReady = detailPath === selected?.filePath && detail !== null;
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -183,14 +192,14 @@ export function SessionsPage({ active = true, hideSensitiveContent = false }: { 
               <div className="session-viewer-meta">
                 <Meta label="Model" value={selected.model || unknownValue(zh)} />
                 <Meta label={zh ? "Git 分支" : "Git branch"} value={hideSensitiveContent ? (zh ? "已隐藏" : "Hidden") : selected.branch || unknownValue(zh)} />
-                <Meta label={zh ? "消息" : "Messages"} value={String(detail?.totalMessages ?? selected.messageCount)} />
+                <Meta label={zh ? "消息" : "Messages"} value={String(selectedDetailReady ? detail?.totalMessages ?? selected.messageCount : selected.messageCount)} />
                 <Meta label={zh ? "最后活动" : "Last activity"} value={formatDateTime(selected.lastMessageAt)} />
               </div>
 
               <div className="session-message-list" aria-busy={detailLoading}>
-                {detailLoading ? <div className="session-viewer-empty small">{zh ? "加载消息中..." : "Loading messages..."}</div> : null}
-                {!detailLoading && (hideSensitiveContent || previewMessages.length === 0) ? <div className="session-viewer-empty small">{hideSensitiveContent ? (zh ? "敏感内容已隐藏。" : "Sensitive content is hidden.") : (zh ? "没有可预览的消息。" : "No messages to preview.")}</div> : null}
-                {!hideSensitiveContent && previewMessages.map(message => (
+                {detailLoading && !selectedDetailReady ? <div className="session-viewer-empty small">{zh ? "加载消息中..." : "Loading messages..."}</div> : null}
+                {!detailLoading && selectedDetailReady && (hideSensitiveContent || previewMessages.length === 0) ? <div className="session-viewer-empty small">{hideSensitiveContent ? (zh ? "敏感内容已隐藏。" : "Sensitive content is hidden.") : (zh ? "没有可预览的消息。" : "No messages to preview.")}</div> : null}
+                {!hideSensitiveContent && selectedDetailReady && previewMessages.map(message => (
                   <section key={message.id} className={`session-message-row ${message.role}`}>
                     <div>
                       <strong>{roleLabel(message.role, zh)}</strong>

@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld("petAPI", {
 
 contextBridge.exposeInMainWorld("companion", {
   initialState,
+  notifyPetRendered: () => ipcRenderer.send("companion:pet-rendered"),
   getSettings: () => ipcRenderer.invoke("companion:get-settings"),
   saveSettings: (next: unknown) => ipcRenderer.invoke("companion:save-settings", next),
   getConnectionStatus: () => ipcRenderer.invoke("companion:get-connection-status"),
