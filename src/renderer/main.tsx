@@ -15,7 +15,8 @@ async function render() {
       import("./clawdCompat")
     ]);
     installClawdCompat();
-    if (!initialAppearance) applyCompanionAppearance(window.companion.initialState.settings);
+    const fallbackAppearance = window.companion?.initialState?.settings;
+    if (!initialAppearance && fallbackAppearance) applyCompanionAppearance(fallbackAppearance);
     root.render(<ClawdSettingsRoot />);
     return;
   }

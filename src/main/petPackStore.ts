@@ -336,12 +336,21 @@ export function listPetPacks(petsDir: string): PetPackManifest[] {
   const packs: PetPackManifest[] = [];
   for (const entry of readdirSync(petsDir, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    try {
-      const parsed: unknown = JSON.parse(readFileSync(join(petsDir, entry.name, PACK_MANIFEST_FILE), "utf8"));
-      if (isPetPackManifest(parsed) && parsed.id === entry.name) packs.push(parsed);
-    } catch { /* unreadable pack directories are ignored */ }
+    const pack = readPetPack(petsDir, entry.name);
+    if (pack) packs.push(pack);
   }
   return packs.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** Read one installed pack without enumerating every pack directory. */
+export function readPetPack(petsDir: string, id: string): PetPackManifest | undefined {
+  if (sanitizePetPackId(id) !== id) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(join(petsDir, id, PACK_MANIFEST_FILE), "utf8"));
+    return isPetPackManifest(parsed) && parsed.id === id ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Delete an installed pack. The id must be an exact, already-sanitized slug. */

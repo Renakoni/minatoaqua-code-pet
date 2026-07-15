@@ -44,7 +44,7 @@ import {
   type CcSwitchProvider
 } from "./ccSwitchStore";
 import { PermissionBroker, type PendingPermission, type PermissionPollResult } from "./permissionBroker";
-import { inspectPetPackZip, installPetPack, listPetPacks, removePetPack, resolvePetAssetPath } from "./petPackStore";
+import { inspectPetPackZip, installPetPack, listPetPacks, readPetPack, removePetPack, resolvePetAssetPath } from "./petPackStore";
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
 import { createPetDragWatcher, type PetDragWatcher } from "./petDragWatcher";
 import { createDoubleClickDetector, installPetParentNotifyWatcher, readSystemDoubleClickMetrics, type DoubleClickMetrics } from "./petDoubleClick";
@@ -153,7 +153,7 @@ if (!singleInstanceLock) {
 function activePetImageHeight(): number {
   const packId = packIdFromThemeId(companionSettings.petTheme);
   if (!packId) return PET_IMAGE_SIZE;
-  const pack = listPetPacks(petPacksDir()).find(candidate => candidate.id === packId);
+  const pack = readPetPack(petPacksDir(), packId);
   if (!pack) return PET_IMAGE_SIZE;
   return displayedSpriteHeight(pack.sheet.cellWidth, pack.sheet.cellHeight, PET_IMAGE_SIZE);
 }
@@ -380,9 +380,7 @@ function panelWindowBackgroundColor() {
 
 function companionInitialState(): CompanionInitialState {
   const activePackId = packIdFromThemeId(companionSettings.petTheme);
-  const activePack = activePackId
-    ? listPetPacks(petPacksDir()).find(pack => pack.id === activePackId)
-    : undefined;
+  const activePack = activePackId ? readPetPack(petPacksDir(), activePackId) : undefined;
   return {
     settings: companionSettings as CompanionInitialState["settings"],
     petPacks: activePack ? [activePack] : []
