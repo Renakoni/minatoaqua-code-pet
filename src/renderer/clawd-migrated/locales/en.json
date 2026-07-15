@@ -676,6 +676,7 @@
     "terminalFailed": "Failed to open terminal",
     "addProvider": "Add Provider",
     "editProvider": "Edit Provider",
+    "loadingEditor": "Opening provider editor",
     "currentRoute": "Current provider",
     "switchRoute": "Switch to this provider",
     "inUse": "In Use",

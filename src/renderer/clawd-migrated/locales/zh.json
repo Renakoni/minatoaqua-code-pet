@@ -676,6 +676,7 @@
     "terminalFailed": "打开终端失败",
     "addProvider": "添加供应商",
     "editProvider": "编辑供应商",
+    "loadingEditor": "正在打开供应商编辑器",
     "currentRoute": "当前供应商",
     "switchRoute": "切换到此供应商",
     "inUse": "已在用",
