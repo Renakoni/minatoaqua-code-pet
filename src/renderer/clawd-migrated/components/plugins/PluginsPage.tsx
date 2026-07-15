@@ -50,7 +50,7 @@ type EditorState = {
   protectedProfile: boolean;
 };
 
-export function PluginsPage({ settings }: { settings: CompanionSettings; updateSettings: (s: Partial<CompanionSettings>) => void }) {
+export function PluginsPage({ settings, active = true }: { settings: CompanionSettings; active?: boolean; updateSettings: (s: Partial<CompanionSettings>) => void }) {
   const { locale } = useI18n();
   const zh = locale === "zh";
   const [activeTab, setActiveTab] = useState<ResourceTab>("skills");
@@ -73,6 +73,7 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
   const restoreProfileFocusRef = useRef(false);
   const newProfileTriggerRef = useRef<HTMLButtonElement>(null);
   const busyActionRef = useRef<BusyAction>(null);
+  const wasActiveRef = useRef(active);
 
   const refresh = useCallback(async (force = false) => {
     setBusyAction("refresh");
@@ -97,6 +98,12 @@ export function PluginsPage({ settings }: { settings: CompanionSettings; updateS
     }, PROFILE_STATUS_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    const wasActive = wasActiveRef.current;
+    wasActiveRef.current = active;
+    if (active && !wasActive && busyActionRef.current === null) void refresh(true);
+  }, [active, refresh]);
 
   useEffect(() => {
     const appliedProfileId = snapshot.appliedProfileId;

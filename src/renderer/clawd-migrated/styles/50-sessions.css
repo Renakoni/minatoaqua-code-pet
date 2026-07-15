@@ -108,6 +108,8 @@
 .session-viewer-list::-webkit-scrollbar-corner,
 .session-viewer-detail::-webkit-scrollbar-corner,
 .session-message-list::-webkit-scrollbar-corner { background: oklch(17.5% 0.006 75); }
+.session-viewer-virtual-space { position: relative; min-width: 100%; }
+.session-viewer-virtual-space .session-viewer-row { position: absolute; inset: 0 0 auto; }
 .session-viewer-row {
   width: 100%;
   display: grid;

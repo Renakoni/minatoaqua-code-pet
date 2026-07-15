@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { applyCompanionAppearance } from "./clawd-migrated/appearance";
 
 const view = new URLSearchParams(window.location.search).get("view");
 
@@ -7,11 +8,14 @@ async function render() {
   const root = createRoot(document.getElementById("root")!);
 
   if (view === "panel") {
+    const initialAppearance = window.companion?.initialState?.settings;
+    if (initialAppearance) applyCompanionAppearance(initialAppearance);
     const [{ ClawdSettingsRoot }, { installClawdCompat }] = await Promise.all([
       import("./clawd-migrated/main"),
       import("./clawdCompat")
     ]);
     installClawdCompat();
+    if (!initialAppearance) applyCompanionAppearance(window.companion.initialState.settings);
     root.render(<ClawdSettingsRoot />);
     return;
   }

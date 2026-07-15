@@ -1,6 +1,5 @@
 ﻿// @ts-nocheck
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
   Anchor,
@@ -146,24 +145,6 @@ function playClippedAudio(dataUrl: string, volume = 1) {
 function getFeedbackMode(event: CompanionEvent): FeedbackMode {
   if (event.tool && event.tool !== "Unknown") return "ribbon";
   return stateFeedbackMode[stateFromEvent(event)] ?? "card";
-}
-
-function applyTheme(theme: CompanionSettings["theme"], petTheme: CompanionSettings["petTheme"] = defaultSettings.petTheme) {
-  const activePetTheme = getPetTheme(petTheme);
-  document.documentElement.setAttribute("data-pet-theme", activePetTheme.id);
-  if (theme === "dark") {
-    document.documentElement.setAttribute("data-theme", "dark");
-    return;
-  }
-  if (theme === "system") {
-    document.documentElement.setAttribute("data-theme", activePetTheme.interfaceTheme);
-    return;
-  }
-  document.documentElement.setAttribute("data-theme", "light");
-}
-
-function applyUiStyle(uiStyle: CompanionSettings["uiStyle"]) {
-  document.documentElement.setAttribute("data-ui-style", uiStyle);
 }
 
 const mappingRows: Array<{ source: string; tool?: string; state: PetState; title: string }> = [
@@ -900,6 +881,7 @@ function SettingsApp() {
   const [now, setNow] = useState(Date.now());
   const [appVersion, setAppVersion] = useState("...");
   const sectionContentRef = useRef<HTMLDivElement | null>(null);
+  const retainedSectionsRef = useRef(new Set<string>());
 
   // Git 胶囊：在设置窗口也渲染一份（pet 窗口可能被遮挡）
   const [gitToast, setGitToast] = useState<{ id: string; title: string; message: string } | null>(null);
@@ -989,24 +971,12 @@ function SettingsApp() {
 
   function jumpTo(section: string) {
     if (section === activeSection) return;
+    if (section === "sessions" || section === "plugins") retainedSectionsRef.current.add(section);
     const resetSectionScroll = () => {
       sectionContentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
       requestAnimationFrame(() => sectionContentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" }));
     };
 
-    if (document.startViewTransition) {
-      try {
-        document.startViewTransition(() => {
-          flushSync(() => setActiveSection(section));
-          resetSectionScroll();
-        });
-        return;
-      } catch {
-        setActiveSection(section);
-        resetSectionScroll();
-        return;
-      }
-    }
     setActiveSection(section);
     resetSectionScroll();
   }
@@ -1101,7 +1071,6 @@ function SettingsApp() {
           <button
             key={tab.id}
             className={`tab-item ${activeSection === tab.id ? "active" : ""}`}
-            style={activeSection === tab.id ? ({ viewTransitionName: "active-tab" } as React.CSSProperties) : undefined}
             onClick={() => jumpTo(tab.id)}
           >
             {tab.icon} {tab.label}
@@ -1151,9 +1120,17 @@ function SettingsApp() {
             />
           )}
 
-          {activeSection === "sessions" && <SessionsPage hideSensitiveContent={settings.hideSensitiveContent} />}
+          {(activeSection === "sessions" || retainedSectionsRef.current.has("sessions")) && (
+            <div style={{ display: activeSection === "sessions" ? "contents" : "none" }} aria-hidden={activeSection !== "sessions"}>
+              <SessionsPage active={activeSection === "sessions"} hideSensitiveContent={settings.hideSensitiveContent} />
+            </div>
+          )}
 
-          {activeSection === "plugins" && <PluginsPage settings={settings} updateSettings={updateSettings} />}
+          {(activeSection === "plugins" || retainedSectionsRef.current.has("plugins")) && (
+            <div style={{ display: activeSection === "plugins" ? "contents" : "none" }} aria-hidden={activeSection !== "plugins"}>
+              <PluginsPage active={activeSection === "plugins"} settings={settings} updateSettings={updateSettings} />
+            </div>
+          )}
 
           {activeSection === "animation" && <AnimationSection settings={settings} updateSettings={updateSettings} catalog={activeThemeCatalog} spritesheet={activeThemeSheet} />}
 
@@ -1237,44 +1214,11 @@ function MappingRow({ row }: { row: { source: string; tool?: string; state: PetS
 
 export function ClawdSettingsRoot() {
   const route = window.location.hash.replace("#/", "") || "settings";
-  const localeRef = React.useRef<string | null>(null);
-  const [locale, setLocaleState] = React.useState(() => {
-    const saved = localStorage.getItem("clawd-locale");
-    return saved === "en" || saved === "zh" ? saved : detectLocale();
+  const initialSettings = window.companion.initialState?.settings ?? defaultSettings;
+  const [locale] = React.useState(() => {
+    if (initialSettings.language === "en" || initialSettings.language === "zh") return initialSettings.language;
+    return detectLocale();
   });
-
-  React.useEffect(() => {
-    const init = async () => {
-      try {
-        const settings = await window.companion.getSettings();
-        const lang = settings.language === "auto" ? detectLocale() : settings.language;
-        if (lang === "en" || lang === "zh") {
-          setLocaleState(lang);
-          localStorage.setItem("clawd-locale", lang);
-        }
-      } catch {}
-    };
-    init();
-  }, []);
-
-  React.useEffect(() => {
-    document.documentElement.setAttribute("data-theme", "light");
-    document.documentElement.setAttribute("data-ui-style", "classic");
-    let themeMode: CompanionSettings["theme"] = "system";
-    let petThemeMode: CompanionSettings["petTheme"] = defaultSettings.petTheme;
-
-    const initTheme = async () => {
-      try {
-        const settings = await window.companion.getSettings();
-        themeMode = settings.theme || "system";
-        petThemeMode = settings.petTheme || defaultSettings.petTheme;
-        applyTheme(themeMode, petThemeMode);
-        applyUiStyle(settings.uiStyle || "classic");
-      } catch {}
-    };
-
-    initTheme();
-  }, []);
 
   return (
     <I18nProvider initialLocale={locale}>

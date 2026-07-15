@@ -64,6 +64,7 @@ import { setClaudeProfileResourceEnabled } from "./claudeProfileRuntime";
 import { backupJsonFile, writeTextFileAtomic } from "./filePersistence";
 import { EVENT_SERVER_DEV_ORIGIN, isAcceptedEventServerRequest } from "./eventServerSecurity";
 import { visitJsonlTail } from "./jsonlTail";
+import type { CompanionInitialState } from "../renderer/shared/events";
 
 type DailyRuntimeStats = {
   events: number;
@@ -353,7 +354,7 @@ function createPanelWindow() {
     paintWhenInitiallyHidden: true,
     title: "Chara Desk",
     frame: false,
-    backgroundColor: "#f5efe3",
+    backgroundColor: panelWindowBackgroundColor(),
     autoHideMenuBar: true,
     icon: getAppIcon(),
     webPreferences: {
@@ -369,6 +370,23 @@ function createPanelWindow() {
   });
 
   return panelWindow;
+}
+
+function panelWindowBackgroundColor() {
+  if (companionSettings.theme === "dark") return "#15110e";
+  if (companionSettings.theme === "light") return "#f6efe1";
+  return "#f3fbfd";
+}
+
+function companionInitialState(): CompanionInitialState {
+  const activePackId = packIdFromThemeId(companionSettings.petTheme);
+  const activePack = activePackId
+    ? listPetPacks(petPacksDir()).find(pack => pack.id === activePackId)
+    : undefined;
+  return {
+    settings: companionSettings as CompanionInitialState["settings"],
+    petPacks: activePack ? [activePack] : []
+  };
 }
 
 function showPanelWindow() {
@@ -3392,6 +3410,9 @@ app.whenReady().then(() => {
     else panelWindow.maximize();
   });
   ipcMain.handle("pet:close-panel", () => hidePanelWindow());
+  ipcMain.on("companion:get-initial-state", event => {
+    event.returnValue = companionInitialState();
+  });
   ipcMain.handle("companion:get-settings", () => companionSettings);
   ipcMain.handle("companion:save-settings", (_, next: Partial<typeof companionSettings>) => {
     const previousLaunchAtLogin = companionSettings.launchAtLogin;
@@ -3404,6 +3425,9 @@ app.whenReady().then(() => {
     const canonicalNext = pickCanonicalSettings(next && typeof next === "object" ? next : {});
     const mergedSettings = { ...companionSettings, ...canonicalNext };
     companionSettings = { ...mergedSettings, ...normalizePetDisplaySettings(mergedSettings) };
+    if (panelWindow && !panelWindow.isDestroyed()) {
+      panelWindow.setBackgroundColor(panelWindowBackgroundColor());
+    }
     // Theme changes swap the per-theme animation profile (stateAnimations +
     // idleAnim) so one theme's mappings never leak into another, and resize
     // the pet window for the incoming theme's sprite height.

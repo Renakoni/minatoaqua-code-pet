@@ -44,6 +44,7 @@ type PetDisplaySettings = {
 };
 
 type PetCompanionApi = {
+  initialState?: { settings: PetDisplaySettings; petPacks: PetPackManifest[] };
   getSettings?: () => Promise<PetDisplaySettings>;
   onSettings?: (callback: (settings: PetDisplaySettings) => void) => () => void;
   onPreviewPetAnimation: (callback: (animationKey: string) => void) => () => void;
@@ -62,32 +63,53 @@ function petCompanion(): PetCompanionApi | undefined {
   return (window as Window & { companion?: PetCompanionApi }).companion;
 }
 
+function normalizePetRendererSettings(settings?: PetDisplaySettings) {
+  const seconds = typeof settings?.bubbleDuration === "number" && settings.bubbleDuration > 0
+    ? Math.min(120, settings.bubbleDuration)
+    : defaultBubbleSeconds;
+  const volume = settings?.sound?.volume;
+  const mappings = settings?.stateAnimations;
+  const idleAnim = settings?.idleAnim && typeof settings.idleAnim === "object" ? settings.idleAnim : null;
+  return {
+    display: {
+      scale: clampPetScale(settings?.petScale),
+      opacity: clampPetOpacity(settings?.clawdOpacity),
+      feedbackScale: clampFeedbackScale(settings?.feedbackScale),
+      feedbackOpacity: clampFeedbackOpacity(settings?.feedbackOpacity),
+      permissionScale: clampPermissionScale(settings?.permissionScale)
+    },
+    hideSensitiveContent: settings?.hideSensitiveContent === true,
+    stateAnimations: mappings && typeof mappings === "object" && !Array.isArray(mappings) ? mappings : {},
+    idleAnim,
+    petTheme: typeof settings?.petTheme === "string" ? settings.petTheme : "",
+    displayLanguage: settings?.language === "zh" || (settings?.language === "auto" && navigator.language.toLowerCase().startsWith("zh")) ? "zh" as const : "en" as const,
+    bubbleDurationMs: seconds * 1000,
+    soundVolume: typeof volume === "number" ? Math.max(0, Math.min(1, volume)) : 0.6
+  };
+}
+
 export default function App() {
+  const initialState = useMemo(() => petCompanion()?.initialState, []);
+  const initialSettings = useMemo(() => normalizePetRendererSettings(initialState?.settings), [initialState]);
   const [state, setState] = useState<PetState>("idle");
   const [lastEvent, setLastEvent] = useState<PetEvent | null>(null);
   const [permissions, setPermissions] = useState<PermissionRequestView[]>([]);
-  const [petDisplay, setPetDisplay] = useState({
-    scale: 1,
-    opacity: 1,
-    feedbackScale: 1,
-    feedbackOpacity: 1,
-    permissionScale: 1
-  });
-  const [hideSensitiveContent, setHideSensitiveContent] = useState(false);
-  const [stateAnimations, setStateAnimations] = useState<Record<string, string>>({});
-  const [idleAnimConfig, setIdleAnimConfig] = useState<IdleAnimationConfig | null>(null);
+  const [petDisplay, setPetDisplay] = useState(initialSettings.display);
+  const [hideSensitiveContent, setHideSensitiveContent] = useState(initialSettings.hideSensitiveContent);
+  const [stateAnimations, setStateAnimations] = useState<Record<string, string>>(initialSettings.stateAnimations);
+  const [idleAnimConfig, setIdleAnimConfig] = useState<IdleAnimationConfig | null>(initialSettings.idleAnim);
   const [idleAnimation, setIdleAnimation] = useState<PetAnimationKey | null>(null);
-  const [petTheme, setPetTheme] = useState<string>("");
-  const [petPacks, setPetPacks] = useState<PetPackManifest[]>([]);
-  const [displayLanguage, setDisplayLanguage] = useState<"zh" | "en">(() => navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en");
+  const [petTheme, setPetTheme] = useState<string>(initialSettings.petTheme);
+  const [petPacks, setPetPacks] = useState<PetPackManifest[]>(initialState?.petPacks ?? []);
+  const [displayLanguage, setDisplayLanguage] = useState<"zh" | "en">(initialSettings.displayLanguage);
   const [previewAnimation, setPreviewAnimation] = useState<{ key: string; nonce: number } | null>(null);
   const resetTimer = useRef<number | null>(null);
   const notificationTimer = useRef<number | null>(null);
   const stableEvent = useRef<PetEvent | null>(null);
   // "Bubble stay" (bubbleDuration) and sound volume live in refs so the timers
   // and the play-sound handler read the latest value without re-subscribing.
-  const bubbleDurationMsRef = useRef(defaultBubbleSeconds * 1000);
-  const soundVolumeRef = useRef(0.6);
+  const bubbleDurationMsRef = useRef(initialSettings.bubbleDurationMs);
+  const soundVolumeRef = useRef(initialSettings.soundVolume);
 
   function applyEvent(event: PetEvent) {
     if (notificationTimer.current) {
@@ -131,29 +153,18 @@ export default function App() {
   useEffect(() => {
     const companion = petCompanion();
     const applySettings = (settings: PetDisplaySettings) => {
-      setPetDisplay({
-        scale: clampPetScale(settings.petScale),
-        opacity: clampPetOpacity(settings.clawdOpacity),
-        feedbackScale: clampFeedbackScale(settings.feedbackScale),
-        feedbackOpacity: clampFeedbackOpacity(settings.feedbackOpacity),
-        permissionScale: clampPermissionScale(settings.permissionScale)
-      });
-      const seconds = typeof settings.bubbleDuration === "number" && settings.bubbleDuration > 0
-        ? Math.min(120, settings.bubbleDuration)
-        : defaultBubbleSeconds;
-      bubbleDurationMsRef.current = seconds * 1000;
-      const volume = settings.sound?.volume;
-      soundVolumeRef.current = typeof volume === "number" ? Math.max(0, Math.min(1, volume)) : 0.6;
-      setHideSensitiveContent(settings.hideSensitiveContent === true);
-      const mappings = settings.stateAnimations;
-      setStateAnimations(mappings && typeof mappings === "object" && !Array.isArray(mappings) ? mappings : {});
+      const next = normalizePetRendererSettings(settings);
+      setPetDisplay(next.display);
+      bubbleDurationMsRef.current = next.bubbleDurationMs;
+      soundVolumeRef.current = next.soundVolume;
+      setHideSensitiveContent(next.hideSensitiveContent);
+      setStateAnimations(next.stateAnimations);
       // Settings broadcasts always deliver a fresh object; keep the previous
       // reference when the config is unchanged so unrelated saves don't reset
       // the rotation timers below.
-      const idleAnim = settings.idleAnim && typeof settings.idleAnim === "object" ? settings.idleAnim : null;
-      setIdleAnimConfig(previous => keepIdleAnimationConfigReference(previous, idleAnim));
-      setDisplayLanguage(settings.language === "zh" || (settings.language === "auto" && navigator.language.toLowerCase().startsWith("zh")) ? "zh" : "en");
-      setPetTheme(typeof settings.petTheme === "string" ? settings.petTheme : "");
+      setIdleAnimConfig(previous => keepIdleAnimationConfigReference(previous, next.idleAnim));
+      setDisplayLanguage(next.displayLanguage);
+      setPetTheme(next.petTheme);
     };
     let disposed = false;
     let settingsBroadcastReceived = false;

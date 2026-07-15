@@ -7,7 +7,7 @@ import type { PetPackManifest } from "../../shared/petPack";
  * process broadcasts a pack-store change.
  */
 export function usePetPacks() {
-  const [petPacks, setPetPacks] = useState<PetPackManifest[]>([]);
+  const [petPacks, setPetPacks] = useState<PetPackManifest[]>(() => window.companion.initialState?.petPacks ?? []);
 
   const refreshPetPacks = useCallback(() => {
     void window.companion.listPetPacks()

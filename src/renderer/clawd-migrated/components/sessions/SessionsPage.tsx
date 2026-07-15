@@ -1,8 +1,9 @@
 // @ts-nocheck
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Play, RefreshCw, Search, Terminal, TriangleAlert } from "lucide-react";
 import type { ClaudeSessionDetail, ClaudeSessionIndexItem, ClaudeSessionSnapshot } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
+import { useVirtualRows } from "../plugins/useVirtualRows";
 
 const emptySnapshot: ClaudeSessionSnapshot = {
   sessions: [],
@@ -10,34 +11,45 @@ const emptySnapshot: ClaudeSessionSnapshot = {
   projectsDir: "~/.claude/projects"
 };
 
-export function SessionsPage({ hideSensitiveContent = false }: { hideSensitiveContent?: boolean }) {
+const SESSION_ROW_HEIGHT = 97;
+
+export function SessionsPage({ active = true, hideSensitiveContent = false }: { active?: boolean; hideSensitiveContent?: boolean }) {
   const { locale } = useI18n();
   const zh = locale === "zh";
   const [snapshot, setSnapshot] = useState<ClaudeSessionSnapshot>(emptySnapshot);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [detail, setDetail] = useState<ClaudeSessionDetail | null>(null);
+  const [detailRevision, setDetailRevision] = useState(0);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const wasActiveRef = useRef(active);
 
-  async function refresh(force = false) {
-    setLoading(true);
+  const refresh = useCallback(async (force = false, preserveContent = false) => {
+    if (!preserveContent) setLoading(true);
     setError(null);
     try {
       const next = await window.companion.getClaudeSessions(force);
       const safe = next ?? emptySnapshot;
       setSnapshot(safe);
       setSelectedPath(current => current ?? safe.sessions?.[0]?.filePath ?? null);
+      setDetailRevision(current => current + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (!preserveContent) setLoading(false);
     }
-  }
+  }, []);
 
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    const wasActive = wasActiveRef.current;
+    wasActiveRef.current = active;
+    if (active && !wasActive) void refresh(false, true);
+  }, [active, refresh]);
 
   const filteredSessions = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -52,6 +64,7 @@ export function SessionsPage({ hideSensitiveContent = false }: { hideSensitiveCo
       hideSensitiveContent ? "" : session.branch
     ].filter(Boolean).join(" ").toLowerCase().includes(needle));
   }, [hideSensitiveContent, query, snapshot.sessions]);
+  const virtual = useVirtualRows(filteredSessions, SESSION_ROW_HEIGHT, `${hideSensitiveContent}:${query}`);
 
   const selected = filteredSessions.find(session => session.filePath === selectedPath) ?? filteredSessions[0] ?? null;
   const previewMessages = useMemo(() => {
@@ -75,7 +88,7 @@ export function SessionsPage({ hideSensitiveContent = false }: { hideSensitiveCo
       .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); })
       .finally(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
-  }, [selected?.filePath]);
+  }, [detailRevision, selected?.filePath]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -125,22 +138,34 @@ export function SessionsPage({ hideSensitiveContent = false }: { hideSensitiveCo
       {error ? <section className="session-viewer-error"><TriangleAlert size={16} />{error}</section> : null}
 
       <section className="session-viewer-layout">
-        <aside className="session-viewer-list">
+        <aside ref={virtual.viewportRef} className="session-viewer-list" onScroll={event => virtual.onScroll(event.currentTarget.scrollTop)}>
           {loading ? (
             <div className="session-viewer-empty">{zh ? "正在扫描 ~/.claude/projects..." : "Scanning ~/.claude/projects..."}</div>
           ) : filteredSessions.length === 0 ? (
             <div className="session-viewer-empty">{zh ? "没有发现 Claude Code 历史会话。" : "No Claude Code sessions found."}</div>
-          ) : filteredSessions.map(session => (
-            <button key={session.filePath} className={`session-viewer-row ${selected?.filePath === session.filePath ? "active" : ""}`} onClick={() => setSelectedPath(session.filePath)}>
-              <strong>{hideSensitiveContent ? `${zh ? "会话" : "Session"} ${session.sessionId.slice(0, 8)}` : compactTitle(session.title)}</strong>
-              <p className="session-viewer-project-path">{hideSensitiveContent ? (zh ? "详情已隐藏" : "Details hidden") : session.projectPath || session.projectName}</p>
-              <footer>
-                <em className={session.status}>{session.status}</em>
-                <span>{session.messageCount} {zh ? "条事件" : "events"}</span>
-                <time>{formatTime(session.lastMessageAt)}</time>
-              </footer>
-            </button>
-          ))}
+          ) : (
+            <div className="session-viewer-virtual-space" style={{ height: virtual.totalHeight }}>
+              {virtual.visible.map((session, offset) => {
+                const index = virtual.start + offset;
+                return (
+                  <button
+                    key={session.filePath}
+                    className={`session-viewer-row ${selected?.filePath === session.filePath ? "active" : ""}`}
+                    style={{ height: SESSION_ROW_HEIGHT, transform: `translateY(${index * SESSION_ROW_HEIGHT}px)` }}
+                    onClick={() => setSelectedPath(session.filePath)}
+                  >
+                    <strong>{hideSensitiveContent ? `${zh ? "会话" : "Session"} ${session.sessionId.slice(0, 8)}` : compactTitle(session.title)}</strong>
+                    <p className="session-viewer-project-path">{hideSensitiveContent ? (zh ? "详情已隐藏" : "Details hidden") : session.projectPath || session.projectName}</p>
+                    <footer>
+                      <em className={session.status}>{session.status}</em>
+                      <span>{session.messageCount} {zh ? "条事件" : "events"}</span>
+                      <time>{formatTime(session.lastMessageAt)}</time>
+                    </footer>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </aside>
 
         <article className="session-viewer-detail">
