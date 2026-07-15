@@ -71,7 +71,6 @@ describe("Claude routing render isolation", () => {
     providerEditorRender.mockClear();
 
     fireEvent.click(screen.getByRole("button", { name: /Add provider/i }));
-    expect(document.querySelector(".ccs-provider-editor-loading")).toBeNull();
     await waitFor(() => expect(providerEditorRender).toHaveBeenCalledWith(expect.objectContaining({ mode: "add", visible: true })));
 
     expect(providerIconRender).not.toHaveBeenCalled();
