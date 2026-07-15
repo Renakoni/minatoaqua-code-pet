@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CompanionConnectionStatus, CompanionEvent, CompanionSession, CompanionSettings, PermissionRequest, PetState } from "../shared/events";
 import { defaultSettings, stateFromEvent } from "../shared/events";
 import { redactDisplayEvent } from "../../shared/privacy";
-import { getPetTheme } from "./utils/petThemes";
+import { applyCompanionAppearance } from "./appearance";
 
 export interface ToolStream {
   event: CompanionEvent;
@@ -12,31 +12,14 @@ export interface ToolStream {
   exitSlot?: number;
 }
 
-function applyTheme(theme: CompanionSettings["theme"], petTheme: CompanionSettings["petTheme"] = defaultSettings.petTheme) {
-  const activePetTheme = getPetTheme(petTheme);
-  document.documentElement.setAttribute("data-pet-theme", activePetTheme.id);
-  if (theme === "dark") {
-    document.documentElement.setAttribute("data-theme", "dark");
-    return;
-  }
-  if (theme === "system") {
-    document.documentElement.setAttribute("data-theme", activePetTheme.interfaceTheme);
-    return;
-  }
-  document.documentElement.setAttribute("data-theme", "light");
-}
-
 function isInformationalNotification(event: CompanionEvent) {
   return event.event === "notification" && event.notificationKind === "info";
 }
 
-function applyUiStyle(uiStyle: CompanionSettings["uiStyle"]) {
-  document.documentElement.setAttribute("data-ui-style", uiStyle);
-}
-
 export function useCompanion(options: { keepEventList?: boolean } = {}) {
   const keepEventList = options.keepEventList ?? true;
-  const [settings, setSettings] = useState<CompanionSettings>(defaultSettings);
+  const initialSettings = window.companion.initialState?.settings ?? defaultSettings;
+  const [settings, setSettings] = useState<CompanionSettings>(initialSettings);
   const [connection, setConnection] = useState<CompanionConnectionStatus>({
     port: 0,
     serverListening: false
@@ -50,7 +33,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
   const [exitingSessions, setExitingSessions] = useState<Set<string>>(new Set());
   const [mainSessionId, setMainSessionId] = useState<string | null>(null);
   const sessionsRef = useRef<Map<string, CompanionSession>>(new Map());
-  const settingsRef = useRef<CompanionSettings>(defaultSettings);
+  const settingsRef = useRef<CompanionSettings>(initialSettings);
   const mainSessionIdRef = useRef<string | null>(null);
   const exitingSessionsRef = useRef<Set<string>>(new Set());
   const ribbonTimers = useRef<Map<string, number>>(new Map());
@@ -110,8 +93,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
       if (disposed) return;
       settingsRef.current = next;
       setSettings(next);
-      applyTheme(next.theme, next.petTheme);
-      applyUiStyle(next.uiStyle);
+      applyCompanionAppearance(next);
     };
     const offSettings = window.companion.onSettings(next => {
       settingsBroadcastReceived = true;
@@ -342,8 +324,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
     const saved = await window.companion.saveSettings(next);
     settingsRef.current = saved;
     setSettings(saved);
-    if (next.theme || next.petTheme) applyTheme(saved.theme, saved.petTheme);
-    if (next.uiStyle) applyUiStyle(next.uiStyle);
+    if (next.theme || next.petTheme || next.uiStyle) applyCompanionAppearance(saved);
   }
 
   async function respondToPermission(id: string, decision: "allow" | "deny") {

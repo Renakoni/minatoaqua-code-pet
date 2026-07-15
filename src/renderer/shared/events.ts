@@ -1,4 +1,6 @@
 ﻿// @ts-nocheck
+import type { PetPackManifest } from "../../shared/petPack";
+
 export interface ClaudeSessionIndexItem {
   sessionId: string;
   title: string;
@@ -305,6 +307,11 @@ export interface CompanionSettings {
   };
   idleAnim?: IdleAnimConfig;
   stateAnimations?: Record<string, string>;
+}
+
+export interface CompanionInitialState {
+  settings: CompanionSettings;
+  petPacks: PetPackManifest[];
 }
 
 export interface IdleAnimConfig {

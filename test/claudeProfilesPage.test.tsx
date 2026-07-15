@@ -179,6 +179,31 @@ describe("Unified Claude Profiles page", () => {
     intervalSpy.mockRestore();
   });
 
+  it("refreshes a retained page when it becomes active again", async () => {
+    const view = render(
+      <I18nProvider initialLocale="en">
+        <PluginsPage active settings={defaultSettings} updateSettings={vi.fn()} />
+      </I18nProvider>
+    );
+    await screen.findByRole("button", { name: "Profile: Default" });
+    const callsAfterMount = getClaudeProfiles.mock.calls.length;
+
+    view.rerender(
+      <I18nProvider initialLocale="en">
+        <PluginsPage active={false} settings={defaultSettings} updateSettings={vi.fn()} />
+      </I18nProvider>
+    );
+    view.rerender(
+      <I18nProvider initialLocale="en">
+        <PluginsPage active settings={defaultSettings} updateSettings={vi.fn()} />
+      </I18nProvider>
+    );
+
+    expect(screen.getByRole("button", { name: "Profile: Default" })).toBeTruthy();
+    await waitFor(() => expect(getClaudeProfiles.mock.calls.length).toBeGreaterThan(callsAfterMount));
+    expect(getClaudeProfiles).toHaveBeenLastCalledWith(true);
+  });
+
   it("keeps the resource page compact and moves resources between two virtualized editor columns", async () => {
     const view = renderPage();
 

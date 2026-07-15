@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { PetEvent, PetState } from "../shared/events";
+import type { CompanionInitialState } from "../renderer/shared/events";
 import type {
   ClaudeProfileMutationResult,
   ClaudeProfilePreviewResult,
@@ -17,6 +18,8 @@ export interface PetSnapshot {
 }
 
 type Unsubscribe = () => void;
+
+const initialState = ipcRenderer.sendSync("companion:get-initial-state") as CompanionInitialState;
 
 function onChannel<T>(channel: string, callback: (payload: T) => void): Unsubscribe {
   const listener = (_: Electron.IpcRendererEvent, payload: T) => callback(payload);
@@ -46,6 +49,7 @@ contextBridge.exposeInMainWorld("petAPI", {
 });
 
 contextBridge.exposeInMainWorld("companion", {
+  initialState,
   getSettings: () => ipcRenderer.invoke("companion:get-settings"),
   saveSettings: (next: unknown) => ipcRenderer.invoke("companion:save-settings", next),
   getConnectionStatus: () => ipcRenderer.invoke("companion:get-connection-status"),

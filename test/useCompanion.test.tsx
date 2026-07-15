@@ -10,10 +10,11 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function installCompanion(getSettings: () => Promise<typeof defaultSettings>) {
+function installCompanion(getSettings: () => Promise<typeof defaultSettings>, initialSettings = defaultSettings) {
   let settingsListener = (_settings: typeof defaultSettings) => undefined;
   let eventListener = (_event: unknown) => undefined;
   Reflect.set(window, "companion", {
+    initialState: { settings: initialSettings, petPacks: [] },
     getSettings,
     getConnectionStatus: vi.fn(async () => ({ port: 17321, serverListening: true })),
     onSettings: vi.fn(callback => { settingsListener = callback; return vi.fn(); }),
@@ -35,6 +36,16 @@ afterEach(() => {
 });
 
 describe("useCompanion lifecycle", () => {
+  it("uses the preload snapshot on the first render", () => {
+    const pending = deferred<typeof defaultSettings>();
+    const bootstrap = { ...defaultSettings, theme: "dark" as const, language: "en" as const };
+    installCompanion(() => pending.promise, bootstrap);
+
+    const view = renderHook(() => useCompanion());
+
+    expect(view.result.current.settings).toBe(bootstrap);
+  });
+
   it("does not let a stale initial read overwrite a newer settings broadcast", async () => {
     const initial = deferred<typeof defaultSettings>();
     const companion = installCompanion(() => initial.promise);

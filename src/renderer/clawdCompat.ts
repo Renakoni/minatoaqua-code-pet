@@ -26,6 +26,7 @@ import {
   type CompanionConnectionStatus,
   type CompanionEvent,
   type CompanionEventType,
+  type CompanionInitialState,
   type CompanionSettings,
   type EventHistoryEntry,
   type PermissionRequest,
@@ -44,6 +45,7 @@ type Listener<T> = (payload: T) => void;
 type PetApi = NonNullable<Window["petAPI"]>;
 
 type CompanionApi = {
+  initialState: CompanionInitialState;
   getSettings: () => Promise<CompanionSettings>;
   saveSettings: (next: Partial<CompanionSettings>) => Promise<CompanionSettings>;
   getConnectionStatus: () => Promise<CompanionConnectionStatus>;
@@ -428,6 +430,7 @@ export function installClawdCompat() {
   if (petApi) bindPetApi(petApi);
 
   window.companion = {
+    initialState: { settings: currentSettings, petPacks: [] },
     getSettings: async () => currentSettings,
     saveSettings: async next => {
       Object.assign(currentSettings, next);

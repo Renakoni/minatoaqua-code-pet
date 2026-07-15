@@ -8,6 +8,7 @@ import {
   inspectPetPackZip,
   installPetPack,
   listPetPacks,
+  readPetPack,
   removePetPack,
   resolvePetAssetPath
 } from "../src/main/petPackStore";
@@ -347,6 +348,17 @@ describe("listPetPacks", () => {
     const packs = listPetPacks(petsDir);
     expect(packs).toHaveLength(1);
     expect(packs[0].id).toBe("boba");
+  });
+});
+
+describe("readPetPack", () => {
+  it("reads only the requested installed pack and fails closed", () => {
+    const zipPath = bobaPngZip();
+    installPetPack(zipPath, FULL_COUNTS, inspectedDigest(zipPath), petsDir);
+
+    expect(readPetPack(petsDir, "boba")?.id).toBe("boba");
+    expect(readPetPack(petsDir, "missing")).toBeUndefined();
+    expect(readPetPack(petsDir, "../boba")).toBeUndefined();
   });
 });
 

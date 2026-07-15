@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionsPage } from "../src/renderer/clawd-migrated/components/sessions/SessionsPage";
@@ -55,5 +55,50 @@ describe("SessionsPage resume", () => {
 
     await waitFor(() => expect(screen.getByText(/ENOENT/)).toBeTruthy());
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("claude --resume abc123def456"));
+  });
+
+  it("keeps existing content visible while a retained page refreshes", async () => {
+    let resolveRefresh!: (value: unknown) => void;
+    const refresh = new Promise(resolve => { resolveRefresh = resolve; });
+    const getClaudeSessions = vi.fn()
+      .mockResolvedValueOnce({ sessions: [session], scannedAt: 1, projectsDir: "~/.claude/projects" })
+      .mockReturnValueOnce(refresh);
+    Reflect.set(window, "companion", {
+      getClaudeSessions,
+      getClaudeSessionDetail: async () => ({ messages: [], totalMessages: 0 }),
+      resumeClaudeSession: vi.fn()
+    });
+    const view = render(<SessionsPage active />);
+    await screen.findAllByText("Test session");
+
+    view.rerender(<SessionsPage active={false} />);
+    view.rerender(<SessionsPage active />);
+
+    expect(screen.getAllByText("Test session").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Scanning/)).toBeNull();
+    expect(getClaudeSessions).toHaveBeenLastCalledWith(false);
+    await act(async () => {
+      resolveRefresh({ sessions: [session], scannedAt: 2, projectsDir: "~/.claude/projects" });
+      await refresh;
+    });
+  });
+
+  it("virtualizes large session inventories", async () => {
+    const sessions = Array.from({ length: 500 }, (_, index) => ({
+      ...session,
+      filePath: `C:\\project\\session-${index}.jsonl`,
+      sessionId: `session-${index}`,
+      title: `Session ${index}`
+    }));
+    Reflect.set(window, "companion", {
+      getClaudeSessions: async () => ({ sessions, scannedAt: 1, projectsDir: "~/.claude/projects" }),
+      getClaudeSessionDetail: async () => ({ messages: [], totalMessages: 0 }),
+      resumeClaudeSession: vi.fn()
+    });
+    const view = render(<SessionsPage />);
+    await screen.findAllByText("Session 0");
+
+    expect(view.container.querySelectorAll(".session-viewer-row").length).toBeLessThan(30);
+    expect(view.container.querySelector<HTMLElement>(".session-viewer-virtual-space")?.style.height).toBe("48500px");
   });
 });
