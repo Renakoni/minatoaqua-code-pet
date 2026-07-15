@@ -155,7 +155,7 @@ function ClaudeProviderCard({
   );
 }
 
-export function SortableClaudeProviderCard({
+export const SortableClaudeProviderCard = React.memo(function SortableClaudeProviderCard({
   provider,
   isCurrent,
   canRemove,
@@ -195,4 +195,4 @@ export function SortableClaudeProviderCard({
       />
     </div>
   );
-}
+});

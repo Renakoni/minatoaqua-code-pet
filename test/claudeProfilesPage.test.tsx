@@ -252,6 +252,7 @@ describe("Unified Claude Profiles page", () => {
     expect(screen.getByText("Action")).toBeTruthy();
     const firstRow = view.container.querySelector<HTMLElement>('[data-resource-id="skill:skill-0"]')!;
     expect(within(firstRow).getByText("Enabled")).toBeTruthy();
+    expect(within(firstRow).getByText("Enabled").closest(".claude-resource-status")?.classList.contains("active")).toBe(true);
     fireEvent.click(within(firstRow).getByRole("button", { name: "Disable skill-0" }));
 
     await waitFor(() => expect(setClaudeProfileResourceState).toHaveBeenCalledWith({
@@ -262,6 +263,7 @@ describe("Unified Claude Profiles page", () => {
     await waitFor(() => {
       const updatedRow = view.container.querySelector<HTMLElement>('[data-resource-id="skill:skill-0"]')!;
       expect(within(updatedRow).getByText("Disabled")).toBeTruthy();
+      expect(within(updatedRow).getByText("Disabled").closest(".claude-resource-status")?.classList.contains("idle")).toBe(true);
       expect(within(updatedRow).getByRole("button", { name: "Enable skill-0" })).toBeTruthy();
     });
     expect(currentSnapshot.profiles.find(profile => profile.id === "default")?.skills).toContain("skill:skill-0");
@@ -397,8 +399,12 @@ describe("Unified Claude Profiles page", () => {
     fireEvent.change(screen.getByPlaceholderText("Search Skills"), { target: { value: "retired-skill" } });
 
     expect(await screen.findByText("No longer available in the current environment")).toBeTruthy();
-    expect(screen.getByText("Missing")).toBeTruthy();
+    expect(screen.getByText("Missing").closest(".claude-resource-status")?.classList.contains("missing")).toBe(true);
     expect(screen.getByText("Unavailable")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+    fireEvent.change(await screen.findByPlaceholderText("Search Skills"), { target: { value: "retired-skill" } });
+    expect((await screen.findByText("Missing")).closest(".claude-profile-live-state")?.classList.contains("missing")).toBe(true);
   });
 
   it("does not search hidden resource details in the main list or editor", async () => {

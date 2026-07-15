@@ -234,8 +234,7 @@ input[type="range"]:active::-webkit-slider-thumb,
   box-shadow: none;
 }
 
-.tool-rank-fill,
-.range-fill {
+.tool-rank-fill {
   transition: width 260ms var(--ease-soft), left 260ms var(--ease-soft);
 }
 
