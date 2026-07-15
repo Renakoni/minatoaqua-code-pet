@@ -11,11 +11,12 @@ import { MINATO_AQUA_CATALOG, normalizeMappableAnimationKey } from "../../../../
 import { SpritesheetSprite } from "../../../components/SpritesheetSprite";
 import { displayedSpriteHeight } from "../../../../shared/spriteFrame";
 
-export function AnimationSection({ settings, updateSettings, catalog = MINATO_AQUA_CATALOG, spritesheet = null }: {
+export function AnimationSection({ settings, updateSettings, catalog = MINATO_AQUA_CATALOG, spritesheet = null, active = true }: {
   settings: CompanionSettings;
   updateSettings: (settings: Partial<CompanionSettings>) => void;
   catalog?: any;
   spritesheet?: any;
+  active?: boolean;
 }) {
   const { t } = useI18n();
   // Drag-only locomotion keys are not standalone actions: the idle pool and
@@ -36,7 +37,7 @@ export function AnimationSection({ settings, updateSettings, catalog = MINATO_AQ
         </AnimationPanel>
 
         <AnimationPanel icon={<FlaskConical size={17} />} title={t("sections.animationTest", "动画测试")}>
-          <AnimationTestBlock options={options} spritesheet={spritesheet} />
+          <AnimationTestBlock active={active} options={options} spritesheet={spritesheet} />
         </AnimationPanel>
       </div>
     </div>
@@ -190,13 +191,19 @@ function StateAnimSettings({ stateAnimations, onChange, catalog, options, sprite
   );
 }
 
-function AnimationTestBlock({ options, spritesheet }: { options: any[]; spritesheet: any }) {
+function AnimationTestBlock({ options, spritesheet, active }: { options: any[]; spritesheet: any; active: boolean }) {
   const { t } = useI18n();
   const [activeKey, setActiveKey] = useState<string | null>(null);
 
   useEffect(() => () => {
     void window.companion.previewPetAnimation("__clear_preview");
   }, []);
+
+  useEffect(() => {
+    if (active || !activeKey) return;
+    setActiveKey(null);
+    void window.companion.previewPetAnimation("__clear_preview");
+  }, [active, activeKey]);
 
   function previewAnimation(key: PetAnimationKey) {
     setActiveKey(key);

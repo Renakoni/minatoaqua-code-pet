@@ -16,10 +16,10 @@ const settings = {
   stateAnimations: {}
 };
 
-function renderSection(locale: "en" | "zh") {
+function renderSection(locale: "en" | "zh", active = true) {
   return render(
     <I18nProvider initialLocale={locale}>
-      <AnimationSection settings={settings} updateSettings={vi.fn()} catalog={packCatalog} spritesheet={null} />
+      <AnimationSection active={active} settings={settings} updateSettings={vi.fn()} catalog={packCatalog} spritesheet={null} />
     </I18nProvider>
   );
 }
@@ -70,6 +70,20 @@ describe("imported-theme Animation page localization", () => {
     expect(window.companion.previewPetAnimation).toHaveBeenCalledWith(expect.not.stringMatching("__clear_preview"));
 
     view.unmount();
+
+    expect(window.companion.previewPetAnimation).toHaveBeenLastCalledWith("__clear_preview");
+  });
+
+  it("clears a test animation when the retained page becomes hidden", () => {
+    const view = renderSection("en");
+    const testButton = view.container.querySelector<HTMLButtonElement>(".animation-test-grid button");
+    fireEvent.click(testButton!);
+
+    view.rerender(
+      <I18nProvider initialLocale="en">
+        <AnimationSection active={false} settings={settings} updateSettings={vi.fn()} catalog={packCatalog} spritesheet={null} />
+      </I18nProvider>
+    );
 
     expect(window.companion.previewPetAnimation).toHaveBeenLastCalledWith("__clear_preview");
   });

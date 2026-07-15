@@ -45,6 +45,7 @@ type PetDisplaySettings = {
 
 type PetCompanionApi = {
   initialState?: { settings: PetDisplaySettings; petPacks: PetPackManifest[] };
+  notifyPetRendered?: () => void;
   getSettings?: () => Promise<PetDisplaySettings>;
   onSettings?: (callback: (settings: PetDisplaySettings) => void) => () => void;
   onPreviewPetAnimation: (callback: (animationKey: string) => void) => () => void;
@@ -110,6 +111,16 @@ export default function App() {
   // and the play-sound handler read the latest value without re-subscribing.
   const bubbleDurationMsRef = useRef(initialSettings.bubbleDurationMs);
   const soundVolumeRef = useRef(initialSettings.soundVolume);
+
+  useEffect(() => {
+    const notify = () => petCompanion()?.notifyPetRendered?.();
+    if (typeof window.requestAnimationFrame !== "function") {
+      notify();
+      return undefined;
+    }
+    const frame = window.requestAnimationFrame(notify);
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   function applyEvent(event: PetEvent) {
     if (notificationTimer.current) {

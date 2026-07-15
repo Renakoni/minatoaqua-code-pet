@@ -179,6 +179,24 @@ describe("Unified Claude Profiles page", () => {
     intervalSpy.mockRestore();
   });
 
+  it("uses the cache while prewarming, then refreshes live when opened", async () => {
+    const view = render(
+      <I18nProvider initialLocale="en">
+        <PluginsPage active={false} settings={defaultSettings} updateSettings={vi.fn()} />
+      </I18nProvider>
+    );
+
+    await screen.findByRole("button", { name: "Profile: Default" });
+    expect(getClaudeProfiles).toHaveBeenCalledWith(false);
+
+    view.rerender(
+      <I18nProvider initialLocale="en">
+        <PluginsPage active settings={defaultSettings} updateSettings={vi.fn()} />
+      </I18nProvider>
+    );
+    await waitFor(() => expect(getClaudeProfiles).toHaveBeenLastCalledWith(true));
+  });
+
   it("refreshes a retained page when it becomes active again", async () => {
     const view = render(
       <I18nProvider initialLocale="en">

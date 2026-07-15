@@ -74,6 +74,7 @@ export function PluginsPage({ settings, active = true }: { settings: CompanionSe
   const newProfileTriggerRef = useRef<HTMLButtonElement>(null);
   const busyActionRef = useRef<BusyAction>(null);
   const wasActiveRef = useRef(active);
+  const initiallyActiveRef = useRef(active);
 
   const refresh = useCallback(async (force = false) => {
     setBusyAction("refresh");
@@ -92,7 +93,7 @@ export function PluginsPage({ settings, active = true }: { settings: CompanionSe
   useEffect(() => { busyActionRef.current = busyAction; }, [busyAction]);
 
   useEffect(() => {
-    void refresh(true);
+    void refresh(initiallyActiveRef.current);
     const timer = window.setInterval(() => {
       if (busyActionRef.current === null) void refresh(true);
     }, PROFILE_STATUS_REFRESH_MS);

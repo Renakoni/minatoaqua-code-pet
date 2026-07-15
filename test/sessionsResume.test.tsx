@@ -83,6 +83,63 @@ describe("SessionsPage resume", () => {
     });
   });
 
+  it("preloads the first session detail while hidden", async () => {
+    const getClaudeSessionDetail = vi.fn(async () => ({
+      session,
+      messages: [{ id: "message-1", role: "assistant", text: "Already warmed", timestamp: 1 }],
+      totalMessages: 1
+    }));
+    Reflect.set(window, "companion", {
+      getClaudeSessions: async () => ({ sessions: [session], scannedAt: 1, projectsDir: "~/.claude/projects" }),
+      getClaudeSessionDetail,
+      resumeClaudeSession: vi.fn()
+    });
+
+    const view = render(<SessionsPage active={false} />);
+    await waitFor(() => expect(getClaudeSessionDetail).toHaveBeenCalledWith(session.filePath));
+    await screen.findByText("Already warmed");
+
+    view.rerender(<SessionsPage active />);
+    expect(screen.queryByText(/加载消息中|Loading messages/)).toBeNull();
+    expect(screen.getByText("Already warmed")).toBeTruthy();
+  });
+
+  it("keeps refreshed detail stable without stacking a loading row above it", async () => {
+    let resolveRefreshDetail!: (value: unknown) => void;
+    const refreshDetail = new Promise(resolve => { resolveRefreshDetail = resolve; });
+    const getClaudeSessionDetail = vi.fn()
+      .mockResolvedValueOnce({
+        session,
+        messages: [{ id: "message-1", role: "assistant", text: "Existing detail", timestamp: 1 }],
+        totalMessages: 1
+      })
+      .mockReturnValueOnce(refreshDetail);
+    Reflect.set(window, "companion", {
+      getClaudeSessions: async () => ({ sessions: [session], scannedAt: Date.now(), projectsDir: "~/.claude/projects" }),
+      getClaudeSessionDetail,
+      resumeClaudeSession: vi.fn()
+    });
+
+    const view = render(<SessionsPage active />);
+    await screen.findByText("Existing detail");
+    view.rerender(<SessionsPage active={false} />);
+    view.rerender(<SessionsPage active />);
+    await waitFor(() => expect(getClaudeSessionDetail).toHaveBeenCalledTimes(2));
+
+    expect(screen.queryByText(/加载消息中|Loading messages/)).toBeNull();
+    expect(screen.getByText("Existing detail")).toBeTruthy();
+
+    await act(async () => {
+      resolveRefreshDetail({
+        session,
+        messages: [{ id: "message-2", role: "assistant", text: "Fresh detail", timestamp: 2 }],
+        totalMessages: 1
+      });
+      await refreshDetail;
+    });
+    await screen.findByText("Fresh detail");
+  });
+
   it("virtualizes large session inventories", async () => {
     const sessions = Array.from({ length: 500 }, (_, index) => ({
       ...session,

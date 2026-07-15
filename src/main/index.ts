@@ -116,6 +116,7 @@ let petExpanded = false;
 let eventServer: ReturnType<typeof createServer> | null = null;
 let tray: Tray | null = null;
 let startupWarmupTimer: ReturnType<typeof setTimeout> | null = null;
+let startupWarmupStarted = false;
 let currentState: PetState = "idle";
 let eventHistory: PetEvent[] = [];
 let runtimeStats: RuntimeStats | null = null;
@@ -820,15 +821,22 @@ function runStartupBehaviors() {
 }
 
 function scheduleStartupWarmup() {
-  if (startupWarmupTimer) return;
-  startupWarmupTimer = setTimeout(() => {
+  if (startupWarmupStarted || startupWarmupTimer) return;
+  startupWarmupTimer = setTimeout(runStartupWarmup, isPetEnabled() ? 2000 : 150);
+}
+
+function runStartupWarmup() {
+  if (startupWarmupStarted) return;
+  startupWarmupStarted = true;
+  if (startupWarmupTimer) {
+    clearTimeout(startupWarmupTimer);
     startupWarmupTimer = null;
-    warmPanelWindow();
-    void getClaudeResourcesSnapshot(false).catch(() => {});
-    setTimeout(() => void getClaudeSessionSnapshot(false).catch(() => {}), 250);
-    setTimeout(() => void getStats(), 500);
-    setTimeout(() => void getClaudeTokenStats(false).catch(() => {}), 5000);
-  }, 150);
+  }
+  warmPanelWindow();
+  void getClaudeResourcesSnapshot(false).catch(() => {});
+  setTimeout(() => void getClaudeSessionSnapshot(false).catch(() => {}), 250);
+  setTimeout(() => void getStats(), 500);
+  setTimeout(() => void getClaudeTokenStats(false).catch(() => {}), 5000);
 }
 
 function readJson(req: IncomingMessage): Promise<unknown> {
@@ -3408,6 +3416,9 @@ app.whenReady().then(() => {
     else panelWindow.maximize();
   });
   ipcMain.handle("pet:close-panel", () => hidePanelWindow());
+  ipcMain.on("companion:pet-rendered", event => {
+    if (petWindow && !petWindow.isDestroyed() && event.sender === petWindow.webContents) runStartupWarmup();
+  });
   ipcMain.on("companion:get-initial-state", event => {
     event.returnValue = companionInitialState();
   });

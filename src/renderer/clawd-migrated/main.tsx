@@ -41,8 +41,14 @@ import { PermissionCard } from "./components/PermissionCard";
 import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
 import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
 import { OverviewSection } from "./features/overview/OverviewSection";
+import { SettingsSection } from "./features/settings/SettingsSection";
+import { SessionsPage } from "./components/sessions/SessionsPage";
+import { PluginsPage } from "./components/plugins/PluginsPage";
+import { AnimationSection } from "./features/animation/AnimationSection";
+import { DataSection } from "./features/data/DataSection";
 import { connectionSurfaceKey } from "./features/overview/connectionState";
 import { useConnectionSurface } from "./features/overview/useConnectionSurface";
+import { petAnimationAssets } from "./utils/petAnimationAssets";
 import { animationKeyForPetState, normalizeAnimationKey, normalizeAnimationKeys, type PetAnimationKey } from "./utils/petAnimations";
 import { keepIdleAnimationConfigReference, type IdleAnimationConfig, planIdleAnimation, startIdleAnimator } from "../state/petIdleAnimator";
 import { getPetTheme } from "./utils/petThemes";
@@ -51,50 +57,6 @@ import { spritesheetAssetsFromPack } from "../../shared/petPackAssets";
 import { packIdFromThemeId, resolveThemeCatalog } from "../../shared/petThemeCatalog";
 
 const APP_DISPLAY_NAME = "Chara Desk";
-
-const SettingsSection = React.lazy(() => import("./features/settings/SettingsSection").then(module => ({ default: module.SettingsSection })));
-const SessionsPage = React.lazy(() => import("./components/sessions/SessionsPage").then(module => ({ default: module.SessionsPage })));
-const PluginsPage = React.lazy(() => import("./components/plugins/PluginsPage").then(module => ({ default: module.PluginsPage })));
-const AnimationSection = React.lazy(() => import("./features/animation/AnimationSection").then(module => ({ default: module.AnimationSection })));
-const DataSection = React.lazy(() => import("./features/data/DataSection").then(module => ({ default: module.DataSection })));
-
-function preloadPanelSections() {
-  void import("./features/settings/SettingsSection");
-  void import("./components/sessions/SessionsPage");
-  void import("./components/plugins/PluginsPage");
-  void import("./features/animation/AnimationSection");
-  void import("./features/data/DataSection");
-}
-
-function warmPanelData() {
-  void window.companion.getClaudeProfiles(false).catch(() => {});
-  void window.companion.getClaudeSessions(false).catch(() => {});
-  void window.companion.getStats().catch(() => {});
-}
-
-function SectionFallback() {
-  const { t } = useI18n();
-  return <p className="note">{t("common.loading", "加载中...")}</p>;
-}
-
-type PetAnimationAssets = Partial<Record<PetAnimationKey, string>>;
-let cachedPetAnimationAssets: PetAnimationAssets | null = null;
-
-function usePetAnimationAssets() {
-  const [assets, setAssets] = useState<PetAnimationAssets | null>(cachedPetAnimationAssets);
-  useEffect(() => {
-    if (assets) return undefined;
-    let cancelled = false;
-    import("./utils/petAnimationAssets")
-      .then(module => {
-        cachedPetAnimationAssets = module.petAnimationAssets;
-        if (!cancelled) setAssets(module.petAnimationAssets);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [assets]);
-  return assets;
-}
 
 const stateCopy: Record<PetState, { label: string; line: string; tone: string }> = {
   idle: { label: "待机", line: "Clawd 在桌面边缘小憩", tone: "sand" },
@@ -772,7 +734,7 @@ function Clawd({ state, settings, forceIdleBubble }: { state: PetState; settings
 function ClawdSprite({ state, idleBubble, eventType, tool, stateAnimations, overrideAnimation }: { state: PetState; idleBubble?: string | null; eventType?: CompanionEvent["event"]; tool?: string; stateAnimations?: Record<string, string>; overrideAnimation?: { key: string; nonce: number } | null }) {
   void eventType;
   void tool;
-  const assets = usePetAnimationAssets();
+  const assets = petAnimationAssets;
   const baseKey = idleBubble ? normalizeAnimationKey(idleBubble, "idle") : animationKeyForPetState(state);
   const animationKey = overrideAnimation ? normalizeAnimationKey(overrideAnimation.key, "idle") : normalizeAnimationKey(stateAnimations?.[baseKey], baseKey);
   const imageKey = overrideAnimation ? `${animationKey}:${overrideAnimation.nonce}` : animationKey;
@@ -881,7 +843,7 @@ function SettingsApp() {
   const [now, setNow] = useState(Date.now());
   const [appVersion, setAppVersion] = useState("...");
   const sectionContentRef = useRef<HTMLDivElement | null>(null);
-  const retainedSectionsRef = useRef(new Set<string>());
+  const [backgroundSectionsMounted, setBackgroundSectionsMounted] = useState(false);
 
   // Git 胶囊：在设置窗口也渲染一份（pet 窗口可能被遮挡）
   const [gitToast, setGitToast] = useState<{ id: string; title: string; message: string } | null>(null);
@@ -925,8 +887,14 @@ function SettingsApp() {
   const formatText = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 
   useEffect(() => {
-    preloadPanelSections();
-    warmPanelData();
+    let cancelled = false;
+    setBackgroundSectionsMounted(true);
+    void window.companion.getClaudeProfiles(false).catch(() => {});
+    void window.companion.getClaudeSessions(false).catch(() => {});
+    void window.companion.getStats()
+      .then(stats => { if (!cancelled) setPersistedStats(stats); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -971,7 +939,6 @@ function SettingsApp() {
 
   function jumpTo(section: string) {
     if (section === activeSection) return;
-    if (section === "sessions" || section === "plugins") retainedSectionsRef.current.add(section);
     const resetSectionScroll = () => {
       sectionContentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
       requestAnimationFrame(() => sectionContentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" }));
@@ -1093,8 +1060,8 @@ function SettingsApp() {
           />
         )}
 
-        <React.Suspense fallback={<SectionFallback />}>
-          {activeSection === "settings" && (
+        {(activeSection === "settings" || backgroundSectionsMounted) && (
+          <div style={{ display: activeSection === "settings" ? "contents" : "none" }} aria-hidden={activeSection !== "settings"}>
             <SettingsSection
               settings={settings}
               updateSettings={updateSettings}
@@ -1118,23 +1085,29 @@ function SettingsApp() {
               petPacks={petPacks}
               refreshPetPacks={refreshPetPacks}
             />
-          )}
+          </div>
+        )}
 
-          {(activeSection === "sessions" || retainedSectionsRef.current.has("sessions")) && (
-            <div style={{ display: activeSection === "sessions" ? "contents" : "none" }} aria-hidden={activeSection !== "sessions"}>
-              <SessionsPage active={activeSection === "sessions"} hideSensitiveContent={settings.hideSensitiveContent} />
-            </div>
-          )}
+        {(activeSection === "sessions" || backgroundSectionsMounted) && (
+          <div style={{ display: activeSection === "sessions" ? "contents" : "none" }} aria-hidden={activeSection !== "sessions"}>
+            <SessionsPage active={activeSection === "sessions"} hideSensitiveContent={settings.hideSensitiveContent} />
+          </div>
+        )}
 
-          {(activeSection === "plugins" || retainedSectionsRef.current.has("plugins")) && (
-            <div style={{ display: activeSection === "plugins" ? "contents" : "none" }} aria-hidden={activeSection !== "plugins"}>
-              <PluginsPage active={activeSection === "plugins"} settings={settings} updateSettings={updateSettings} />
-            </div>
-          )}
+        {(activeSection === "plugins" || backgroundSectionsMounted) && (
+          <div style={{ display: activeSection === "plugins" ? "contents" : "none" }} aria-hidden={activeSection !== "plugins"}>
+            <PluginsPage active={activeSection === "plugins"} settings={settings} updateSettings={updateSettings} />
+          </div>
+        )}
 
-          {activeSection === "animation" && <AnimationSection settings={settings} updateSettings={updateSettings} catalog={activeThemeCatalog} spritesheet={activeThemeSheet} />}
+        {(activeSection === "animation" || backgroundSectionsMounted) && (
+          <div style={{ display: activeSection === "animation" ? "contents" : "none" }} aria-hidden={activeSection !== "animation"}>
+            <AnimationSection active={activeSection === "animation"} settings={settings} updateSettings={updateSettings} catalog={activeThemeCatalog} spritesheet={activeThemeSheet} />
+          </div>
+        )}
 
-          {activeSection === "data" && (
+        {(activeSection === "data" || backgroundSectionsMounted) && (
+          <div style={{ display: activeSection === "data" ? "contents" : "none" }} aria-hidden={activeSection !== "data"}>
             <DataSection
               persistedStats={persistedStats}
               activityCount={events.length}
@@ -1142,8 +1115,8 @@ function SettingsApp() {
               onClearActivity={clearActivityHistory}
               onResetStats={handleResetStats}
             />
-          )}
-        </React.Suspense>
+          </div>
+        )}
       </div>
 
       <footer className="version-bar">
