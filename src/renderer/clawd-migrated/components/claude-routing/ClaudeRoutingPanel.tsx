@@ -1,4 +1,5 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Plus } from "lucide-react";
@@ -10,8 +11,95 @@ import { RoutingToaster } from "./RoutingToaster";
 import { SortableClaudeProviderCard } from "./ProviderCard";
 import type { ClaudeProvider } from "./types";
 
-// The editor pulls in CodeMirror and the preset catalog; load it on demand.
-const ProviderEditPanel = lazy(() => import("./ProviderEditPanel").then(module => ({ default: module.ProviderEditPanel })));
+function loadProviderEditPanel() {
+  return import("./ProviderEditPanel").then(module => ({ default: module.ProviderEditPanel }));
+}
+
+function preloadProviderEditPanel() {
+  void loadProviderEditPanel().catch(() => undefined);
+}
+
+const ProviderEditPanel = lazy(loadProviderEditPanel);
+
+type ProviderListProps = {
+  providers: ClaudeProvider[];
+  currentId: string;
+  testingId: string | null;
+  loaded: boolean;
+  emptyLabel: string;
+  onDragEnd: (event: DragEndEvent) => void;
+  onSwitch: (provider: ClaudeProvider) => void;
+  onEdit: (provider: ClaudeProvider) => void;
+  onDuplicate: (provider: ClaudeProvider) => void;
+  onTest: (provider: ClaudeProvider) => void;
+  onTerminal: (provider: ClaudeProvider) => void;
+  onRemove: (provider: ClaudeProvider) => void;
+};
+
+const ProviderList = memo(function ProviderList({
+  providers,
+  currentId,
+  testingId,
+  loaded,
+  emptyLabel,
+  onDragEnd,
+  onSwitch,
+  onEdit,
+  onDuplicate,
+  onTest,
+  onTerminal,
+  onRemove
+}: ProviderListProps) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+  const providerIds = useMemo(() => providers.map(provider => provider.id), [providers]);
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <SortableContext items={providerIds} strategy={verticalListSortingStrategy}>
+        <div className="ccs-provider-list">
+          {providers.map(provider => (
+            <SortableClaudeProviderCard
+              key={provider.id}
+              provider={provider}
+              isCurrent={provider.id === currentId}
+              canRemove={providers.length > 1 && provider.id !== currentId}
+              testing={testingId === provider.id}
+              onSwitch={onSwitch}
+              onEdit={onEdit}
+              onDuplicate={onDuplicate}
+              onTest={onTest}
+              onTerminal={onTerminal}
+              onRemove={onRemove}
+            />
+          ))}
+          {providers.length === 0 && loaded ? <div className="ccs-provider-empty">{emptyLabel}</div> : null}
+        </div>
+      </SortableContext>
+    </DndContext>
+  );
+});
+
+function ProviderEditorFallback({ label }: { label: string }) {
+  return createPortal(
+    <div className="ccs-fullscreen-panel ccs-provider-editor-loading" role="status" aria-label={label} aria-busy="true">
+      <header className="ccs-fullscreen-header">
+        <span className="ccs-provider-editor-loading-square" />
+        <span className="ccs-provider-editor-loading-title" />
+      </header>
+      <main className="ccs-fullscreen-body">
+        <div className="ccs-provider-editor-loading-surface">
+          <span />
+          <span />
+          <span />
+        </div>
+      </main>
+    </div>,
+    document.body
+  );
+}
 
 function formatI18n(template: string, values: Record<string, string | number>) {
   return Object.entries(values).reduce((text, [key, value]) => text.split(`{${key}}`).join(String(value)), template);
@@ -55,6 +143,19 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     return () => { unsubscribe?.(); };
   }, [companion, refresh]);
 
+  useEffect(() => {
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      const idleId = idleWindow.requestIdleCallback(preloadProviderEditPanel);
+      return () => idleWindow.cancelIdleCallback?.(idleId);
+    }
+    const timer = window.setTimeout(preloadProviderEditPanel, 300);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const providers = useMemo(() => listing?.providers ?? [], [listing]);
   const currentId = listing?.currentId ?? "";
   const isCcSwitch = listing?.source === "cc-switch";
@@ -81,12 +182,7 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     ? formatI18n(t("routing.providerCountCurrent", "{count} 个供应商 · 当前 {name}"), { count: sortedProviders.length, name: currentProvider.name })
     : formatI18n(t("routing.providerCount", "{count} 个供应商"), { count: sortedProviders.length });
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
-
-  function handleDragEnd(event: DragEndEvent) {
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = sortedProviders.findIndex(provider => provider.id === active.id);
@@ -98,23 +194,38 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
       if (!result?.ok) toast.error(result?.error ?? t("routing.orderFailed", "排序保存失败"));
       void refresh();
     });
-  }
+  }, [companion, refresh, sortedProviders, t]);
 
-  function closeEditor() {
+  const closeEditor = useCallback(() => {
     setCreating(false);
     setEditingProvider(null);
-  }
+  }, []);
 
-  async function saveProvider(provider: ClaudeProvider, originalId?: string) {
+  const mergeSavedProvider = useCallback((provider: ClaudeProvider, originalId?: string) => {
+    setListing(current => {
+      if (!current) return current;
+      const previousId = originalId ?? provider.id;
+      const exists = current.providers.some(item => item.id === previousId);
+      const nextProviders = exists
+        ? current.providers.map(item => item.id === previousId ? provider : item)
+        : [...current.providers, provider];
+      const nextCurrentId = !current.currentId || current.currentId === previousId ? provider.id : current.currentId;
+      return { ...current, providers: nextProviders, currentId: nextCurrentId };
+    });
+    setOrderOverride(null);
+  }, []);
+
+  const saveProvider = useCallback(async (provider: ClaudeProvider, originalId?: string) => {
     const result = await companion.saveClaudeProvider(provider, originalId);
     if (!result.ok) {
       toast.error(result.error ?? t("routing.saveFailed", "保存失败"));
       return;
     }
     toast.success(originalId ? t("routing.providerUpdated", "供应商已更新") : t("routing.providerAdded", "供应商已添加"));
+    if (result.provider) mergeSavedProvider(result.provider, originalId);
+    else void refresh();
     closeEditor();
-    void refresh();
-  }
+  }, [closeEditor, companion, mergeSavedProvider, refresh, t]);
 
   async function confirmDelete() {
     if (!pendingDelete) return;
@@ -125,14 +236,14 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     void refresh();
   }
 
-  async function handleDuplicate(provider: ClaudeProvider) {
+  const handleDuplicate = useCallback(async (provider: ClaudeProvider) => {
     const result = await companion.duplicateClaudeProvider(provider.id);
     if (result.ok) toast.success(t("routing.providerDuplicated", "已复制供应商"));
     else toast.error(result.error ?? t("routing.duplicateFailed", "复制失败"));
     void refresh();
-  }
+  }, [companion, refresh, t]);
 
-  async function handleSwitch(provider: ClaudeProvider) {
+  const handleSwitch = useCallback(async (provider: ClaudeProvider) => {
     const result = await companion.switchClaudeProvider(provider.id);
     if (!result.ok) {
       toast.error(result.error ?? t("routing.applyFailed", "切换失败"));
@@ -143,11 +254,11 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
       toast.warning(result.warnings.join(", "));
     }
     void refresh();
-  }
+  }, [companion, refresh, t]);
 
   // Toast pattern ported from cc-switch's useStreamCheck: success with
   // latency, warning when reachable but slow, error with a network hint.
-  async function handleTest(provider: ClaudeProvider) {
+  const handleTest = useCallback(async (provider: ClaudeProvider) => {
     setTestingId(provider.id);
     try {
       const result: ClaudeProviderTestResult = await companion.testClaudeProvider({ id: provider.id });
@@ -166,9 +277,9 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     } finally {
       setTestingId(null);
     }
-  }
+  }, [companion, t]);
 
-  async function handleTerminal(provider: ClaudeProvider) {
+  const handleTerminal = useCallback(async (provider: ClaudeProvider) => {
     // Ask which folder to open the terminal in first, like cc-switch: the terminal
     // runs `claude` against that project, so the folder is the point. Cancelling
     // the picker cancels the whole action — no toast, nothing launched.
@@ -177,7 +288,23 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     const result = await companion.openClaudeProviderTerminal(provider.id, cwd);
     if (result.ok) toast.success(t("routing.terminalOpened", "终端已打开"));
     else toast.error(result.error ?? t("routing.terminalFailed", "打开终端失败"));
-  }
+  }, [companion, t]);
+
+  const openNewProvider = useCallback(() => {
+    setCreating(true);
+    setEditingProvider(null);
+  }, []);
+  const emptyProvider = useMemo(
+    () => createEmptyProvider(sortedProviders.length, t("routing.newProvider", "新供应商")),
+    [sortedProviders.length, t]
+  );
+  const saveEditorProvider = useCallback((provider: ClaudeProvider, originalId?: string) => {
+    void saveProvider(provider, originalId);
+  }, [saveProvider]);
+  const testEditorEndpoint = useCallback(
+    (baseUrl: string) => companion.testClaudeProvider({ baseUrl }),
+    [companion]
+  );
 
   return (
     <section className="ccs-provider-board">
@@ -193,7 +320,9 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
         </div>
         <button
           className="cc-switch-add"
-          onClick={() => { setCreating(true); setEditingProvider(null); }}
+          onClick={openNewProvider}
+          onPointerEnter={preloadProviderEditPanel}
+          onFocus={preloadProviderEditPanel}
           title={t("routing.addProvider", "添加供应商")}
           aria-label={t("routing.addProvider", "添加供应商")}
         ><Plus size={18} /></button>
@@ -202,40 +331,30 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
       <RoutingToaster />
       {listing?.readError ? <div className="ccs-provider-status">{t("routing.dbReadError", "读取 cc-switch 数据库失败")}: {listing.readError}</div> : null}
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={sortedProviders.map(provider => provider.id)} strategy={verticalListSortingStrategy}>
-          <div className="ccs-provider-list">
-            {sortedProviders.map(provider => (
-              <SortableClaudeProviderCard
-                key={provider.id}
-                provider={provider}
-                isCurrent={provider.id === currentId}
-                canRemove={sortedProviders.length > 1 && provider.id !== currentId}
-                testing={testingId === provider.id}
-                onSwitch={handleSwitch}
-                onEdit={setEditingProvider}
-                onDuplicate={handleDuplicate}
-                onTest={handleTest}
-                onTerminal={handleTerminal}
-                onRemove={setPendingDelete}
-              />
-            ))}
-            {sortedProviders.length === 0 && listing ? (
-              <div className="ccs-provider-empty">{t("routing.noProviders", "还没有供应商，点击右上角添加")}</div>
-            ) : null}
-          </div>
-        </SortableContext>
-      </DndContext>
+      <ProviderList
+        providers={sortedProviders}
+        currentId={currentId}
+        testingId={testingId}
+        loaded={Boolean(listing)}
+        emptyLabel={t("routing.noProviders", "还没有供应商，点击右上角添加")}
+        onDragEnd={handleDragEnd}
+        onSwitch={handleSwitch}
+        onEdit={setEditingProvider}
+        onDuplicate={handleDuplicate}
+        onTest={handleTest}
+        onTerminal={handleTerminal}
+        onRemove={setPendingDelete}
+      />
 
       {creating || editingProvider ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={<ProviderEditorFallback label={t("routing.loadingEditor", "正在打开供应商编辑器")} />}>
           <ProviderEditPanel
-            provider={editingProvider ?? createEmptyProvider(sortedProviders.length, t("routing.newProvider", "新供应商"))}
+            provider={editingProvider ?? emptyProvider}
             mode={editingProvider ? "edit" : "add"}
             hasCommonConfig={listing?.hasCommonConfig}
-            onSave={(provider, originalId) => { void saveProvider(provider, originalId); }}
+            onSave={saveEditorProvider}
             onClose={closeEditor}
-            onTestEndpoint={baseUrl => companion.testClaudeProvider({ baseUrl })}
+            onTestEndpoint={testEditorEndpoint}
           />
         </Suspense>
       ) : null}

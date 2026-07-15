@@ -1,11 +1,10 @@
-import { useMemo, useState } from "react";
+import { Suspense, lazy, memo, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Gauge, Plus, Save } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import type { ClaudeProviderTestResult } from "../../../shared/events";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { IconPicker } from "./IconPicker";
-import { JsonConfigEditor } from "./JsonConfigEditor";
 import { ProviderIcon } from "./ProviderIcon";
 import { getIconMetadata } from "./icons/metadata";
 import { addIconsToPresets } from "./iconInference";
@@ -13,6 +12,7 @@ import { claudeProviderPresets, type ClaudeProviderPreset } from "./presets";
 import type { ClaudeProvider } from "./types";
 
 const presetsWithIcons = addIconsToPresets(claudeProviderPresets);
+const JsonConfigEditor = lazy(() => import("./JsonConfigEditor").then(module => ({ default: module.JsonConfigEditor })));
 
 type SettingsConfig = ClaudeProvider["settingsConfig"];
 
@@ -61,7 +61,7 @@ function isValidHttpEndpoint(value: string) {
   }
 }
 
-export function ProviderEditPanel({
+export const ProviderEditPanel = memo(function ProviderEditPanel({
   provider,
   mode,
   hasCommonConfig,
@@ -562,7 +562,11 @@ export function ProviderEditPanel({
                 aria-pressed={showRawConfig}
               >{showRawConfig ? <EyeOff size={16} /> : <Eye size={16} />}</button>
             </div>
-            {showRawConfig ? <JsonConfigEditor value={configText} onChange={setConfigText} ariaLabel={t("routing.configLabel", "配置（settings.json）")} /> : null}
+            {showRawConfig ? (
+              <Suspense fallback={<div className="ccs-json-editor ccs-json-editor-loading" aria-hidden="true" />}>
+                <JsonConfigEditor value={configText} onChange={setConfigText} ariaLabel={t("routing.configLabel", "配置（settings.json）")} />
+              </Suspense>
+            ) : null}
             {configInvalid ? <small className="ccs-field-error">{t("routing.configInvalid", "配置不是合法的 JSON 对象")}</small> : null}
           </section>
         </form>
@@ -604,4 +608,4 @@ export function ProviderEditPanel({
     </div>,
     document.body
   );
-}
+});
