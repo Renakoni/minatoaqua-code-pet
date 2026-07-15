@@ -66,12 +66,22 @@ describe("Claude routing render isolation", () => {
 
     await screen.findByText("Provider 39");
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(providerEditorRender).toHaveBeenCalledWith(expect.objectContaining({ mode: "add", visible: false }));
     providerIconRender.mockClear();
+    providerEditorRender.mockClear();
 
     fireEvent.click(screen.getByRole("button", { name: /Add provider/i }));
-    await waitFor(() => expect(providerEditorRender).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(providerEditorRender).toHaveBeenCalledWith(expect.objectContaining({ mode: "add", visible: true })));
 
     expect(providerIconRender).not.toHaveBeenCalled();
+
+    const editorProps = providerEditorRender.mock.calls.at(-1)?.[0] as { onClose: () => void };
+    providerEditorRender.mockClear();
+    act(() => editorProps.onClose());
+    expect(providerEditorRender).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(providerEditorRender).toHaveBeenCalledWith(expect.objectContaining({ mode: "add", visible: false }));
+    });
   });
 
   it("merges a saved provider without re-reading the full provider list", async () => {

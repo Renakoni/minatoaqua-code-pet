@@ -61,21 +61,26 @@ function isValidHttpEndpoint(value: string) {
   }
 }
 
-export const ProviderEditPanel = memo(function ProviderEditPanel({
+type ProviderEditPanelProps = {
+  provider: ClaudeProvider;
+  mode: "add" | "edit";
+  visible?: boolean;
+  hasCommonConfig?: boolean;
+  onSave: (provider: ClaudeProvider, originalId?: string) => void;
+  onClose: () => void;
+  onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
+};
+
+type ProviderEditPanelContentProps = Omit<ProviderEditPanelProps, "visible">;
+
+const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   provider,
   mode,
   hasCommonConfig,
   onSave,
   onClose,
   onTestEndpoint
-}: {
-  provider: ClaudeProvider;
-  mode: "add" | "edit";
-  hasCommonConfig?: boolean;
-  onSave: (provider: ClaudeProvider, originalId?: string) => void;
-  onClose: () => void;
-  onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
-}) {
+}: ProviderEditPanelContentProps) {
   const { t } = useI18n();
 
   const [name, setName] = useState(provider.name);
@@ -276,8 +281,10 @@ export const ProviderEditPanel = memo(function ProviderEditPanel({
 
   // Portal to <body>: ancestors with backdrop-filter/transform would otherwise
   // trap position:fixed and the footer could scroll out of view.
-  return createPortal(
-    <div className="ccs-fullscreen-panel">
+  const formId = mode === "add" ? "claude-provider-add-form" : "claude-provider-edit-form";
+
+  return (
+    <>
       <header className="ccs-fullscreen-header">
         <button className="ccs-back-button" type="button" onClick={onClose} aria-label={t("common.back", "返回")} title={t("common.back", "返回")}><ArrowLeft size={18} /></button>
         <div className="ccs-fullscreen-title">
@@ -288,7 +295,7 @@ export const ProviderEditPanel = memo(function ProviderEditPanel({
 
       <main className="ccs-fullscreen-body">
         <form
-          id="claude-provider-form"
+          id={formId}
           className="ccs-provider-form"
           onSubmit={event => { event.preventDefault(); submit(); }}
         >
@@ -575,7 +582,7 @@ export const ProviderEditPanel = memo(function ProviderEditPanel({
       <footer className="ccs-fullscreen-footer">
         {hardError ? <span className="ccs-form-error">{hardError}</span> : null}
         <button className="ccs-panel-cancel" type="button" onClick={onClose}>{t("common.cancel", "取消")}</button>
-        <button className="ccs-save-button" type="submit" form="claude-provider-form">
+        <button className="ccs-save-button" type="submit" form={formId}>
           {mode === "edit" ? <Save size={16} /> : <Plus size={16} />}
           {mode === "edit" ? t("common.save", "保存") : t("common.add", "添加")}
         </button>
@@ -605,6 +612,20 @@ export const ProviderEditPanel = memo(function ProviderEditPanel({
           </ul>
         </ConfirmDialog>
       ) : null}
+    </>
+  );
+});
+
+export const ProviderEditPanel = memo(function ProviderEditPanel({
+  visible = true,
+  ...contentProps
+}: ProviderEditPanelProps) {
+  return createPortal(
+    <div
+      className={`ccs-fullscreen-panel${visible ? "" : " ccs-provider-editor-prewarm"}`}
+      aria-hidden={visible ? undefined : true}
+    >
+      <ProviderEditPanelContent {...contentProps} />
     </div>,
     document.body
   );
