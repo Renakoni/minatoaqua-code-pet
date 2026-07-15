@@ -84,7 +84,7 @@ describe("PetThemeGrid rendering", () => {
   it("renders Chinese copy under the Chinese locale", () => {
     renderGrid("zh");
     expect(screen.getAllByText("导入宠物").length).toBeGreaterThan(0);
-    expect(screen.getByText("Codex 宠物包 (.zip)")).toBeTruthy();
+    expect(screen.getByText("codex-pet 宠物包 (.zip)")).toBeTruthy();
   });
 
   it("uses separate sibling native buttons for selection and removal", () => {
