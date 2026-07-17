@@ -1,4 +1,4 @@
-import { Suspense, lazy, memo, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Gauge, Plus, Save } from "lucide-react";
 import { useI18n } from "../../useI18n";
@@ -61,6 +61,74 @@ function isValidHttpEndpoint(value: string) {
   }
 }
 
+// The preset grid is the heaviest part of the form: ~60 buttons, each with a
+// ProviderIcon that parses an inline SVG. cc-switch keeps this in its own
+// ProviderPresetSelector with search/sort state held locally so typing in the
+// provider fields never touches it. We mirror that: search/sort/filtering live
+// here, and the component is memoized on { activeIndex, onSelect } — both stable
+// while editing other fields — so a keystroke in API Key / Base URL / model
+// inputs no longer reconciles the grid.
+type PresetGridProps = {
+  activeIndex: number | "custom";
+  onSelect: (index: number | "custom") => void;
+};
+
+const PresetGrid = memo(function PresetGrid({ activeIndex, onSelect }: PresetGridProps) {
+  const { t } = useI18n();
+  const [search, setSearch] = useState("");
+  const [sorted, setSorted] = useState(false);
+
+  const visiblePresets = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    let list = presetsWithIcons.map((preset, index) => ({ preset, index }));
+    if (query) list = list.filter(({ preset }) => preset.name.toLowerCase().includes(query));
+    if (sorted) list = [...list].sort((a, b) => a.preset.name.localeCompare(b.preset.name, "zh-CN"));
+    return list;
+  }, [search, sorted]);
+
+  return (
+    <section className="ccs-form-card">
+      <div className="ccs-preset-head">
+        <span className="ccs-field-label">{t("routing.presetLabel", "预设供应商")}</span>
+        <div className="ccs-preset-tools">
+          <input
+            value={search}
+            onChange={event => setSearch(event.target.value)}
+            placeholder={t("routing.presetSearch", "搜索预设…")}
+            aria-label={t("routing.presetSearch", "搜索预设…")}
+          />
+          <button
+            type="button"
+            className={sorted ? "active" : ""}
+            onClick={() => setSorted(current => !current)}
+            title={t("routing.presetSort", "按名称排序")}
+          >A-Z</button>
+        </div>
+      </div>
+      <div className="ccs-preset-grid">
+        <button
+          type="button"
+          className={`ccs-preset-item ${activeIndex === "custom" ? "active" : ""}`}
+          onClick={() => onSelect("custom")}
+        >{t("routing.presetCustom", "自定义")}</button>
+        {visiblePresets.map(({ preset, index }) => (
+          <button
+            key={`${preset.name}-${index}`}
+            type="button"
+            className={`ccs-preset-item ${activeIndex === index ? "active" : ""}`}
+            onClick={() => onSelect(index)}
+            title={preset.websiteUrl}
+          >
+            <ProviderIcon icon={preset.icon} name={preset.name} color={preset.iconColor} size={16} />
+            <span>{preset.name}</span>
+            {preset.isPartner ? <em title={t("routing.presetPartner", "合作伙伴")}>★</em> : null}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+});
+
 type ProviderEditPanelProps = {
   provider: ClaudeProvider;
   mode: "add" | "edit";
@@ -101,8 +169,6 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   const [showApiKey, setShowApiKey] = useState(false);
   const [showRawConfig, setShowRawConfig] = useState(false);
   const [presetIndex, setPresetIndex] = useState<number | "custom">("custom");
-  const [presetSearch, setPresetSearch] = useState("");
-  const [presetSorted, setPresetSorted] = useState(false);
   const [templateBase, setTemplateBase] = useState<string | null>(null);
   const [templateValues, setTemplateValues] = useState<Record<string, string>>({});
   const [endpointCandidates, setEndpointCandidates] = useState<string[]>([]);
@@ -117,14 +183,6 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   const baseUrl = env.ANTHROPIC_BASE_URL ?? "";
   const apiKey = env[apiKeyField] ?? "";
   const isOfficial = category === "official";
-
-  const visiblePresets = useMemo(() => {
-    const query = presetSearch.trim().toLowerCase();
-    let list = presetsWithIcons.map((preset, index) => ({ preset, index }));
-    if (query) list = list.filter(({ preset }) => preset.name.toLowerCase().includes(query));
-    if (presetSorted) list = [...list].sort((a, b) => a.preset.name.localeCompare(b.preset.name, "zh-CN"));
-    return list;
-  }, [presetSearch, presetSorted]);
 
   function updateConfig(mutate: (config: SettingsConfig) => void) {
     if (!parsedConfig) return;
@@ -154,7 +212,9 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
     setApiKeyField(nextField);
   }
 
-  function applyPreset(index: number | "custom") {
+  // Stable identity so the memoized PresetGrid doesn't re-render when unrelated
+  // form fields change — it only closes over stable setters and module data.
+  const applyPreset = useCallback((index: number | "custom") => {
     setPresetIndex(index);
     setEndpointResults({});
     if (index === "custom") {
@@ -187,7 +247,7 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
       setTemplateValues({});
       setConfigText(baseText);
     }
-  }
+  }, []);
 
   function handleTemplateValue(key: string, value: string) {
     const nextValues = { ...templateValues, [key]: value };
@@ -300,45 +360,7 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
           onSubmit={event => { event.preventDefault(); submit(); }}
         >
           {mode === "add" ? (
-            <section className="ccs-form-card">
-              <div className="ccs-preset-head">
-                <span className="ccs-field-label">{t("routing.presetLabel", "预设供应商")}</span>
-                <div className="ccs-preset-tools">
-                  <input
-                    value={presetSearch}
-                    onChange={event => setPresetSearch(event.target.value)}
-                    placeholder={t("routing.presetSearch", "搜索预设…")}
-                    aria-label={t("routing.presetSearch", "搜索预设…")}
-                  />
-                  <button
-                    type="button"
-                    className={presetSorted ? "active" : ""}
-                    onClick={() => setPresetSorted(current => !current)}
-                    title={t("routing.presetSort", "按名称排序")}
-                  >A-Z</button>
-                </div>
-              </div>
-              <div className="ccs-preset-grid">
-                <button
-                  type="button"
-                  className={`ccs-preset-item ${presetIndex === "custom" ? "active" : ""}`}
-                  onClick={() => applyPreset("custom")}
-                >{t("routing.presetCustom", "自定义")}</button>
-                {visiblePresets.map(({ preset, index }) => (
-                  <button
-                    key={`${preset.name}-${index}`}
-                    type="button"
-                    className={`ccs-preset-item ${presetIndex === index ? "active" : ""}`}
-                    onClick={() => applyPreset(index)}
-                    title={preset.websiteUrl}
-                  >
-                    <ProviderIcon icon={preset.icon} name={preset.name} color={preset.iconColor} size={16} />
-                    <span>{preset.name}</span>
-                    {preset.isPartner ? <em title={t("routing.presetPartner", "合作伙伴")}>★</em> : null}
-                  </button>
-                ))}
-              </div>
-            </section>
+            <PresetGrid activeIndex={presetIndex} onSelect={applyPreset} />
           ) : null}
 
           <section className="ccs-form-card">
