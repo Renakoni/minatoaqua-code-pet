@@ -34,6 +34,7 @@ describe("provider secret visibility", () => {
             settingsConfig: { env: { ANTHROPIC_AUTH_TOKEN: SECRET, ANTHROPIC_BASE_URL: "https://api.example.test" } }
           }}
           mode="edit"
+          open
           onSave={vi.fn()}
           onClose={vi.fn()}
         />
@@ -66,6 +67,7 @@ describe("provider secret visibility", () => {
             settingsConfig: { env: { ANTHROPIC_AUTH_TOKEN: SECRET, ANTHROPIC_BASE_URL: endpoint } }
           }}
           mode="edit"
+          open
           onSave={onSave}
           onClose={vi.fn()}
         />

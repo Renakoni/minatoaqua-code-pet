@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Plus } from "lucide-react";
@@ -95,10 +95,8 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
   const [orderOverride, setOrderOverride] = useState<string[] | null>(null);
   const [editingProvider, setEditingProvider] = useState<ClaudeProvider | null>(null);
   const [creating, setCreating] = useState(false);
-  const [addEditorMounted, setAddEditorMounted] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<ClaudeProvider | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
-  const addEditorPrewarmTimerRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -115,12 +113,6 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     const unsubscribe = companion.onCcSwitchChanged?.(() => { void refresh(); });
     return () => { unsubscribe?.(); };
   }, [companion, refresh]);
-
-  useEffect(() => () => {
-    if (addEditorPrewarmTimerRef.current !== null) {
-      window.clearTimeout(addEditorPrewarmTimerRef.current);
-    }
-  }, []);
 
   const providers = useMemo(() => listing?.providers ?? [], [listing]);
   const currentId = listing?.currentId ?? "";
@@ -163,14 +155,6 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
   }, [companion, refresh, sortedProviders, t]);
 
   const closeAddEditor = useCallback(() => {
-    setAddEditorMounted(false);
-    if (addEditorPrewarmTimerRef.current !== null) {
-      window.clearTimeout(addEditorPrewarmTimerRef.current);
-    }
-    addEditorPrewarmTimerRef.current = window.setTimeout(() => {
-      addEditorPrewarmTimerRef.current = null;
-      setAddEditorMounted(true);
-    }, 50);
     setCreating(false);
   }, []);
 
@@ -269,11 +253,6 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
   }, [companion, t]);
 
   const openNewProvider = useCallback(() => {
-    if (addEditorPrewarmTimerRef.current !== null) {
-      window.clearTimeout(addEditorPrewarmTimerRef.current);
-      addEditorPrewarmTimerRef.current = null;
-    }
-    setAddEditorMounted(true);
     setCreating(true);
     setEditingProvider(null);
   }, []);
@@ -327,28 +306,25 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
         onRemove={setPendingDelete}
       />
 
-      {addEditorMounted ? (
-        <ProviderEditPanel
-          provider={emptyProvider}
-          mode="add"
-          visible={creating}
-          hasCommonConfig={listing?.hasCommonConfig}
-          onSave={saveEditorProvider}
-          onClose={closeAddEditor}
-          onTestEndpoint={testEditorEndpoint}
-        />
-      ) : null}
+      <ProviderEditPanel
+        provider={emptyProvider}
+        mode="add"
+        open={creating}
+        hasCommonConfig={listing?.hasCommonConfig}
+        onSave={saveEditorProvider}
+        onClose={closeAddEditor}
+        onTestEndpoint={testEditorEndpoint}
+      />
 
-      {editingProvider ? (
-        <ProviderEditPanel
-          provider={editingProvider}
-          mode="edit"
-          hasCommonConfig={listing?.hasCommonConfig}
-          onSave={saveEditorProvider}
-          onClose={closeEditEditor}
-          onTestEndpoint={testEditorEndpoint}
-        />
-      ) : null}
+      <ProviderEditPanel
+        provider={editingProvider}
+        mode="edit"
+        open={Boolean(editingProvider)}
+        hasCommonConfig={listing?.hasCommonConfig}
+        onSave={saveEditorProvider}
+        onClose={closeEditEditor}
+        onTestEndpoint={testEditorEndpoint}
+      />
 
       {pendingDelete ? (
         <ConfirmDialog

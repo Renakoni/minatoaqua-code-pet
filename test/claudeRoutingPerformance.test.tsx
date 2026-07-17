@@ -66,22 +66,24 @@ describe("Claude routing render isolation", () => {
 
     await screen.findByText("Provider 39");
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-    expect(providerEditorRender).toHaveBeenCalledWith(expect.objectContaining({ mode: "add", visible: false }));
+    // Both the add and edit editors are always rendered now — `open` drives each
+    // one's mount-on-demand lifecycle — so pick the add editor's latest props.
+    const lastAddProps = () =>
+      providerEditorRender.mock.calls
+        .map(call => call[0])
+        .filter((props: { mode: string }) => props.mode === "add")
+        .at(-1) as { open: boolean; onClose: () => void } | undefined;
+    expect(lastAddProps()).toEqual(expect.objectContaining({ mode: "add", open: false }));
     providerIconRender.mockClear();
-    providerEditorRender.mockClear();
 
     fireEvent.click(screen.getByRole("button", { name: /Add provider/i }));
-    await waitFor(() => expect(providerEditorRender).toHaveBeenCalledWith(expect.objectContaining({ mode: "add", visible: true })));
+    await waitFor(() => expect(lastAddProps()).toEqual(expect.objectContaining({ mode: "add", open: true })));
 
+    // Opening the editor must not re-render the sortable provider cards.
     expect(providerIconRender).not.toHaveBeenCalled();
 
-    const editorProps = providerEditorRender.mock.calls.at(-1)?.[0] as { onClose: () => void };
-    providerEditorRender.mockClear();
-    act(() => editorProps.onClose());
-    expect(providerEditorRender).not.toHaveBeenCalled();
-    await waitFor(() => {
-      expect(providerEditorRender).toHaveBeenCalledWith(expect.objectContaining({ mode: "add", visible: false }));
-    });
+    act(() => lastAddProps()!.onClose());
+    await waitFor(() => expect(lastAddProps()).toEqual(expect.objectContaining({ mode: "add", open: false })));
   });
 
   it("merges a saved provider without re-reading the full provider list", async () => {
@@ -128,9 +130,10 @@ describe("Claude routing render isolation", () => {
     await screen.findByText("Provider 1");
     fireEvent.click(screen.getByRole("button", { name: /Add provider/i }));
     await waitFor(() => expect(providerEditorRender).toHaveBeenCalled());
-    const editorProps = providerEditorRender.mock.calls.at(-1)?.[0] as {
-      onSave: (provider: typeof savedProvider) => void;
-    };
+    const editorProps = providerEditorRender.mock.calls
+      .map(call => call[0])
+      .filter((props: { mode: string }) => props.mode === "add")
+      .at(-1) as { onSave: (provider: typeof savedProvider) => void };
 
     act(() => editorProps.onSave(savedProvider));
 

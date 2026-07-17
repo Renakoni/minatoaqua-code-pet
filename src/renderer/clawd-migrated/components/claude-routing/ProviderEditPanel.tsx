@@ -1,4 +1,4 @@
-import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Gauge, Plus, Save } from "lucide-react";
 import { useI18n } from "../../useI18n";
@@ -130,16 +130,25 @@ const PresetGrid = memo(function PresetGrid({ activeIndex, onSelect }: PresetGri
 });
 
 type ProviderEditPanelProps = {
-  provider: ClaudeProvider;
+  // Null while closed (the parent clears its selection); the panel retains the
+  // last non-null provider so the exit fade still has something to render.
+  provider: ClaudeProvider | null;
   mode: "add" | "edit";
-  visible?: boolean;
+  open: boolean;
   hasCommonConfig?: boolean;
   onSave: (provider: ClaudeProvider, originalId?: string) => void;
   onClose: () => void;
   onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
 };
 
-type ProviderEditPanelContentProps = Omit<ProviderEditPanelProps, "visible">;
+type ProviderEditPanelContentProps = {
+  provider: ClaudeProvider;
+  mode: "add" | "edit";
+  hasCommonConfig?: boolean;
+  onSave: (provider: ClaudeProvider, originalId?: string) => void;
+  onClose: () => void;
+  onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
+};
 
 const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   provider,
@@ -638,32 +647,57 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   );
 });
 
+// Matches the CSS opacity/transform transition on .ccs-fullscreen-panel; the
+// content stays mounted this long after close so the exit fade can play.
+const PANEL_EXIT_MS = 220;
+
 export const ProviderEditPanel = memo(function ProviderEditPanel({
-  visible = true,
+  open,
+  provider,
+  onClose,
   ...contentProps
 }: ProviderEditPanelProps) {
-  // cc-switch parity: the panel fades/rises in instead of snapping on. We start
-  // one frame behind the "shown" state (entered=false) so the very first paint
-  // lands in the hidden state, then flip to shown on the next frame — that gives
-  // the CSS opacity/transform transition a start value to animate from. The
-  // prewarmed add panel is already mounted, so its fade never pays a mount cost.
-  const [entered, setEntered] = useState(false);
+  // cc-switch parity: the form mounts on demand and fades in; on close it fades
+  // out first, then unmounts (a small AnimatePresence-lite). This retires the
+  // prewarm / visibility-toggle / 50ms-rebuild machinery — reopening remounts
+  // fresh content, which is what resets the form.
+  //
+  //  - `rendered` keeps the content in the DOM across the exit fade.
+  //  - `shown` drives the visual fade: it dips false for the one pre-enter frame
+  //    (so the CSS transition has a hidden start value) and again during exit.
+  //  - a11y visibility tracks `open` (the semantic state), not the animation
+  //    frame, so role queries / screen readers see the panel the instant it opens
+  //    and stop seeing it the instant it closes.
+  const [rendered, setRendered] = useState(open);
+  const [shown, setShown] = useState(false);
+  const providerRef = useRef(provider);
+  if (open && provider) providerRef.current = provider;
+
   useEffect(() => {
-    const raf = requestAnimationFrame(() => setEntered(true));
-    return () => cancelAnimationFrame(raf);
-  }, []);
-  // `shown` drives only the visual fade (opacity/transform) — it dips false for
-  // the one pre-enter frame so the edit panel animates in from hidden. a11y
-  // visibility must track `visible` (the semantic state), not the animation
-  // frame, or the panel would be aria-hidden for a frame and role queries /
-  // screen readers would miss it.
-  const shown = visible && entered;
+    if (open) {
+      setRendered(true);
+      const raf = requestAnimationFrame(() => setShown(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    setShown(false);
+    const timer = window.setTimeout(() => setRendered(false), PANEL_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  const activeProvider = providerRef.current;
+  if (!rendered || !activeProvider) return null;
+
   return createPortal(
     <div
-      className={`ccs-fullscreen-panel${shown ? "" : " ccs-provider-editor-prewarm"}`}
-      aria-hidden={visible ? undefined : true}
+      className={`ccs-fullscreen-panel${shown ? "" : " ccs-fullscreen-hidden"}`}
+      aria-hidden={open ? undefined : true}
     >
-      <ProviderEditPanelContent {...contentProps} />
+      <ProviderEditPanelContent
+        key={activeProvider.id || "add"}
+        provider={activeProvider}
+        onClose={onClose}
+        {...contentProps}
+      />
     </div>,
     document.body
   );
