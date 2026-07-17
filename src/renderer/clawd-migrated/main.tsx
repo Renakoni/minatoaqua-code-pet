@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Anchor,
@@ -827,13 +827,29 @@ function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
   const { settings, updateSettings, connection, applyConnection, events, petState, toolStreams, clearActivityHistory } = useCompanion();
   const { petPacks, refreshPetPacks } = usePetPacks();
+
+  // Stable callback identities for the memoized sections below. useCompanion
+  // redefines updateSettings/clearActivityHistory on every render, so hand the
+  // sections a ref-backed wrapper that always calls the latest one but keeps a
+  // fixed identity — otherwise React.memo on the sections could never bail.
+  const updateSettingsRef = useRef(updateSettings);
+  updateSettingsRef.current = updateSettings;
+  const stableUpdateSettings = useCallback(next => updateSettingsRef.current(next), []);
+  const clearActivityRef = useRef(clearActivityHistory);
+  clearActivityRef.current = clearActivityHistory;
+  const stableClearActivity = useCallback(() => clearActivityRef.current(), []);
+
   const activePetTheme = getPetTheme(settings.petTheme, petPacks);
-  // Active theme's animation catalog and (for imported packs) its sheet —
-  // the animation workbench pickers follow the theme the pet actually shows.
-  const activeThemeCatalog = resolveThemeCatalog(settings.petTheme, petPacks);
-  const activeThemePackId = packIdFromThemeId(settings.petTheme);
-  const activeThemePack = activeThemePackId ? petPacks.find(pack => pack.id === activeThemePackId) ?? null : null;
-  const activeThemeSheet = activeThemePack ? spritesheetAssetsFromPack(activeThemePack) : null;
+  // Active theme's animation catalog and (for imported packs) its sheet — the
+  // animation workbench pickers follow the theme the pet actually shows.
+  // Memoized so a slider drag / clock tick doesn't hand AnimationSection new
+  // catalog/sheet references and force it (and its sprite grid) to re-render.
+  const activeThemeCatalog = useMemo(() => resolveThemeCatalog(settings.petTheme, petPacks), [settings.petTheme, petPacks]);
+  const activeThemeSheet = useMemo(() => {
+    const packId = packIdFromThemeId(settings.petTheme);
+    const pack = packId ? petPacks.find(item => item.id === packId) ?? null : null;
+    return pack ? spritesheetAssetsFromPack(pack) : null;
+  }, [settings.petTheme, petPacks]);
   // Character chrome (anchor icon, character name in the version bar) only
   // belongs to the pet interface theme; light/dark stay neutral.
   const petChromeActive = (settings.theme ?? "system") === "system" && activePetTheme.interfaceTheme === "pet";
@@ -932,7 +948,11 @@ function SettingsApp() {
   }, [activeSection]);
 
   useEffect(() => {
-    if (activeSection !== "general" && activeSection !== "settings") return undefined;
+    // Only SettingsSection consumes `now` (relative timestamps), so tick the
+    // clock only while that tab is active. Ticking on other tabs re-rendered
+    // the whole panel — and every keep-mounted section — once per second for
+    // nothing visible.
+    if (activeSection !== "settings") return undefined;
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, [activeSection]);
@@ -992,10 +1012,10 @@ function SettingsApp() {
     }
   }
 
-  async function handleResetStats() {
+  const handleResetStats = useCallback(async () => {
     await window.companion.resetStats();
     setPersistedStats(await window.companion.getStats());
-  }
+  }, []);
 
   return (
     <main className="settings-shell">
@@ -1049,7 +1069,7 @@ function SettingsApp() {
         {activeSection === "general" && (
           <OverviewSection
             settings={settings}
-            updateSettings={updateSettings}
+            updateSettings={stableUpdateSettings}
             connection={connection}
             hookStatus={connectionSurface.hookStatus}
             checkError={connectionSurface.checkError}
@@ -1064,7 +1084,7 @@ function SettingsApp() {
           <div style={{ display: activeSection === "settings" ? "contents" : "none" }} aria-hidden={activeSection !== "settings"}>
             <SettingsSection
               settings={settings}
-              updateSettings={updateSettings}
+              updateSettings={stableUpdateSettings}
               connection={connection}
               now={now}
               hookStatus={connectionSurface.hookStatus}
@@ -1096,13 +1116,13 @@ function SettingsApp() {
 
         {(activeSection === "plugins" || backgroundSectionsMounted) && (
           <div style={{ display: activeSection === "plugins" ? "contents" : "none" }} aria-hidden={activeSection !== "plugins"}>
-            <PluginsPage active={activeSection === "plugins"} settings={settings} updateSettings={updateSettings} />
+            <PluginsPage active={activeSection === "plugins"} settings={settings} updateSettings={stableUpdateSettings} />
           </div>
         )}
 
         {(activeSection === "animation" || backgroundSectionsMounted) && (
           <div style={{ display: activeSection === "animation" ? "contents" : "none" }} aria-hidden={activeSection !== "animation"}>
-            <AnimationSection active={activeSection === "animation"} settings={settings} updateSettings={updateSettings} catalog={activeThemeCatalog} spritesheet={activeThemeSheet} />
+            <AnimationSection active={activeSection === "animation"} settings={settings} updateSettings={stableUpdateSettings} catalog={activeThemeCatalog} spritesheet={activeThemeSheet} />
           </div>
         )}
 
@@ -1112,7 +1132,7 @@ function SettingsApp() {
               persistedStats={persistedStats}
               activityCount={events.length}
               hideSensitiveContent={settings.hideSensitiveContent}
-              onClearActivity={clearActivityHistory}
+              onClearActivity={stableClearActivity}
               onResetStats={handleResetStats}
             />
           </div>

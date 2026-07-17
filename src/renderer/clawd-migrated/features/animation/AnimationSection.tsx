@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown, Clock3, FlaskConical, Repeat2, RotateCcw, Shuffle, Sparkles, Wand2, X } from "lucide-react";
 import type { CompanionSettings, IdleAnimConfig } from "../../../shared/events";
 import { defaultSettings } from "../../../shared/events";
@@ -11,7 +11,7 @@ import { MINATO_AQUA_CATALOG, normalizeMappableAnimationKey } from "../../../../
 import { SpritesheetSprite } from "../../../components/SpritesheetSprite";
 import { displayedSpriteHeight } from "../../../../shared/spriteFrame";
 
-export function AnimationSection({ settings, updateSettings, catalog = MINATO_AQUA_CATALOG, spritesheet = null, active = true }: {
+function AnimationSectionInner({ settings, updateSettings, catalog = MINATO_AQUA_CATALOG, spritesheet = null, active = true }: {
   settings: CompanionSettings;
   updateSettings: (settings: Partial<CompanionSettings>) => void;
   catalog?: any;
@@ -22,8 +22,8 @@ export function AnimationSection({ settings, updateSettings, catalog = MINATO_AQ
   // Drag-only locomotion keys are not standalone actions: the idle pool and
   // mapping pickers offer the mappable subset, while the Animation Test still
   // previews every row the theme provides.
-  const options = petAnimationOptionsForCatalog(catalog);
-  const actionOptions = petAnimationMappableOptionsForCatalog(catalog);
+  const options = useMemo(() => petAnimationOptionsForCatalog(catalog), [catalog]);
+  const actionOptions = useMemo(() => petAnimationMappableOptionsForCatalog(catalog), [catalog]);
 
   return (
     <div className="animation-page animation-workbench">
@@ -336,7 +336,11 @@ function SpriteOptionButton({ spriteKey, label, selected, onClick, spritesheet }
   );
 }
 
-function SpriteFigure({ spriteKey, spritesheet }: { spriteKey: string; spritesheet: any }) {
+// The sprite preview (spritesheet-driven animation or clip image) is the
+// expensive leaf. Memoize it on its two real inputs so a re-render of the
+// button wrapper (its onClick is a fresh closure each render) or an unrelated
+// slider drag doesn't re-render every sprite in the grid.
+const SpriteFigure = React.memo(function SpriteFigure({ spriteKey, spritesheet }: { spriteKey: string; spritesheet: any }) {
   if (spriteKey === "random") {
     return (
       <span className="sprite-preview-box random">
@@ -378,7 +382,7 @@ function SpriteFigure({ spriteKey, spritesheet }: { spriteKey: string; spriteshe
       {clip ? <img className="sprite-preview-image" src={clip} alt="" draggable={false} /> : null}
     </span>
   );
-}
+});
 
 function RangeSlider({ label, min, max, step, low, high, format, onChange }: {
   label: string; min: number; max: number; step: number;
@@ -422,3 +426,8 @@ function spriteLabel(t: (key: string, fallback?: string) => string, key: string,
 function formatRange(low: number, high: number, format: (value: number) => string) {
   return `${format(low)} - ${format(high)}`;
 }
+
+// Keep-mounted under the tab container: memoized so an unrelated slider drag or
+// a tab switch doesn't re-render the whole sprite grid. The memoized SpriteFigure
+// above is the per-sprite guard inside each button.
+export const AnimationSection = React.memo(AnimationSectionInner);

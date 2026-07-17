@@ -50,7 +50,7 @@ type EditorState = {
   protectedProfile: boolean;
 };
 
-export function PluginsPage({ settings, active = true }: { settings: CompanionSettings; active?: boolean; updateSettings: (s: Partial<CompanionSettings>) => void }) {
+function PluginsPageInner({ settings, active = true }: { settings: CompanionSettings; active?: boolean; updateSettings: (s: Partial<CompanionSettings>) => void }) {
   const { locale } = useI18n();
   const zh = locale === "zh";
   const [activeTab, setActiveTab] = useState<ResourceTab>("skills");
@@ -716,3 +716,7 @@ function emptyText(tab: ResourceTab, zh: boolean) {
   if (tab === "plugins") return zh ? "当前方案未启用 Plugins。" : "No Plugins are enabled in this profile.";
   return zh ? "当前方案未启用 MCP。" : "No MCP servers are enabled in this profile.";
 }
+
+// Keep-mounted under the tab container: memoized so an unrelated settings change
+// or a tab switch doesn't re-render the profile + resource lists.
+export const PluginsPage = React.memo(PluginsPageInner);

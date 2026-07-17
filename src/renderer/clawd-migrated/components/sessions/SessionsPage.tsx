@@ -13,7 +13,7 @@ const emptySnapshot: ClaudeSessionSnapshot = {
 
 const SESSION_ROW_HEIGHT = 97;
 
-export function SessionsPage({ active = true, hideSensitiveContent = false }: { active?: boolean; hideSensitiveContent?: boolean }) {
+function SessionsPageInner({ active = true, hideSensitiveContent = false }: { active?: boolean; hideSensitiveContent?: boolean }) {
   const { locale } = useI18n();
   const zh = locale === "zh";
   const [snapshot, setSnapshot] = useState<ClaudeSessionSnapshot>(emptySnapshot);
@@ -260,3 +260,7 @@ function formatDateTime(timestamp: number) {
   if (!timestamp) return "—";
   return new Date(timestamp).toLocaleString();
 }
+
+// Keep-mounted under the tab container: memoized so an unrelated settings change
+// or a tab switch doesn't re-render the session list + detail panel.
+export const SessionsPage = React.memo(SessionsPageInner);
