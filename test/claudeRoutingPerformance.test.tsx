@@ -15,6 +15,7 @@ vi.mock("../src/renderer/clawd-migrated/components/claude-routing/ProviderIcon",
 }));
 
 vi.mock("../src/renderer/clawd-migrated/components/claude-routing/ProviderEditPanel", () => ({
+  PANEL_EXIT_MS: 220,
   ProviderEditPanel: (props: unknown) => {
     providerEditorRender(props);
     return null;
@@ -66,8 +67,8 @@ describe("Claude routing render isolation", () => {
 
     await screen.findByText("Provider 39");
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-    // Both the add and edit editors are always rendered now — `open` drives each
-    // one's mount-on-demand lifecycle — so pick the add editor's latest props.
+    // The add editor is prewarmed (always rendered, `open` toggles visibility);
+    // the edit editor mounts on demand. Pick the add editor's latest props.
     const lastAddProps = () =>
       providerEditorRender.mock.calls
         .map(call => call[0])
@@ -84,6 +85,8 @@ describe("Claude routing render isolation", () => {
 
     act(() => lastAddProps()!.onClose());
     await waitFor(() => expect(lastAddProps()).toEqual(expect.objectContaining({ mode: "add", open: false })));
+    // Close schedules a post-fade rebuild (sessionKey bump); flush it inside act.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 260)); });
   });
 
   it("merges a saved provider without re-reading the full provider list", async () => {

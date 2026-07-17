@@ -135,6 +135,14 @@ type ProviderEditPanelProps = {
   provider: ClaudeProvider | null;
   mode: "add" | "edit";
   open: boolean;
+  // Add uses prewarm=true: the heavy form (~60 preset icons) stays mounted and
+  // hidden so opening never pays the ~85ms mount on the click. Edit leaves it
+  // false and mounts on demand (it has no preset grid, so the mount is cheap).
+  prewarm?: boolean;
+  // Bumped by the parent to force a fresh ProviderEditPanelContent instance —
+  // after close for the prewarmed Add form (off the visible path), and on each
+  // open for Edit — so a reopen never shows stale, cancelled input.
+  sessionKey?: number;
   hasCommonConfig?: boolean;
   onSave: (provider: ClaudeProvider, originalId?: string) => void;
   onClose: () => void;
@@ -647,28 +655,32 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   );
 });
 
-// Matches the CSS opacity/transform transition on .ccs-fullscreen-panel; the
-// content stays mounted this long after close so the exit fade can play.
-const PANEL_EXIT_MS = 220;
+// Matches the CSS opacity/transform transition on .ccs-fullscreen-panel; a
+// mount-on-demand (Edit) form stays mounted this long after close so the exit
+// fade can play, and the parent waits at least this long before resetting the
+// prewarmed (Add) form.
+export const PANEL_EXIT_MS = 220;
 
 export const ProviderEditPanel = memo(function ProviderEditPanel({
   open,
+  prewarm = false,
+  sessionKey = 0,
   provider,
   onClose,
   ...contentProps
 }: ProviderEditPanelProps) {
-  // cc-switch parity: the form mounts on demand and fades in; on close it fades
-  // out first, then unmounts (a small AnimatePresence-lite). This retires the
-  // prewarm / visibility-toggle / 50ms-rebuild machinery — reopening remounts
-  // fresh content, which is what resets the form.
+  // Two lifecycles share this shell (see the `prewarm` prop doc):
+  //  - Add (prewarm): the heavy form stays mounted+hidden so opening is instant;
+  //    the parent bumps `sessionKey` after close to rebuild it off the visible
+  //    path. This restores the #69 prewarm that v3 regressed to an ~85ms mount.
+  //  - Edit (on demand): cheap to mount, so it mounts on open and unmounts after
+  //    the exit fade; the parent bumps `sessionKey` on each open.
   //
-  //  - `rendered` keeps the content in the DOM across the exit fade.
-  //  - `shown` drives the visual fade: it dips false for the one pre-enter frame
-  //    (so the CSS transition has a hidden start value) and again during exit.
-  //  - a11y visibility tracks `open` (the semantic state), not the animation
-  //    frame, so role queries / screen readers see the panel the instant it opens
-  //    and stop seeing it the instant it closes.
-  const [rendered, setRendered] = useState(open);
+  //  - `rendered` keeps content in the DOM: always when prewarmed, else across
+  //    the exit fade only.
+  //  - `shown` drives the visual fade; it dips false for the pre-enter frame and
+  //    during exit. a11y visibility tracks `open`, not the animation frame.
+  const [rendered, setRendered] = useState(prewarm || open);
   const [shown, setShown] = useState(false);
   const providerRef = useRef(provider);
   if (open && provider) providerRef.current = provider;
@@ -680,9 +692,10 @@ export const ProviderEditPanel = memo(function ProviderEditPanel({
       return () => cancelAnimationFrame(raf);
     }
     setShown(false);
+    if (prewarm) return undefined; // stay mounted (hidden) for an instant reopen
     const timer = window.setTimeout(() => setRendered(false), PANEL_EXIT_MS);
     return () => window.clearTimeout(timer);
-  }, [open]);
+  }, [open, prewarm]);
 
   const activeProvider = providerRef.current;
   if (!rendered || !activeProvider) return null;
@@ -693,7 +706,7 @@ export const ProviderEditPanel = memo(function ProviderEditPanel({
       aria-hidden={open ? undefined : true}
     >
       <ProviderEditPanelContent
-        key={activeProvider.id || "add"}
+        key={sessionKey}
         provider={activeProvider}
         onClose={onClose}
         {...contentProps}
