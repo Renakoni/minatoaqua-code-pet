@@ -1,4 +1,4 @@
-import { Suspense, lazy, memo, useMemo, useState } from "react";
+import { Suspense, lazy, memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Gauge, Plus, Save } from "lucide-react";
 import { useI18n } from "../../useI18n";
@@ -620,9 +620,25 @@ export const ProviderEditPanel = memo(function ProviderEditPanel({
   visible = true,
   ...contentProps
 }: ProviderEditPanelProps) {
+  // cc-switch parity: the panel fades/rises in instead of snapping on. We start
+  // one frame behind the "shown" state (entered=false) so the very first paint
+  // lands in the hidden state, then flip to shown on the next frame — that gives
+  // the CSS opacity/transform transition a start value to animate from. The
+  // prewarmed add panel is already mounted, so its fade never pays a mount cost.
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  // `shown` drives only the visual fade (opacity/transform) — it dips false for
+  // the one pre-enter frame so the edit panel animates in from hidden. a11y
+  // visibility must track `visible` (the semantic state), not the animation
+  // frame, or the panel would be aria-hidden for a frame and role queries /
+  // screen readers would miss it.
+  const shown = visible && entered;
   return createPortal(
     <div
-      className={`ccs-fullscreen-panel${visible ? "" : " ccs-provider-editor-prewarm"}`}
+      className={`ccs-fullscreen-panel${shown ? "" : " ccs-provider-editor-prewarm"}`}
       aria-hidden={visible ? undefined : true}
     >
       <ProviderEditPanelContent {...contentProps} />

@@ -11,9 +11,25 @@
   scrollbar-width: none;
 }
 
+/* cc-switch parity: the panel fades + rises in over ~200ms (framer-motion uses
+   the same opacity fade) instead of snapping on. Because the shown state is the
+   default (opacity 1 / no offset), both the prewarmed add panel toggling visible
+   and the on-demand edit panel mounting animate from the hidden state below. */
+.ccs-fullscreen-panel {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 200ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .ccs-fullscreen-panel.ccs-provider-editor-prewarm {
-  visibility: hidden;
+  opacity: 0;
+  transform: translateY(8px);
   pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ccs-fullscreen-panel { transition: none; }
+  .ccs-fullscreen-panel.ccs-provider-editor-prewarm { transform: none; }
 }
 
 .ccs-fullscreen-panel::-webkit-scrollbar,
