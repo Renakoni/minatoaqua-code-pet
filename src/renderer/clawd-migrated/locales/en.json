@@ -745,6 +745,7 @@
     "endpointHintOpenaiChat": "💡 An OpenAI Chat Completions compatible endpoint, without a trailing slash",
     "endpointHintOpenaiResponses": "💡 An OpenAI Responses API compatible endpoint, without a trailing slash",
     "endpointCandidates": "Endpoints",
+    "manageEndpoints": "Manage & Test",
     "speedTest": "Test",
     "testing": "Testing…",
     "unreachable": "Unreachable",

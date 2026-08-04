@@ -217,14 +217,25 @@
 
 .ccs-field-label {
   color: var(--ccs-editor-ink);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .ccs-field-hint {
   color: var(--ccs-editor-faint);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
+}
+
+/* Amber callout for the 💡 endpoint hint (cc-switch parity). Comes after
+   .ccs-field-hint so it overrides the color/size and adds the box. */
+.ccs-hint-callout {
+  padding: 9px 12px;
+  border: 1px solid oklch(74% 0.13 76 / 0.38);
+  border-radius: 10px;
+  background: oklch(74% 0.13 76 / 0.12);
+  color: oklch(74% 0.12 76);
+  font-size: 12.5px;
 }
 
 .ccs-field-error,
@@ -236,6 +247,38 @@
 
 .ccs-fullscreen-footer .ccs-form-error {
   margin-right: auto;
+}
+
+.ccs-endpoint-field {
+  display: grid;
+  gap: 8px;
+}
+
+/* Label + "manage & speed test" toggle on one line (cc-switch parity), so the
+   candidate list stays tucked away instead of dumped inline. */
+.ccs-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ccs-endpoint-manage {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ccs-editor-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ccs-endpoint-manage:hover {
+  color: var(--ccs-editor-ink);
+  background: var(--ccs-editor-hover);
 }
 
 .ccs-endpoint-candidates {
@@ -266,7 +309,7 @@
   color: var(--ccs-editor-ink);
   background: transparent;
   font-family: ui-monospace, Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -274,22 +317,30 @@
 
 .ccs-endpoint-latency {
   color: var(--ccs-editor-faint);
-  font-size: 11px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
+/* Color-code latency by threshold, like cc-switch. */
+.ccs-endpoint-latency.good { color: oklch(72% 0.15 150); }
+.ccs-endpoint-latency.ok { color: oklch(78% 0.13 90); }
+.ccs-endpoint-latency.slow { color: oklch(72% 0.15 55); }
+.ccs-endpoint-latency.bad { color: oklch(64% 0.2 25); }
+
 .ccs-endpoint-test {
-  min-height: 26px;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 0 8px;
+  padding: 0 9px;
   border: 1px solid var(--ccs-editor-line-strong);
   border-radius: 6px;
   color: var(--ccs-editor-muted);
   background: transparent;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -340,13 +391,13 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-height: 26px;
-  padding: 0 9px;
+  min-height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--ccs-editor-line-strong);
   border-radius: 6px;
   color: var(--ccs-editor-muted);
   background: transparent;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 

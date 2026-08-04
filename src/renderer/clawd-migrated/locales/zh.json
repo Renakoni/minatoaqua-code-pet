@@ -745,6 +745,7 @@
     "endpointHintOpenaiChat": "💡 填写兼容 OpenAI Chat Completions 的服务端点地址，不要以斜杠结尾",
     "endpointHintOpenaiResponses": "💡 填写兼容 OpenAI Responses API 的服务端点地址，不要以斜杠结尾",
     "endpointCandidates": "可选线路",
+    "manageEndpoints": "管理与测速",
     "speedTest": "测速",
     "testing": "测速中…",
     "unreachable": "不可达",

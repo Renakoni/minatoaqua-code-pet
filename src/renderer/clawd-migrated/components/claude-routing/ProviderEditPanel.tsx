@@ -1,6 +1,6 @@
 import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ChevronDown, ChevronRight, Download, Eye, EyeOff, Gauge, Loader2, Plus, Save } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Download, Eye, EyeOff, Gauge, Loader2, Plus, Save, Zap } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import type { ClaudeProviderModelsResult, ClaudeProviderTestResult } from "../../../shared/events";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -187,6 +187,7 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
     provider.meta?.apiKeyField === "ANTHROPIC_API_KEY" ? "ANTHROPIC_API_KEY" : "ANTHROPIC_AUTH_TOKEN"
   );
   const [showApiKey, setShowApiKey] = useState(false);
+  const [endpointManageOpen, setEndpointManageOpen] = useState(false);
   const [presetIndex, setPresetIndex] = useState<number | "custom">("custom");
   const [templateBase, setTemplateBase] = useState<string | null>(null);
   const [templateValues, setTemplateValues] = useState<Record<string, string>>({});
@@ -540,41 +541,52 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                 ) : null}
               </label>
 
-              <label>
-                <span>{t("routing.apiEndpoint", "请求地址")}</span>
+              <div className="ccs-endpoint-field">
+                <div className="ccs-field-head">
+                  <span className="ccs-field-label">{t("routing.apiEndpoint", "请求地址")}</span>
+                  {endpointCandidates.length > 0 ? (
+                    <button
+                      type="button"
+                      className="ccs-endpoint-manage"
+                      onClick={() => setEndpointManageOpen(open => !open)}
+                      aria-expanded={endpointManageOpen}
+                    ><Zap size={13} />{t("routing.manageEndpoints", "管理与测速")}</button>
+                  ) : null}
+                </div>
                 <input
                   value={baseUrl}
                   disabled={configInvalid}
                   onChange={event => setEnvValue("ANTHROPIC_BASE_URL", event.target.value)}
                   placeholder="https://your-api-endpoint.com"
+                  aria-label={t("routing.apiEndpoint", "请求地址")}
                   spellCheck={false}
                 />
-                <small className="ccs-field-hint">{endpointHint}</small>
-              </label>
-
-              {endpointCandidates.length > 0 ? (
-                <div className="ccs-endpoint-candidates">
-                  <span className="ccs-field-label">{t("routing.endpointCandidates", "可选线路")}</span>
-                  {endpointCandidates.map(candidate => {
-                    const result = endpointResults[candidate];
-                    return (
-                      <div key={candidate} className={`ccs-endpoint-row ${baseUrl === candidate ? "active" : ""}`}>
-                        <button type="button" className="ccs-endpoint-url" onClick={() => setEnvValue("ANTHROPIC_BASE_URL", candidate)} title={candidate}>{candidate}</button>
-                        <span className="ccs-endpoint-latency">
-                          {result === "testing"
-                            ? t("routing.testing", "测速中…")
-                            : result
-                              ? result.success ? `${result.responseTimeMs} ms` : t("routing.unreachable", "不可达")
-                              : ""}
-                        </span>
-                        <button type="button" className="ccs-endpoint-test" onClick={() => void testEndpoint(candidate)} disabled={result === "testing"}>
-                          <Gauge size={13} />{t("routing.speedTest", "测速")}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
+                <small className="ccs-field-hint ccs-hint-callout">{endpointHint}</small>
+                {endpointCandidates.length > 0 && endpointManageOpen ? (
+                  <div className="ccs-endpoint-candidates">
+                    {endpointCandidates.map(candidate => {
+                      const result = endpointResults[candidate];
+                      const ms = result && result !== "testing" && result.success ? result.responseTimeMs ?? 0 : null;
+                      const latencyClass = ms == null ? "" : ms < 300 ? "good" : ms < 600 ? "ok" : ms < 900 ? "slow" : "bad";
+                      return (
+                        <div key={candidate} className={`ccs-endpoint-row ${baseUrl === candidate ? "active" : ""}`}>
+                          <button type="button" className="ccs-endpoint-url" onClick={() => setEnvValue("ANTHROPIC_BASE_URL", candidate)} title={candidate}>{candidate}</button>
+                          <span className={`ccs-endpoint-latency ${latencyClass}`}>
+                            {result === "testing"
+                              ? t("routing.testing", "测速中…")
+                              : result
+                                ? result.success ? `${result.responseTimeMs} ms` : t("routing.unreachable", "不可达")
+                                : ""}
+                          </span>
+                          <button type="button" className="ccs-endpoint-test" onClick={() => void testEndpoint(candidate)} disabled={result === "testing"}>
+                            <Gauge size={13} />{t("routing.speedTest", "测速")}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </section>
 
