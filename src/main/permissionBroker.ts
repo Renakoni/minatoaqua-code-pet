@@ -53,11 +53,17 @@ interface InternalState extends PendingPermission {
   rawPayload: Record<string, unknown>;
   listeners: Set<(result: PermissionPollResult) => void>;
   timeout: ReturnType<typeof setTimeout>;
+  cleanupTimer?: ReturnType<typeof setTimeout>;
   final?: PermissionPollResult;
   onSettled?: (state: PendingPermission, result: PermissionPollResult) => void;
 }
 
 const POLL_TIMEOUT_RESULT: PermissionPollResult = { status: "expired", reason: "Poll timeout" };
+
+// A settled request is evicted this long after it settles, so a late long-poll
+// can still read the cached decision. Without eviction every settled request (and
+// its rawPayload) would live in `states` for the whole process lifetime.
+const SETTLED_EVICTION_MS = 60_000;
 
 export class PermissionBroker {
   private readonly states = new Map<string, InternalState>();
@@ -130,10 +136,13 @@ export class PermissionBroker {
   /** Expire all pending permissions (e.g. from before-quit). Safe to repeat. */
   shutdown(reason = "App quitting"): void {
     for (const state of Array.from(this.states.values())) {
+      if (state.cleanupTimer) clearTimeout(state.cleanupTimer);
       if (state.status !== "pending") continue;
       clearTimeout(state.timeout);
       this.finalize(state, { status: "expired", reason });
     }
+    // finalize() above may have scheduled fresh eviction timers; drop them too.
+    for (const state of this.states.values()) if (state.cleanupTimer) clearTimeout(state.cleanupTimer);
     this.states.clear();
   }
 
@@ -168,5 +177,13 @@ export class PermissionBroker {
     try {
       this.onSettled?.({ id: state.id, toolName: state.toolName, toolDetail: state.toolDetail, sessionId: state.sessionId, timestamp: state.timestamp }, result);
     } catch { /* notification failures must not poison the broker */ }
+
+    // Evict the settled entry after a grace period. `wait()` returns the cached
+    // `final` until then; after eviction it returns not_found (harmless — the hook
+    // has already received its decision on its earlier poll). unref so a pending
+    // eviction timer never keeps the process alive at quit.
+    const cleanup = setTimeout(() => this.states.delete(state.id), SETTLED_EVICTION_MS);
+    cleanup.unref?.();
+    state.cleanupTimer = cleanup;
   }
 }
