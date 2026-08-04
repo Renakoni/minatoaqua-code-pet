@@ -152,7 +152,7 @@ function installCompanionMock() {
 function renderPage(settings = defaultSettings, locale: "en" | "zh" = "en") {
   return render(
     <I18nProvider initialLocale={locale}>
-      <PluginsPage settings={settings} updateSettings={vi.fn()} />
+      <PluginsPage hideSensitiveContent={settings.hideSensitiveContent} />
     </I18nProvider>
   );
 }
@@ -183,7 +183,7 @@ describe("Unified Claude Profiles page", () => {
     const intervalSpy = vi.spyOn(window, "setInterval");
     const view = render(
       <I18nProvider initialLocale="en">
-        <PluginsPage active={false} settings={defaultSettings} updateSettings={vi.fn()} />
+        <PluginsPage active={false} hideSensitiveContent={defaultSettings.hideSensitiveContent} />
       </I18nProvider>
     );
 
@@ -193,7 +193,7 @@ describe("Unified Claude Profiles page", () => {
 
     view.rerender(
       <I18nProvider initialLocale="en">
-        <PluginsPage active settings={defaultSettings} updateSettings={vi.fn()} />
+        <PluginsPage active hideSensitiveContent={defaultSettings.hideSensitiveContent} />
       </I18nProvider>
     );
     await waitFor(() => expect(getClaudeProfiles).toHaveBeenLastCalledWith(true));
@@ -204,7 +204,7 @@ describe("Unified Claude Profiles page", () => {
   it("refreshes a retained page when it becomes active again", async () => {
     const view = render(
       <I18nProvider initialLocale="en">
-        <PluginsPage active settings={defaultSettings} updateSettings={vi.fn()} />
+        <PluginsPage active hideSensitiveContent={defaultSettings.hideSensitiveContent} />
       </I18nProvider>
     );
     await screen.findByRole("button", { name: "Profile: Default" });
@@ -212,12 +212,12 @@ describe("Unified Claude Profiles page", () => {
 
     view.rerender(
       <I18nProvider initialLocale="en">
-        <PluginsPage active={false} settings={defaultSettings} updateSettings={vi.fn()} />
+        <PluginsPage active={false} hideSensitiveContent={defaultSettings.hideSensitiveContent} />
       </I18nProvider>
     );
     view.rerender(
       <I18nProvider initialLocale="en">
-        <PluginsPage active settings={defaultSettings} updateSettings={vi.fn()} />
+        <PluginsPage active hideSensitiveContent={defaultSettings.hideSensitiveContent} />
       </I18nProvider>
     );
 

@@ -953,6 +953,11 @@ function SettingsApp() {
     // the whole panel — and every keep-mounted section — once per second for
     // nothing visible.
     if (activeSection !== "settings") return undefined;
+    // Re-entering Settings after the clock was parked leaves `now` frozen at
+    // whenever we last left — so relative timestamps ("last event 3s ago") would
+    // render stale until the first interval fire (~1s later). Sync immediately,
+    // then start ticking.
+    setNow(Date.now());
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, [activeSection]);
@@ -1116,7 +1121,7 @@ function SettingsApp() {
 
         {(activeSection === "plugins" || backgroundSectionsMounted) && (
           <div style={{ display: activeSection === "plugins" ? "contents" : "none" }} aria-hidden={activeSection !== "plugins"}>
-            <PluginsPage active={activeSection === "plugins"} settings={settings} updateSettings={stableUpdateSettings} />
+            <PluginsPage active={activeSection === "plugins"} hideSensitiveContent={settings.hideSensitiveContent} />
           </div>
         )}
 

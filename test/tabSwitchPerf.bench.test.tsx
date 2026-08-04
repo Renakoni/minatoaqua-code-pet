@@ -4,17 +4,27 @@
 //
 // Reproduces the real "keep-mounted background sections" layout of SettingsApp
 // (Sessions / Plugins / Animation / Data all stay mounted under display:none)
-// and measures how much React render work one *parent re-render* costs — the
-// thing that happens on every clock tick, slider drag, or unrelated settings
-// change while those sections sit in the background.
+// and measures how much React re-render work the background sections do when the
+// parent re-renders — the thing that happens on every clock tick, slider drag,
+// or unrelated settings change while those sections sit hidden.
 //
-// It renders the REAL section components. Run it twice with an identical file:
-//   * on this branch  -> sections are React.memo'd  -> "AFTER"
-//   * with the 4 section files reverted to main      -> "BEFORE"
-// Only the memoization differs between the two runs, so the delta is the win.
+// It renders the REAL section components and drives three distinct scenarios,
+// because a parent re-render is not one thing:
 //
-// Results are printed and also written to a JSON file named by TABPERF_LABEL so
-// the two runs can be diffed programmatically.
+//   A. clock tick            — parent re-renders, section props are UNCHANGED.
+//   B. unrelated settings save — the `settings` object (and the idleAnim /
+//        stateAnimations slices this code reads) get a FRESH identity but an
+//        IDENTICAL value. This is what a real save does: `saveSettings` round-
+//        trips through IPC, which structured-clones the reply, so shallow
+//        identity churns on every save even for an unrelated change.
+//   C. real animation edit   — the idleAnim VALUE actually changes each tick
+//        (dragging an animation slider).
+//
+// The win we assert: in A and B all four sections bail; in C only AnimationSection
+// (which owns the changed config) re-renders while the other three still bail.
+// That is the honest, load-independent fact — measured as re-render COUNTS, which
+// don't depend on jsdom's wall-clock. Run twice with an identical file (this
+// branch vs. the sections reverted to main) to also see the ms delta.
 
 import { act, cleanup, render } from "@testing-library/react";
 import React, { Profiler, useState } from "react";
@@ -49,16 +59,16 @@ function onRender(id: string, _phase: unknown, actualDuration: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Fixtures (referentially stable, exactly like the fixed SettingsApp passes)
+// Fixtures
 // ---------------------------------------------------------------------------
 const catalog = catalogFromPetPack(makePackManifest());
-const settings = {
+const initialSettings = {
   ...defaultSettings,
   idleAnim: { enabled: true, selectedSprites: ["idle"], intervalMin: 10, intervalMax: 20, repeatMin: 1, repeatMax: 2 },
   stateAnimations: {}
 };
-const noop = () => {};
 const asyncNoop = async () => {};
+const noop = () => {};
 
 // Inventory / session sizes. Default light so this file adds little load to the
 // parallel suite; the headline before/after numbers were taken with the repo's
@@ -145,30 +155,35 @@ afterEach(() => {
   collecting = false;
 });
 
-// The keep-mounted layout: a parent that ticks a clock (`now`) with all four
-// background sections mounted below it, each behind a Profiler. `now` is NOT
-// passed to any section — exactly like the real shell, where a tick only moves
-// relative timestamps in SettingsSection, never these four.
-let drive: () => void = () => {};
+// The keep-mounted layout: a parent that holds a clock (`now`) and the live
+// `settings` object with all four background sections mounted below it, each
+// behind a Profiler. The parent re-renders when EITHER changes; the props each
+// section receives are exactly what the real shell passes — note PluginsPage /
+// Sessions / Data receive only primitive slices, and AnimationSection receives
+// the whole `settings` (guarded by a value-comparator).
+let bumpClock: () => void = () => {};
+let mutateSettings: (updater: (prev: typeof initialSettings) => typeof initialSettings) => void = () => {};
 function Harness() {
   const [now, setNow] = useState(0);
-  drive = () => setNow(value => value + 1);
+  const [settings, setSettings] = useState(initialSettings);
+  bumpClock = () => setNow(value => value + 1);
+  mutateSettings = updater => setSettings(prev => updater(prev));
   return (
     <Profiler id="root" onRender={onRender}>
       <div className="section-content">
         <span data-testid="clock">{now}</span>
         <Profiler id="sessions" onRender={onRender}>
-          <div style={{ display: "none" }}><SessionsPage active={false} hideSensitiveContent={false} /></div>
+          <div style={{ display: "none" }}><SessionsPage active={false} hideSensitiveContent={settings.hideSensitiveContent} /></div>
         </Profiler>
         <Profiler id="plugins" onRender={onRender}>
-          <div style={{ display: "none" }}><PluginsPage active={false} settings={settings} updateSettings={noop} /></div>
+          <div style={{ display: "none" }}><PluginsPage active={false} hideSensitiveContent={settings.hideSensitiveContent} /></div>
         </Profiler>
         <Profiler id="animation" onRender={onRender}>
           <div style={{ display: "none" }}><AnimationSection active={false} settings={settings} updateSettings={noop} catalog={catalog} spritesheet={null} /></div>
         </Profiler>
         <Profiler id="data" onRender={onRender}>
           <div style={{ display: "none" }}>
-            <DataSection persistedStats={null} activityCount={3} hideSensitiveContent={false} onClearActivity={asyncNoop} onResetStats={asyncNoop} />
+            <DataSection persistedStats={null} activityCount={3} hideSensitiveContent={settings.hideSensitiveContent} onClearActivity={asyncNoop} onResetStats={asyncNoop} />
           </div>
         </Profiler>
       </div>
@@ -176,12 +191,41 @@ function Harness() {
   );
 }
 
+const SECTION_IDS = ["sessions", "plugins", "animation", "data"] as const;
+
+type ScenarioResult = {
+  label: string;
+  root: Acc;
+  sections: Array<{ id: string; reRenders: number; perTickMs: number }>;
+};
+
+function collectScenario(label: string, ticks: number, driveOnce: () => void): ScenarioResult {
+  stats.clear();
+  collecting = true;
+  for (let i = 0; i < ticks; i += 1) act(() => driveOnce());
+  collecting = false;
+  const root = stats.get("root") ?? { commits: 0, heavy: 0, ms: 0 };
+  const sections = SECTION_IDS.map(id => {
+    const acc = stats.get(id) ?? { commits: 0, heavy: 0, ms: 0 };
+    return { id, reRenders: acc.heavy, perTickMs: Number((acc.ms / ticks).toFixed(4)) };
+  });
+  return { label, root, sections };
+}
+
+function sectionOf(scenario: ScenarioResult, id: string) {
+  return scenario.sections.find(section => section.id === id)!;
+}
+
+function totalReRenders(scenario: ScenarioResult) {
+  return scenario.sections.reduce((sum, section) => sum + section.reRenders, 0);
+}
+
 describe("tab-switch keep-mounted re-render cost", () => {
-  it("measures the cost of one parent re-render with sections in the background", async () => {
+  it("bails the background sections on clock ticks and unrelated saves, and re-renders only the section whose config changed", async () => {
     const WARMUP = 20;
     const TICKS = 120;
-    // BEFORE (unmemoized) re-renders all four heavy sections on every tick, so
-    // 120 ticks can far exceed the 5s default; give both runs generous room.
+    // BEFORE (unmemoized / whole-settings props) re-renders heavy sections on
+    // every tick, so give both runs generous headroom past the 5s default.
 
     render(
       <I18nProvider initialLocale="en">
@@ -193,61 +237,74 @@ describe("tab-switch keep-mounted re-render cost", () => {
     for (let i = 0; i < 4; i += 1) {
       await act(async () => { await Promise.resolve(); });
     }
+    // Warm up the JIT / React internals with harmless clock ticks.
+    for (let i = 0; i < WARMUP; i += 1) act(() => bumpClock());
 
-    // Warm up the JIT / React internals, then start collecting on a clean slate.
-    for (let i = 0; i < WARMUP; i += 1) act(() => drive());
-    stats.clear();
-    collecting = true;
+    // A. Parent clock tick — section props unchanged.
+    const clock = collectScenario("clock-tick", TICKS, () => bumpClock());
 
-    for (let i = 0; i < TICKS; i += 1) act(() => drive());
+    // B. Unrelated settings save — the whole settings object AND the read slices
+    // get a fresh identity every tick (as an IPC-cloned reply would), but their
+    // VALUE is unchanged and hideSensitiveContent doesn't flip.
+    const unrelated = collectScenario("unrelated-settings-save", TICKS, () =>
+      mutateSettings(prev => ({ ...prev, idleAnim: { ...prev.idleAnim }, stateAnimations: { ...prev.stateAnimations } }))
+    );
 
-    collecting = false;
+    // C. Real animation edit — idleAnim's VALUE changes every tick (slider drag).
+    const animEdit = collectScenario("animation-edit", TICKS, () =>
+      mutateSettings(prev => ({
+        ...prev,
+        idleAnim: { ...prev.idleAnim, intervalMin: prev.idleAnim.intervalMin === 10 ? 11 : 10 }
+      }))
+    );
 
-    const root = stats.get("root") ?? { commits: 0, heavy: 0, ms: 0 };
-    const sectionIds = ["sessions", "plugins", "animation", "data"] as const;
-    const sections = sectionIds.map(id => {
-      const acc = stats.get(id) ?? { commits: 0, heavy: 0, ms: 0 };
-      return { id, perTickMs: acc.ms / TICKS, reRenders: acc.heavy, ofTicks: TICKS };
-    });
-
-    const rootPerTick = root.ms / TICKS;
-    const label = process.env.TABPERF_LABEL ?? "run";
-    const result = {
-      label,
+    const scenarios = [clock, unrelated, animEdit];
+    const report = {
       ticks: TICKS,
-      rootPerTickMs: Number(rootPerTick.toFixed(4)),
-      rootTotalMs: Number(root.ms.toFixed(2)),
-      // A background tab that ticks the clock 1x/sec pays rootPerTick every second.
-      wastedMsPerMinuteIfTicking: Number((rootPerTick * 60).toFixed(2)),
-      sections: sections.map(s => ({
-        id: s.id,
-        perTickMs: Number(s.perTickMs.toFixed(4)),
-        reRendersOutOf: `${s.reRenders}/${s.ofTicks}`
+      scenarios: scenarios.map(scenario => ({
+        label: scenario.label,
+        rootPerTickMs: Number((scenario.root.ms / TICKS).toFixed(4)),
+        sections: scenario.sections.map(section => ({
+          id: section.id,
+          reRendersOutOf: `${section.reRenders}/${TICKS}`,
+          perTickMs: section.perTickMs
+        }))
       }))
     };
-
     // eslint-disable-next-line no-console
-    console.log(`\n=== TABPERF [${label}] ===\n` + JSON.stringify(result, null, 2) + "\n");
+    console.log("\n=== TABPERF ===\n" + JSON.stringify(report, null, 2) + "\n");
     // Only persist when a caller explicitly asks (the before/after comparison
     // runs) so a normal `npm test` never litters the repo with a JSON artifact.
     if (process.env.TABPERF_OUT) {
       try {
-        writeFileSync(process.env.TABPERF_OUT, JSON.stringify(result, null, 2));
+        writeFileSync(process.env.TABPERF_OUT, JSON.stringify(report, null, 2));
       } catch {
         /* best-effort; the console log is the source of truth */
       }
     }
 
     // Sanity: the harness really mounted the sections and really ticked.
-    expect(root.commits).toBe(TICKS);
-    expect(rootPerTick).toBeGreaterThan(0);
+    expect(clock.root.commits).toBe(TICKS);
+    expect(unrelated.root.commits).toBe(TICKS);
+    expect(animEdit.root.commits).toBe(TICKS);
 
-    // Regression guard: the four keep-mounted sections are React.memo'd, so a
-    // parent re-render (clock tick) must NOT re-render them. Without the memo
-    // each section re-renders on all 120 ticks (480 total); with it, only a
-    // couple of stray async settles slip through. Fail loudly if the memo is
-    // dropped and the sections start re-rendering on every tick again.
-    const sectionReRenders = sections.reduce((sum, section) => sum + section.reRenders, 0);
-    expect(sectionReRenders).toBeLessThan(TICKS / 2);
+    // A — clock tick: every keep-mounted section bails.
+    expect(totalReRenders(clock)).toBeLessThan(TICKS / 2);
+
+    // B — unrelated save: the narrowed PluginsPage prop (a primitive boolean) and
+    // the AnimationSection value-comparator must both bail despite the fresh
+    // identities. This is the regression guard for the memoization: without the
+    // narrowing/comparator these two would re-render on all 120 ticks.
+    expect(sectionOf(unrelated, "plugins").reRenders).toBeLessThan(TICKS / 2);
+    expect(sectionOf(unrelated, "animation").reRenders).toBeLessThan(TICKS / 2);
+    expect(totalReRenders(unrelated)).toBeLessThan(TICKS / 2);
+
+    // C — real animation edit: AnimationSection owns the changed config, so it
+    // MUST re-render; the three unrelated sections must NOT. This proves the memo
+    // is selective, not a blanket "never re-render" that would ship stale UI.
+    expect(sectionOf(animEdit, "animation").reRenders).toBeGreaterThan(TICKS / 2);
+    expect(sectionOf(animEdit, "plugins").reRenders).toBeLessThan(TICKS / 2);
+    expect(sectionOf(animEdit, "sessions").reRenders).toBeLessThan(TICKS / 2);
+    expect(sectionOf(animEdit, "data").reRenders).toBeLessThan(TICKS / 2);
   }, 120000);
 });

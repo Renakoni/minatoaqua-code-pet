@@ -427,7 +427,49 @@ function formatRange(low: number, high: number, format: (value: number) => strin
   return `${format(low)} - ${format(high)}`;
 }
 
+// This section reads exactly two slices of `settings` — `idleAnim` and
+// `stateAnimations`. But every settings save round-trips through IPC
+// (`saveSettings` → `ipcRenderer.invoke`), which structured-clones the reply, so
+// those nested objects get a brand-new identity on *every* save even when their
+// value is unchanged. A default shallow compare would therefore re-render this
+// hidden section on unrelated changes (e.g. dragging a slider on the Settings
+// tab). Compare the two slices by value so it bails unless the animation config
+// itself actually changed; the expensive sprite leaves are additionally guarded
+// by the memoized SpriteFigure above.
+function arraysEqual(a: unknown[] | undefined, b: unknown[] | undefined) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) return false;
+  return true;
+}
+
+function idleAnimEqual(a: any, b: any) {
+  if (a === b) return true;
+  if (!a || !b) return a === b;
+  return a.enabled === b.enabled
+    && a.intervalMin === b.intervalMin
+    && a.intervalMax === b.intervalMax
+    && a.repeatMin === b.repeatMin
+    && a.repeatMax === b.repeatMax
+    && arraysEqual(a.selectedSprites, b.selectedSprites);
+}
+
+function stateAnimationsEqual(a: Record<string, string> = {}, b: Record<string, string> = {}) {
+  if (a === b) return true;
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every(key => a[key] === b[key]);
+}
+
+function animationPropsEqual(prev: any, next: any) {
+  return prev.active === next.active
+    && prev.updateSettings === next.updateSettings
+    && prev.catalog === next.catalog
+    && prev.spritesheet === next.spritesheet
+    && idleAnimEqual(prev.settings?.idleAnim, next.settings?.idleAnim)
+    && stateAnimationsEqual(prev.settings?.stateAnimations, next.settings?.stateAnimations);
+}
+
 // Keep-mounted under the tab container: memoized so an unrelated slider drag or
-// a tab switch doesn't re-render the whole sprite grid. The memoized SpriteFigure
-// above is the per-sprite guard inside each button.
-export const AnimationSection = React.memo(AnimationSectionInner);
+// a tab switch doesn't re-render the whole sprite grid.
+export const AnimationSection = React.memo(AnimationSectionInner, animationPropsEqual);
