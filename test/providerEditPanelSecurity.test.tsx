@@ -22,8 +22,8 @@ afterEach(() => {
   document.documentElement.removeAttribute("data-theme");
 });
 
-describe("provider secret visibility", () => {
-  it("does not mount the plaintext JSON editor until the user explicitly reveals it", async () => {
+describe("provider config editor", () => {
+  it("shows the settings.json editor by default (cc-switch parity) with no show/hide toggle", async () => {
     render(
       <I18nProvider initialLocale="en">
         <ProviderEditPanel
@@ -41,18 +41,22 @@ describe("provider secret visibility", () => {
       </I18nProvider>
     );
 
+    // The API Key field itself is still masked behind its own reveal toggle...
     const passwordField = screen.getByDisplayValue(SECRET) as HTMLInputElement;
     expect(passwordField.type).toBe("password");
-    expect(document.querySelector(".cm-editor")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show config" }));
-
+    // ...but the raw settings.json editor is mounted on open (lazy CodeMirror
+    // chunk) and shows the full config — matching cc-switch, which never gates
+    // the JSON behind an eye toggle. (User-chosen: the secret is visible here.)
     await waitFor(() => expect(document.querySelector(".cm-editor")).not.toBeNull());
     const editor = EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement);
     expect(editor).not.toBeNull();
     if (!editor) return;
     expect(editor.state.doc.toString()).toContain(SECRET);
-    expect(screen.getByRole("button", { name: "Hide config" })).toBeTruthy();
+
+    // The show/hide config toggle is gone.
+    expect(screen.queryByRole("button", { name: "Show config" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Hide config" })).toBeNull();
   });
 
   it.each(["ftp://api.example.test", "https://api.example.test/${ENDPOINT_ID}"])("blocks an unroutable API endpoint: %s", endpoint => {

@@ -184,7 +184,6 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   const [customUserAgent, setCustomUserAgent] = useState(String(provider.meta?.customUserAgent ?? ""));
   const [commonConfigEnabled, setCommonConfigEnabled] = useState(provider.meta?.commonConfigEnabled === true);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [showRawConfig, setShowRawConfig] = useState(false);
   const [presetIndex, setPresetIndex] = useState<number | "custom">("custom");
   const [templateBase, setTemplateBase] = useState<string | null>(null);
   const [templateValues, setTemplateValues] = useState<Record<string, string>>({});
@@ -599,20 +598,13 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                 <h3>{t("routing.configLabel", "配置（settings.json）")}</h3>
                 <p>{t("routing.configDesc", "切换到此供应商时写入 ~/.claude/settings.json 的完整内容")}</p>
               </div>
-              <button
-                type="button"
-                className="ccs-config-visibility-toggle"
-                onClick={() => setShowRawConfig(current => !current)}
-                title={showRawConfig ? t("routing.hideConfig", "隐藏配置") : t("routing.showConfig", "显示配置")}
-                aria-label={showRawConfig ? t("routing.hideConfig", "隐藏配置") : t("routing.showConfig", "显示配置")}
-                aria-pressed={showRawConfig}
-              >{showRawConfig ? <EyeOff size={16} /> : <Eye size={16} />}</button>
             </div>
-            {showRawConfig ? (
-              <Suspense fallback={<div className="ccs-json-editor ccs-json-editor-loading" aria-hidden="true" />}>
-                <JsonConfigEditor value={configText} onChange={setConfigText} ariaLabel={t("routing.configLabel", "配置（settings.json）")} />
-              </Suspense>
-            ) : null}
+            {/* cc-switch parity: the settings.json editor is always shown (no
+                show/hide toggle). It stays a lazy chunk, so the CodeMirror bundle
+                still code-splits and only loads with the form. */}
+            <Suspense fallback={<div className="ccs-json-editor ccs-json-editor-loading" aria-hidden="true" />}>
+              <JsonConfigEditor value={configText} onChange={setConfigText} ariaLabel={t("routing.configLabel", "配置（settings.json）")} />
+            </Suspense>
             {configInvalid ? <small className="ccs-field-error">{t("routing.configInvalid", "配置不是合法的 JSON 对象")}</small> : null}
           </section>
         </form>
