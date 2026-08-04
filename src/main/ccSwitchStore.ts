@@ -559,6 +559,84 @@ export async function probeClaudeEndpoint(baseUrl: string, options: EndpointProb
   return last;
 }
 
+/* ---------- model list fetch (cc-switch parity) ---------- */
+
+export interface FetchProviderModelsResult {
+  ok: boolean;
+  models: string[];
+  errorCode?: "config" | "auth" | "notFound" | "timeout" | "unsupported" | "unsupportedFormat" | "failed";
+}
+
+// Given a provider base URL, produce the /models URLs to try in order, matching
+// cc-switch: a base that already ends in a version segment (…/v1) just needs
+// /models; otherwise try /v1/models first, then a bare /models fallback.
+export function buildModelsUrlCandidates(baseUrl: string): string[] {
+  const trimmed = (baseUrl ?? "").trim().replace(/\/+$/, "");
+  if (!trimmed) return [];
+  if (/\/v\d+$/i.test(trimmed)) return [`${trimmed}/models`];
+  return [`${trimmed}/v1/models`, `${trimmed}/models`];
+}
+
+// Formats that expose an OpenAI-style /v1/models list. gemini_native (and any
+// unknown format) uses a different endpoint + auth, so we don't pretend to
+// support it — the caller disables the button and we hard-stop here as a backstop.
+const MODELS_FETCH_FORMATS = new Set(["anthropic", "openai_chat", "openai_responses"]);
+
+export async function fetchProviderModels(payload: { baseUrl?: string; apiKey?: string; apiFormat?: string; apiKeyField?: string; userAgent?: string }): Promise<FetchProviderModelsResult> {
+  const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
+  const apiKey = typeof payload?.apiKey === "string" ? payload.apiKey.trim() : "";
+  const apiFormat = typeof payload?.apiFormat === "string" && payload.apiFormat ? payload.apiFormat : "anthropic";
+  if (!baseUrl || !apiKey) return { ok: false, models: [], errorCode: "config" };
+  if (!MODELS_FETCH_FORMATS.has(apiFormat)) return { ok: false, models: [], errorCode: "unsupportedFormat" };
+  const candidates = buildModelsUrlCandidates(baseUrl);
+  if (!candidates.length) return { ok: false, models: [], errorCode: "config" };
+
+  // Match the provider's own auth convention: an Anthropic-native provider keyed
+  // by ANTHROPIC_API_KEY uses `x-api-key`; everything else (relays, OpenAI
+  // gateways, ANTHROPIC_AUTH_TOKEN) uses a bearer token. The key rides in the
+  // header only — never the URL, and it is never logged.
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (apiFormat === "anthropic" && payload.apiKeyField === "ANTHROPIC_API_KEY") {
+    headers["x-api-key"] = apiKey;
+    headers["anthropic-version"] = "2023-06-01";
+  } else {
+    headers["authorization"] = `Bearer ${apiKey}`;
+  }
+  if (payload.userAgent && payload.userAgent.trim()) headers["user-agent"] = payload.userAgent.trim();
+
+  let lastError: FetchProviderModelsResult["errorCode"] = "failed";
+  for (const url of candidates) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(url, { method: "GET", headers, signal: controller.signal });
+      if (response.status === 401 || response.status === 403) return { ok: false, models: [], errorCode: "auth" };
+      if (response.status === 404 || response.status === 405) { lastError = "notFound"; continue; }
+      if (!response.ok) { lastError = "failed"; continue; }
+      let json: unknown;
+      try { json = await response.json(); } catch { lastError = "unsupported"; continue; }
+      const rows = Array.isArray(json)
+        ? json
+        : Array.isArray((json as { data?: unknown } | null)?.data)
+          ? (json as { data: unknown[] }).data
+          : null;
+      if (!rows) { lastError = "unsupported"; continue; }
+      const models = Array.from(new Set(
+        rows
+          .map(item => (typeof item === "string" ? item : typeof (item as { id?: unknown })?.id === "string" ? (item as { id: string }).id : ""))
+          .filter(Boolean)
+      )).sort();
+      return { ok: true, models };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return { ok: false, models: [], errorCode: "timeout" };
+      lastError = "failed";
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return { ok: false, models: [], errorCode: lastError };
+}
+
 /* ---------- external change watching ---------- */
 
 let watcher: FSWatcher | null = null;

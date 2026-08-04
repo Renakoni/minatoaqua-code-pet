@@ -217,14 +217,25 @@
 
 .ccs-field-label {
   color: var(--ccs-editor-ink);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .ccs-field-hint {
   color: var(--ccs-editor-faint);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
+}
+
+/* Amber callout for the 💡 endpoint hint (cc-switch parity). Comes after
+   .ccs-field-hint so it overrides the color/size and adds the box. */
+.ccs-hint-callout {
+  padding: 9px 12px;
+  border: 1px solid oklch(74% 0.13 76 / 0.38);
+  border-radius: 10px;
+  background: oklch(74% 0.13 76 / 0.12);
+  color: oklch(74% 0.12 76);
+  font-size: 12.5px;
 }
 
 .ccs-field-error,
@@ -236,6 +247,38 @@
 
 .ccs-fullscreen-footer .ccs-form-error {
   margin-right: auto;
+}
+
+.ccs-endpoint-field {
+  display: grid;
+  gap: 8px;
+}
+
+/* Label + "manage & speed test" toggle on one line (cc-switch parity), so the
+   candidate list stays tucked away instead of dumped inline. */
+.ccs-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ccs-endpoint-manage {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ccs-editor-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ccs-endpoint-manage:hover {
+  color: var(--ccs-editor-ink);
+  background: var(--ccs-editor-hover);
 }
 
 .ccs-endpoint-candidates {
@@ -266,7 +309,7 @@
   color: var(--ccs-editor-ink);
   background: transparent;
   font-family: ui-monospace, Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -274,22 +317,30 @@
 
 .ccs-endpoint-latency {
   color: var(--ccs-editor-faint);
-  font-size: 11px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
+/* Color-code latency by threshold, like cc-switch. */
+.ccs-endpoint-latency.good { color: oklch(72% 0.15 150); }
+.ccs-endpoint-latency.ok { color: oklch(78% 0.13 90); }
+.ccs-endpoint-latency.slow { color: oklch(72% 0.15 55); }
+.ccs-endpoint-latency.bad { color: oklch(64% 0.2 25); }
+
 .ccs-endpoint-test {
-  min-height: 26px;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 0 8px;
+  padding: 0 9px;
   border: 1px solid var(--ccs-editor-line-strong);
   border-radius: 6px;
   color: var(--ccs-editor-muted);
   background: transparent;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -320,7 +371,7 @@
 
 .ccs-model-mapping {
   display: grid;
-  gap: 8px;
+  gap: 12px;
 }
 
 .ccs-model-mapping-head {
@@ -330,14 +381,23 @@
   gap: 10px;
 }
 
+.ccs-model-mapping-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .ccs-model-quickset {
-  min-height: 26px;
-  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--ccs-editor-line-strong);
   border-radius: 6px;
   color: var(--ccs-editor-muted);
   background: transparent;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -346,10 +406,64 @@
   background: var(--ccs-editor-hover);
 }
 
-.ccs-model-grid {
+/* cc-switch parity: an aligned table — role pill | display name | actual model |
+   1M — so every row sits on one line instead of wrapping boxes. */
+.ccs-model-table {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 10px;
+  gap: 8px;
+}
+
+.ccs-model-row {
+  display: grid;
+  grid-template-columns: 104px 1fr minmax(0, 1fr) 96px;
+  gap: 8px;
+  align-items: center;
+}
+
+.ccs-model-row-head {
+  padding: 0 2px;
+  color: var(--ccs-editor-faint);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ccs-model-role {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--ccs-editor-line);
+  border-radius: 8px;
+  background: var(--ccs-editor-hover);
+  color: var(--ccs-editor-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ccs-model-row .ccs-model-onem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  color: var(--ccs-editor-muted);
+  font-size: 13px;
+}
+
+.ccs-model-row .ccs-model-onem input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  min-height: 0;
+  accent-color: var(--ccs-editor-primary);
+}
+
+.ccs-model-onem-empty {
+  min-height: 38px;
+}
+
+@media (max-width: 760px) {
+  .ccs-model-row { grid-template-columns: 1fr; }
+  .ccs-model-row-head,
+  .ccs-model-onem-empty { display: none; }
 }
 
 .ccs-model-grid label {
@@ -390,24 +504,31 @@
   font-style: normal;
 }
 
-/* ---------- JSON editor ---------- */
+/* ---------- config quick-toggles (cc-switch parity) ---------- */
 
-.ccs-config-visibility-toggle {
-  flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  display: inline-grid;
-  place-items: center;
-  border: 1px solid var(--ccs-editor-line-strong);
-  border-radius: 6px;
+.ccs-config-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+
+.ccs-config-toggles .ccs-config-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: var(--ccs-editor-muted);
-  background: transparent;
+  font-size: 13px;
 }
 
-.ccs-config-visibility-toggle:hover {
-  color: var(--ccs-editor-ink);
-  background: var(--ccs-editor-hover);
+.ccs-config-toggles .ccs-config-toggle input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  min-height: 0;
+  accent-color: var(--ccs-editor-primary);
 }
+
+/* ---------- JSON editor ---------- */
 
 .ccs-json-editor {
   min-height: 160px;

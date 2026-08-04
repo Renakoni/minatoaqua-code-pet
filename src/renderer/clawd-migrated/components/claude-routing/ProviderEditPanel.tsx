@@ -1,8 +1,8 @@
 import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Gauge, Plus, Save } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Download, Eye, EyeOff, Gauge, Loader2, Plus, Save, Zap } from "lucide-react";
 import { useI18n } from "../../useI18n";
-import type { ClaudeProviderTestResult } from "../../../shared/events";
+import type { ClaudeProviderModelsResult, ClaudeProviderTestResult } from "../../../shared/events";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { IconPicker } from "./IconPicker";
 import { ProviderIcon } from "./ProviderIcon";
@@ -10,6 +10,7 @@ import { getIconMetadata } from "./icons/metadata";
 import { addIconsToPresets } from "./iconInference";
 import { claudeProviderPresets, type ClaudeProviderPreset } from "./presets";
 import type { ClaudeProvider } from "./types";
+import { hasClaudeOneMMarker, setClaudeOneMMarker, stripClaudeOneMMarker } from "./claudeModelMarkers";
 
 const presetsWithIcons = addIconsToPresets(claudeProviderPresets);
 const JsonConfigEditor = lazy(() => import("./JsonConfigEditor").then(module => ({ default: module.JsonConfigEditor })));
@@ -19,11 +20,13 @@ type SettingsConfig = ClaudeProvider["settingsConfig"];
 const AUTH_FIELDS = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"] as const;
 type AuthField = (typeof AUTH_FIELDS)[number];
 
+// Haiku has no 1M toggle: it does not offer a 1M context window in Claude's
+// lineup, so cc-switch omits the marker for it too.
 const MODEL_ROLES = [
-  { role: "Sonnet", envKey: "ANTHROPIC_DEFAULT_SONNET_MODEL" },
-  { role: "Opus", envKey: "ANTHROPIC_DEFAULT_OPUS_MODEL" },
-  { role: "Fable", envKey: "ANTHROPIC_DEFAULT_FABLE_MODEL" },
-  { role: "Haiku", envKey: "ANTHROPIC_DEFAULT_HAIKU_MODEL" }
+  { role: "Sonnet", envKey: "ANTHROPIC_DEFAULT_SONNET_MODEL", nameKey: "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME", supportsOneM: true },
+  { role: "Opus", envKey: "ANTHROPIC_DEFAULT_OPUS_MODEL", nameKey: "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME", supportsOneM: true },
+  { role: "Fable", envKey: "ANTHROPIC_DEFAULT_FABLE_MODEL", nameKey: "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME", supportsOneM: true },
+  { role: "Haiku", envKey: "ANTHROPIC_DEFAULT_HAIKU_MODEL", nameKey: "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME", supportsOneM: false }
 ] as const;
 
 function parseConfig(text: string): SettingsConfig | null {
@@ -143,28 +146,28 @@ type ProviderEditPanelProps = {
   // after close for the prewarmed Add form (off the visible path), and on each
   // open for Edit — so a reopen never shows stale, cancelled input.
   sessionKey?: number;
-  hasCommonConfig?: boolean;
   onSave: (provider: ClaudeProvider, originalId?: string) => void;
   onClose: () => void;
   onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
+  onFetchModels?: (payload: { baseUrl: string; apiKey: string; apiFormat?: string; apiKeyField?: string; userAgent?: string }) => Promise<ClaudeProviderModelsResult>;
 };
 
 type ProviderEditPanelContentProps = {
   provider: ClaudeProvider;
   mode: "add" | "edit";
-  hasCommonConfig?: boolean;
   onSave: (provider: ClaudeProvider, originalId?: string) => void;
   onClose: () => void;
   onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
+  onFetchModels?: (payload: { baseUrl: string; apiKey: string; apiFormat?: string; apiKeyField?: string; userAgent?: string }) => Promise<ClaudeProviderModelsResult>;
 };
 
 const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   provider,
   mode,
-  hasCommonConfig,
   onSave,
   onClose,
-  onTestEndpoint
+  onTestEndpoint,
+  onFetchModels
 }: ProviderEditPanelContentProps) {
   const { t } = useI18n();
 
@@ -181,10 +184,8 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   const [apiKeyField, setApiKeyField] = useState<AuthField>(
     provider.meta?.apiKeyField === "ANTHROPIC_API_KEY" ? "ANTHROPIC_API_KEY" : "ANTHROPIC_AUTH_TOKEN"
   );
-  const [customUserAgent, setCustomUserAgent] = useState(String(provider.meta?.customUserAgent ?? ""));
-  const [commonConfigEnabled, setCommonConfigEnabled] = useState(provider.meta?.commonConfigEnabled === true);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [showRawConfig, setShowRawConfig] = useState(false);
+  const [endpointManageOpen, setEndpointManageOpen] = useState(false);
   const [presetIndex, setPresetIndex] = useState<number | "custom">("custom");
   const [templateBase, setTemplateBase] = useState<string | null>(null);
   const [templateValues, setTemplateValues] = useState<Record<string, string>>({});
@@ -192,6 +193,10 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   const [endpointResults, setEndpointResults] = useState<Record<string, ClaudeProviderTestResult | "testing">>({});
   const [softIssues, setSoftIssues] = useState<string[] | null>(null);
   const [hardError, setHardError] = useState<string | null>(null);
+  const [fetchedModels, setFetchedModels] = useState<string[]>([]);
+  const [modelFetchLoading, setModelFetchLoading] = useState(false);
+  const [modelFetchError, setModelFetchError] = useState<string | null>(null);
+  const fetchSeqRef = useRef(0);
 
   const activePreset: ClaudeProviderPreset | null = presetIndex === "custom" ? null : presetsWithIcons[presetIndex] ?? null;
   const parsedConfig = useMemo(() => parseConfig(configText), [configText]);
@@ -279,6 +284,60 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
     setEndpointResults(current => ({ ...current, [url]: result }));
   }
 
+  function fetchModelsErrorText(code?: ClaudeProviderModelsResult["errorCode"]) {
+    switch (code) {
+      case "config": return t("routing.fetchModelsNeedConfig", "请先填写请求地址和 API Key");
+      case "auth": return t("routing.fetchModelsAuthFailed", "鉴权失败，请检查 API Key");
+      case "notFound": return t("routing.fetchModelsNotFound", "该端点没有模型列表接口");
+      case "timeout": return t("routing.fetchModelsTimeout", "获取超时，请稍后重试");
+      case "unsupportedFormat": return t("routing.fetchModelsFormatUnsupported", "当前 API 格式暂不支持获取模型列表");
+      case "unsupported": return t("routing.fetchModelsUnsupported", "该端点未返回模型列表");
+      default: return t("routing.fetchModelsFailed", "获取模型列表失败");
+    }
+  }
+
+  async function runFetchModels() {
+    if (!onFetchModels) return;
+    fetchSeqRef.current += 1;
+    const seq = fetchSeqRef.current;
+    setModelFetchError(null);
+    setModelFetchLoading(true);
+    try {
+      const savedUserAgent = typeof provider.meta?.customUserAgent === "string" ? provider.meta.customUserAgent.trim() : "";
+      const result = await onFetchModels({ baseUrl: baseUrl.trim(), apiKey, apiFormat, apiKeyField, userAgent: savedUserAgent || undefined });
+      // A newer fetch — or a provider/address/key/format change — superseded this
+      // one: drop the stale response so it can't overwrite the current state.
+      if (seq !== fetchSeqRef.current) return;
+      if (result.ok) {
+        setFetchedModels(result.models);
+        if (result.models.length === 0) setModelFetchError(t("routing.fetchModelsEmpty", "该端点未返回可用模型"));
+      } else {
+        setFetchedModels([]);
+        setModelFetchError(fetchModelsErrorText(result.errorCode));
+      }
+    } catch {
+      if (seq === fetchSeqRef.current) setModelFetchError(fetchModelsErrorText("failed"));
+    } finally {
+      if (seq === fetchSeqRef.current) setModelFetchLoading(false);
+    }
+  }
+
+  // Fetched suggestions belong to one provider identity. When the address, key,
+  // auth field, or API format changes (including via a preset), drop the stale
+  // suggestions and invalidate any in-flight fetch so a slow old response can't
+  // overwrite the new provider's state.
+  useEffect(() => {
+    fetchSeqRef.current += 1;
+    setFetchedModels([]);
+    setModelFetchError(null);
+    setModelFetchLoading(false);
+  }, [baseUrl, apiKey, apiKeyField, apiFormat]);
+
+  // Only Anthropic / OpenAI-compatible formats expose an OpenAI-style /v1/models
+  // list; gemini_native (and anything unknown) does not, so the fetch button is
+  // disabled for them rather than offering an action that always fails.
+  const fetchSupported = apiFormat === "anthropic" || apiFormat === "openai_chat" || apiFormat === "openai_responses";
+
   function buildProviderRecord(): ClaudeProvider {
     const settingsConfig = parseConfig(configText) ?? { env: {} };
     const meta: ClaudeProvider["meta"] = { ...(provider.meta ?? {}) };
@@ -286,9 +345,8 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
     else delete meta.apiFormat;
     if (apiKeyField !== "ANTHROPIC_AUTH_TOKEN") meta.apiKeyField = apiKeyField;
     else delete meta.apiKeyField;
-    if (customUserAgent.trim()) meta.customUserAgent = customUserAgent.trim();
-    else delete meta.customUserAgent;
-    if (hasCommonConfig) meta.commonConfigEnabled = commonConfigEnabled;
+    // customUserAgent / commonConfigEnabled: no UI anymore, but preserve whatever
+    // the record already had (carried by the `...provider.meta` spread above).
     return {
       ...provider,
       id: mode === "edit" ? provider.id : "",
@@ -350,15 +408,57 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
 
   const advancedActive = apiFormat !== "anthropic"
     || apiKeyField !== "ANTHROPIC_AUTH_TOKEN"
-    || Boolean(customUserAgent.trim())
     || MODEL_ROLES.some(({ envKey }) => Boolean(env[envKey]))
-    || Boolean(env.ANTHROPIC_MODEL)
-    || commonConfigEnabled;
+    || Boolean(env.ANTHROPIC_MODEL);
   const [advancedOpen, setAdvancedOpen] = useState(advancedActive);
 
   // Portal to <body>: ancestors with backdrop-filter/transform would otherwise
   // trap position:fixed and the footer could scroll out of view.
   const formId = mode === "add" ? "claude-provider-add-form" : "claude-provider-edit-form";
+  // Unique per instance: the Add form stays prewarmed/mounted alongside Edit, so a
+  // shared datalist id would collide in the DOM.
+  const modelsListId = `${formId}-models`;
+
+  // Config quick-toggles (cc-switch parity): each is DERIVED from the JSON (the
+  // source of truth) and mutates it. On -> the key/value below; off -> the key is
+  // removed. All but "hide attribution" live under env.
+  const attribution = (parsedConfig as { attribution?: { commit?: unknown; pr?: unknown } } | null)?.attribution;
+  const configToggles = [
+    {
+      id: "hideAttribution",
+      label: t("routing.toggleHideAttribution", "隐藏 AI 署名"),
+      checked: attribution?.commit === "" && attribution?.pr === "",
+      onToggle: (checked: boolean) => updateConfig(config => {
+        const c = config as { attribution?: { commit: string; pr: string } };
+        if (checked) c.attribution = { commit: "", pr: "" };
+        else delete c.attribution;
+      })
+    },
+    {
+      id: "teammates",
+      label: t("routing.toggleTeammates", "Teammates 模式"),
+      checked: env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === "1",
+      onToggle: (checked: boolean) => setEnvValue("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", checked ? "1" : "")
+    },
+    {
+      id: "toolSearch",
+      label: t("routing.toggleToolSearch", "启用 Tool Search"),
+      checked: env.ENABLE_TOOL_SEARCH === "true" || env.ENABLE_TOOL_SEARCH === "1",
+      onToggle: (checked: boolean) => setEnvValue("ENABLE_TOOL_SEARCH", checked ? "true" : "")
+    },
+    {
+      id: "effortMax",
+      label: t("routing.toggleEffortMax", "最大强度思考"),
+      checked: env.CLAUDE_CODE_EFFORT_LEVEL === "max",
+      onToggle: (checked: boolean) => setEnvValue("CLAUDE_CODE_EFFORT_LEVEL", checked ? "max" : "")
+    },
+    {
+      id: "disableAutoUpgrade",
+      label: t("routing.toggleDisableAutoUpgrade", "禁用自动升级"),
+      checked: env.DISABLE_AUTOUPDATER === "1",
+      onToggle: (checked: boolean) => setEnvValue("DISABLE_AUTOUPDATER", checked ? "1" : "")
+    }
+  ];
 
   return (
     <>
@@ -462,41 +562,52 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                 ) : null}
               </label>
 
-              <label>
-                <span>{t("routing.apiEndpoint", "请求地址")}</span>
+              <div className="ccs-endpoint-field">
+                <div className="ccs-field-head">
+                  <span className="ccs-field-label">{t("routing.apiEndpoint", "请求地址")}</span>
+                  {endpointCandidates.length > 0 ? (
+                    <button
+                      type="button"
+                      className="ccs-endpoint-manage"
+                      onClick={() => setEndpointManageOpen(open => !open)}
+                      aria-expanded={endpointManageOpen}
+                    ><Zap size={13} />{t("routing.manageEndpoints", "管理与测速")}</button>
+                  ) : null}
+                </div>
                 <input
                   value={baseUrl}
                   disabled={configInvalid}
                   onChange={event => setEnvValue("ANTHROPIC_BASE_URL", event.target.value)}
                   placeholder="https://your-api-endpoint.com"
+                  aria-label={t("routing.apiEndpoint", "请求地址")}
                   spellCheck={false}
                 />
-                <small className="ccs-field-hint">{endpointHint}</small>
-              </label>
-
-              {endpointCandidates.length > 0 ? (
-                <div className="ccs-endpoint-candidates">
-                  <span className="ccs-field-label">{t("routing.endpointCandidates", "可选线路")}</span>
-                  {endpointCandidates.map(candidate => {
-                    const result = endpointResults[candidate];
-                    return (
-                      <div key={candidate} className={`ccs-endpoint-row ${baseUrl === candidate ? "active" : ""}`}>
-                        <button type="button" className="ccs-endpoint-url" onClick={() => setEnvValue("ANTHROPIC_BASE_URL", candidate)} title={candidate}>{candidate}</button>
-                        <span className="ccs-endpoint-latency">
-                          {result === "testing"
-                            ? t("routing.testing", "测速中…")
-                            : result
-                              ? result.success ? `${result.responseTimeMs} ms` : t("routing.unreachable", "不可达")
-                              : ""}
-                        </span>
-                        <button type="button" className="ccs-endpoint-test" onClick={() => void testEndpoint(candidate)} disabled={result === "testing"}>
-                          <Gauge size={13} />{t("routing.speedTest", "测速")}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
+                <small className="ccs-field-hint ccs-hint-callout">{endpointHint}</small>
+                {endpointCandidates.length > 0 && endpointManageOpen ? (
+                  <div className="ccs-endpoint-candidates">
+                    {endpointCandidates.map(candidate => {
+                      const result = endpointResults[candidate];
+                      const ms = result && result !== "testing" && result.success ? result.responseTimeMs ?? 0 : null;
+                      const latencyClass = ms == null ? "" : ms < 300 ? "good" : ms < 600 ? "ok" : ms < 900 ? "slow" : "bad";
+                      return (
+                        <div key={candidate} className={`ccs-endpoint-row ${baseUrl === candidate ? "active" : ""}`}>
+                          <button type="button" className="ccs-endpoint-url" onClick={() => setEnvValue("ANTHROPIC_BASE_URL", candidate)} title={candidate}>{candidate}</button>
+                          <span className={`ccs-endpoint-latency ${latencyClass}`}>
+                            {result === "testing"
+                              ? t("routing.testing", "测速中…")
+                              : result
+                                ? result.success ? `${result.responseTimeMs} ms` : t("routing.unreachable", "不可达")
+                                : ""}
+                          </span>
+                          <button type="button" className="ccs-endpoint-test" onClick={() => void testEndpoint(candidate)} disabled={result === "testing"}>
+                            <Gauge size={13} />{t("routing.speedTest", "测速")}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </section>
 
@@ -507,7 +618,7 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
             </button>
             {advancedOpen ? (
               <div className="ccs-advanced-body">
-                <div className="ccs-form-grid two">
+                <div className="ccs-form-grid">
                   <label>
                     <span>{t("routing.apiFormat", "API 格式")}</span>
                     <select value={apiFormat} onChange={event => setApiFormat(event.target.value)}>
@@ -530,63 +641,110 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                 <div className="ccs-model-mapping">
                   <div className="ccs-model-mapping-head">
                     <span className="ccs-field-label">{t("routing.modelMapping", "模型映射")}</span>
-                    <button
-                      type="button"
-                      className="ccs-model-quickset"
+                    <div className="ccs-model-mapping-actions">
+                      <button
+                        type="button"
+                        className="ccs-model-quickset"
+                        disabled={configInvalid || (!env.ANTHROPIC_MODEL && !MODEL_ROLES.some(({ envKey }) => env[envKey]))}
+                        onClick={() => {
+                          // cc-switch parity: propagate the first model found (the
+                          // fallback first, then the role slots) to every role —
+                          // keeping the [1M] marker for 1M-capable roles, stripping it
+                          // for Haiku — and set each display name to the base id.
+                          const seedRaw = env.ANTHROPIC_MODEL || MODEL_ROLES.map(({ envKey }) => env[envKey]).find(Boolean) || "";
+                          if (!stripClaudeOneMMarker(seedRaw).trim()) return;
+                          updateConfig(config => {
+                            const envBlock = (config.env && typeof config.env === "object" ? config.env : {}) as Record<string, string>;
+                            for (const { envKey, nameKey, supportsOneM } of MODEL_ROLES) {
+                              const roleValue = supportsOneM ? seedRaw : stripClaudeOneMMarker(seedRaw);
+                              envBlock[envKey] = roleValue;
+                              envBlock[nameKey] = stripClaudeOneMMarker(roleValue);
+                            }
+                            config.env = envBlock;
+                          });
+                        }}
+                      >{t("routing.quickSetModels", "一键设置")}</button>
+                      {onFetchModels ? (
+                        <button
+                          type="button"
+                          className="ccs-model-quickset"
+                          disabled={modelFetchLoading || configInvalid || !fetchSupported || !baseUrl.trim() || !apiKey.trim()}
+                          onClick={() => void runFetchModels()}
+                          title={!fetchSupported ? t("routing.fetchModelsFormatUnsupported", "当前 API 格式暂不支持获取模型列表") : undefined}
+                        >
+                          {modelFetchLoading ? <Loader2 size={13} className="ccs-spin" /> : <Download size={13} />}
+                          {t("routing.fetchModels", "获取模型列表")}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <small className="ccs-field-hint">{t("routing.modelMappingHint2", "显示名称只影响 /model 菜单；1M 只是给 Claude Code 声明 1M 上下文能力。")}</small>
+                  {onFetchModels && !fetchSupported ? (
+                    <small className="ccs-field-hint">{t("routing.fetchModelsFormatUnsupported", "当前 API 格式暂不支持获取模型列表")}</small>
+                  ) : null}
+                  <div className="ccs-model-table">
+                    <div className="ccs-model-row ccs-model-row-head" aria-hidden="true">
+                      <span>{t("routing.modelRole", "模型角色")}</span>
+                      <span>{t("routing.modelDisplayName", "显示名称")}</span>
+                      <span>{t("routing.modelActual", "实际请求模型")}</span>
+                      <span>{t("routing.modelOneM", "声明支持 1M")}</span>
+                    </div>
+                    {MODEL_ROLES.map(({ role, envKey, nameKey, supportsOneM }) => {
+                      const raw = env[envKey] ?? "";
+                      const base = stripClaudeOneMMarker(raw);
+                      const oneM = supportsOneM && hasClaudeOneMMarker(raw);
+                      return (
+                        <div className="ccs-model-row" key={envKey}>
+                          <div className="ccs-model-role">{role}</div>
+                          <input
+                            value={env[nameKey] ?? ""}
+                            disabled={configInvalid}
+                            onChange={event => setEnvValue(nameKey, event.target.value)}
+                            placeholder={t("routing.modelNamePlaceholder", "例如 DeepSeek V4 Pro")}
+                            aria-label={`${role} ${t("routing.modelDisplayName", "显示名称")}`}
+                            spellCheck={false}
+                          />
+                          <input
+                            value={base}
+                            disabled={configInvalid}
+                            onChange={event => setEnvValue(envKey, setClaudeOneMMarker(event.target.value, oneM))}
+                            placeholder={t("routing.modelPlaceholder", "实际请求模型，可留空")}
+                            aria-label={`${role} ${t("routing.modelActual", "实际请求模型")}`}
+                            list={fetchedModels.length > 0 ? modelsListId : undefined}
+                            spellCheck={false}
+                          />
+                          {supportsOneM ? (
+                            <label className="ccs-model-onem">
+                              <input
+                                type="checkbox"
+                                checked={oneM}
+                                disabled={configInvalid || !base}
+                                onChange={event => setEnvValue(envKey, setClaudeOneMMarker(base, event.target.checked))}
+                                aria-label={`${role} 1M`}
+                              />
+                              <span>1M</span>
+                            </label>
+                          ) : <span className="ccs-model-onem-empty" aria-hidden="true" />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <label className="ccs-model-fallback">
+                    <span>{t("routing.fallbackModel", "默认兜底模型")}</span>
+                    <input
+                      value={env.ANTHROPIC_MODEL ?? ""}
                       disabled={configInvalid}
-                      onClick={() => {
-                        const seed = MODEL_ROLES.map(({ envKey }) => env[envKey]).find(Boolean) || env.ANTHROPIC_MODEL || "";
-                        if (!seed) return;
-                        updateConfig(config => {
-                          const envBlock = (config.env && typeof config.env === "object" ? config.env : {}) as Record<string, string>;
-                          for (const { envKey } of MODEL_ROLES) {
-                            if (!envBlock[envKey]) envBlock[envKey] = seed;
-                          }
-                          config.env = envBlock;
-                        });
-                      }}
-                    >{t("routing.quickSetModels", "一键填充")}</button>
-                  </div>
-                  <div className="ccs-model-grid">
-                    {MODEL_ROLES.map(({ role, envKey }) => (
-                      <label key={envKey}>
-                        <span>{role}</span>
-                        <input
-                          value={env[envKey] ?? ""}
-                          disabled={configInvalid}
-                          onChange={event => setEnvValue(envKey, event.target.value)}
-                          placeholder={t("routing.modelPlaceholder", "实际请求模型，可留空")}
-                          spellCheck={false}
-                        />
-                      </label>
-                    ))}
-                    <label>
-                      <span>{t("routing.fallbackModel", "默认兜底模型")}</span>
-                      <input
-                        value={env.ANTHROPIC_MODEL ?? ""}
-                        disabled={configInvalid}
-                        onChange={event => setEnvValue("ANTHROPIC_MODEL", event.target.value)}
-                        placeholder={t("routing.fallbackModelPlaceholder", "未命中角色映射时使用")}
-                        spellCheck={false}
-                      />
-                    </label>
-                  </div>
-                  <small className="ccs-field-hint">{t("routing.modelMappingHint", "写入 ANTHROPIC_DEFAULT_*_MODEL / ANTHROPIC_MODEL 环境变量")}</small>
-                </div>
-
-                <div className="ccs-form-grid two">
-                  <label>
-                    <span>{t("routing.customUserAgent", "自定义 User-Agent")}</span>
-                    <input value={customUserAgent} onChange={event => setCustomUserAgent(event.target.value)} placeholder={t("routing.optional", "可选")} spellCheck={false} />
+                      onChange={event => setEnvValue("ANTHROPIC_MODEL", event.target.value)}
+                      placeholder={t("routing.fallbackModelPlaceholder", "未命中角色映射时使用")}
+                      list={fetchedModels.length > 0 ? modelsListId : undefined}
+                      spellCheck={false}
+                    />
                   </label>
-                  {hasCommonConfig ? (
-                    <label className="ccs-inline-check">
-                      <span>{t("routing.commonConfig", "公共配置片段")}</span>
-                      <span className="ccs-inline-check-row">
-                        <input type="checkbox" checked={commonConfigEnabled} onChange={event => setCommonConfigEnabled(event.target.checked)} />
-                        <em>{t("routing.commonConfigHint", "切换时合并 cc-switch 的公共配置")}</em>
-                      </span>
-                    </label>
+                  {modelFetchError ? <small className="ccs-field-error">{modelFetchError}</small> : null}
+                  {fetchedModels.length > 0 ? (
+                    <datalist id={modelsListId}>
+                      {fetchedModels.map(model => <option key={model} value={model} />)}
+                    </datalist>
                   ) : null}
                 </div>
               </div>
@@ -599,20 +757,21 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                 <h3>{t("routing.configLabel", "配置（settings.json）")}</h3>
                 <p>{t("routing.configDesc", "切换到此供应商时写入 ~/.claude/settings.json 的完整内容")}</p>
               </div>
-              <button
-                type="button"
-                className="ccs-config-visibility-toggle"
-                onClick={() => setShowRawConfig(current => !current)}
-                title={showRawConfig ? t("routing.hideConfig", "隐藏配置") : t("routing.showConfig", "显示配置")}
-                aria-label={showRawConfig ? t("routing.hideConfig", "隐藏配置") : t("routing.showConfig", "显示配置")}
-                aria-pressed={showRawConfig}
-              >{showRawConfig ? <EyeOff size={16} /> : <Eye size={16} />}</button>
             </div>
-            {showRawConfig ? (
-              <Suspense fallback={<div className="ccs-json-editor ccs-json-editor-loading" aria-hidden="true" />}>
-                <JsonConfigEditor value={configText} onChange={setConfigText} ariaLabel={t("routing.configLabel", "配置（settings.json）")} />
-              </Suspense>
-            ) : null}
+            <div className="ccs-config-toggles">
+              {configToggles.map(toggle => (
+                <label key={toggle.id} className="ccs-config-toggle">
+                  <input type="checkbox" checked={toggle.checked} disabled={configInvalid} onChange={event => toggle.onToggle(event.target.checked)} />
+                  <span>{toggle.label}</span>
+                </label>
+              ))}
+            </div>
+            {/* cc-switch parity: the settings.json editor is always shown (no
+                show/hide toggle). It stays a lazy chunk, so the CodeMirror bundle
+                still code-splits and only loads with the form. */}
+            <Suspense fallback={<div className="ccs-json-editor ccs-json-editor-loading" aria-hidden="true" />}>
+              <JsonConfigEditor value={configText} onChange={setConfigText} ariaLabel={t("routing.configLabel", "配置（settings.json）")} />
+            </Suspense>
             {configInvalid ? <small className="ccs-field-error">{t("routing.configInvalid", "配置不是合法的 JSON 对象")}</small> : null}
           </section>
         </form>

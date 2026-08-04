@@ -182,6 +182,12 @@ export interface ClaudeProviderEnv {
   ANTHROPIC_DEFAULT_OPUS_MODEL?: string;
   ANTHROPIC_DEFAULT_HAIKU_MODEL?: string;
   ANTHROPIC_DEFAULT_FABLE_MODEL?: string;
+  // Per-role /model menu display names (cc-switch parity). The actual request
+  // model stays in the *_MODEL keys above; the "[1M]" marker rides on that value.
+  ANTHROPIC_DEFAULT_SONNET_MODEL_NAME?: string;
+  ANTHROPIC_DEFAULT_OPUS_MODEL_NAME?: string;
+  ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME?: string;
+  ANTHROPIC_DEFAULT_FABLE_MODEL_NAME?: string;
   [key: string]: string | undefined;
 }
 
@@ -248,6 +254,26 @@ export interface ClaudeProviderSaveResult {
   ok: boolean;
   provider?: ClaudeProviderConfig;
   error?: string;
+}
+
+export type ClaudeProviderModelsErrorCode = "config" | "auth" | "notFound" | "timeout" | "unsupported" | "unsupportedFormat" | "failed";
+
+/** Request to query a provider's models endpoint. apiFormat/apiKeyField pick the
+ *  endpoint + auth convention; a format without an OpenAI-style /v1/models is
+ *  rejected with errorCode "unsupportedFormat". */
+export interface ClaudeProviderModelsRequest {
+  baseUrl: string;
+  apiKey: string;
+  apiFormat?: string;
+  apiKeyField?: string;
+  userAgent?: string;
+}
+
+/** Result of querying a provider's models endpoint for available model ids. */
+export interface ClaudeProviderModelsResult {
+  ok: boolean;
+  models: string[];
+  errorCode?: ClaudeProviderModelsErrorCode;
 }
 
 export interface CompanionSettings {
