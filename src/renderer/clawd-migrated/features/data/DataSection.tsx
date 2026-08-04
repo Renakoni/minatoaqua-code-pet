@@ -5,7 +5,7 @@ import { useI18n } from "../../useI18n";
 import { StatsPanel } from "../../components/StatsPanel";
 import { TokenPanel } from "./TokenPanel";
 
-export function DataSection({ persistedStats, activityCount, hideSensitiveContent, onClearActivity, onResetStats }: {
+function DataSectionInner({ persistedStats, activityCount, hideSensitiveContent, onClearActivity, onResetStats }: {
   persistedStats: any;
   activityCount: number;
   hideSensitiveContent: boolean;
@@ -115,3 +115,7 @@ export function DataSection({ persistedStats, activityCount, hideSensitiveConten
     </section>
   );
 }
+
+// Keep-mounted under the tab container: memoized so an unrelated settings change
+// or a tab switch doesn't re-render the token panel (heatmap + tables).
+export const DataSection = React.memo(DataSectionInner);

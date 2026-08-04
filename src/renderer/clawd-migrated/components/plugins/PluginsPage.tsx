@@ -25,7 +25,6 @@ import {
   type ClaudeProfileSaveInput,
   type ClaudeProfilesSnapshot
 } from "../../../../shared/claudeProfiles";
-import type { CompanionSettings } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import { ConfirmDialog } from "../claude-routing/ConfirmDialog";
 import { RoutingToaster } from "../claude-routing/RoutingToaster";
@@ -50,7 +49,12 @@ type EditorState = {
   protectedProfile: boolean;
 };
 
-export function PluginsPage({ settings, active = true }: { settings: CompanionSettings; active?: boolean; updateSettings: (s: Partial<CompanionSettings>) => void }) {
+// Only `hideSensitiveContent` is read from settings here, so take that slice
+// directly instead of the whole `settings` object. A settings save (e.g. an
+// animation-slider drag) mints a fresh `settings` reference every time; passing
+// the object would defeat React.memo on every such change, while a primitive
+// boolean lets it bail unless the flag itself actually flips.
+function PluginsPageInner({ hideSensitiveContent, active = true }: { hideSensitiveContent: boolean; active?: boolean }) {
   const { locale } = useI18n();
   const zh = locale === "zh";
   const [activeTab, setActiveTab] = useState<ResourceTab>("skills");
@@ -159,8 +163,8 @@ export function PluginsPage({ settings, active = true }: { settings: CompanionSe
     ];
   }, [activeTab, selectedProfile, snapshot.inventory, zh]);
   const filteredItems = useMemo(
-    () => filterProfileResources(items, deferredQuery, settings.hideSensitiveContent),
-    [deferredQuery, items, settings.hideSensitiveContent]
+    () => filterProfileResources(items, deferredQuery, hideSensitiveContent),
+    [deferredQuery, items, hideSensitiveContent]
   );
 
   function closeProfileMenu(restoreFocus = false) {
@@ -361,7 +365,7 @@ export function PluginsPage({ settings, active = true }: { settings: CompanionSe
           protectedProfile={editor.protectedProfile}
           canDelete={Boolean(editor.initial.id && !editor.protectedProfile)}
           busy={busyAction === "save" || busyAction === "delete" || busyAction === "apply"}
-          hideSensitiveContent={settings.hideSensitiveContent}
+          hideSensitiveContent={hideSensitiveContent}
           zh={zh}
           onCancel={() => setEditor(null)}
           onSave={input => void saveProfile(input)}
@@ -513,7 +517,7 @@ export function PluginsPage({ settings, active = true }: { settings: CompanionSe
         availableIds={new Set(snapshot.inventory[activeTab].map(item => item.id))}
         loading={loading}
         emptyLabel={deferredQuery.trim() ? (zh ? "没有匹配项" : "No matches") : emptyText(activeTab, zh)}
-        hideSensitiveContent={settings.hideSensitiveContent}
+        hideSensitiveContent={hideSensitiveContent}
         zh={zh}
         actionsAvailable={profileActionsAvailable && busyAction === null}
         busyResourceId={busyResourceId}
@@ -716,3 +720,9 @@ function emptyText(tab: ResourceTab, zh: boolean) {
   if (tab === "plugins") return zh ? "当前方案未启用 Plugins。" : "No Plugins are enabled in this profile.";
   return zh ? "当前方案未启用 MCP。" : "No MCP servers are enabled in this profile.";
 }
+
+// Keep-mounted under the tab container: memoized so an unrelated settings change
+// or a tab switch doesn't re-render the profile + resource lists. Props are all
+// primitives (a boolean flag), so the default shallow compare bails on every
+// settings save that doesn't flip `hideSensitiveContent`.
+export const PluginsPage = React.memo(PluginsPageInner);
