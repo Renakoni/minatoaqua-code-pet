@@ -1,8 +1,8 @@
 import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Gauge, Plus, Save } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Download, Eye, EyeOff, Gauge, Loader2, Plus, Save } from "lucide-react";
 import { useI18n } from "../../useI18n";
-import type { ClaudeProviderTestResult } from "../../../shared/events";
+import type { ClaudeProviderModelsResult, ClaudeProviderTestResult } from "../../../shared/events";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { IconPicker } from "./IconPicker";
 import { ProviderIcon } from "./ProviderIcon";
@@ -150,6 +150,7 @@ type ProviderEditPanelProps = {
   onSave: (provider: ClaudeProvider, originalId?: string) => void;
   onClose: () => void;
   onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
+  onFetchModels?: (payload: { baseUrl: string; apiKey: string; userAgent?: string }) => Promise<ClaudeProviderModelsResult>;
 };
 
 type ProviderEditPanelContentProps = {
@@ -159,6 +160,7 @@ type ProviderEditPanelContentProps = {
   onSave: (provider: ClaudeProvider, originalId?: string) => void;
   onClose: () => void;
   onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
+  onFetchModels?: (payload: { baseUrl: string; apiKey: string; userAgent?: string }) => Promise<ClaudeProviderModelsResult>;
 };
 
 const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
@@ -167,7 +169,8 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   hasCommonConfig,
   onSave,
   onClose,
-  onTestEndpoint
+  onTestEndpoint,
+  onFetchModels
 }: ProviderEditPanelContentProps) {
   const { t } = useI18n();
 
@@ -194,6 +197,9 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   const [endpointResults, setEndpointResults] = useState<Record<string, ClaudeProviderTestResult | "testing">>({});
   const [softIssues, setSoftIssues] = useState<string[] | null>(null);
   const [hardError, setHardError] = useState<string | null>(null);
+  const [fetchedModels, setFetchedModels] = useState<string[]>([]);
+  const [modelFetchLoading, setModelFetchLoading] = useState(false);
+  const [modelFetchError, setModelFetchError] = useState<string | null>(null);
 
   const activePreset: ClaudeProviderPreset | null = presetIndex === "custom" ? null : presetsWithIcons[presetIndex] ?? null;
   const parsedConfig = useMemo(() => parseConfig(configText), [configText]);
@@ -281,6 +287,37 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
     setEndpointResults(current => ({ ...current, [url]: result }));
   }
 
+  function fetchModelsErrorText(code?: ClaudeProviderModelsResult["errorCode"]) {
+    switch (code) {
+      case "config": return t("routing.fetchModelsNeedConfig", "请先填写请求地址和 API Key");
+      case "auth": return t("routing.fetchModelsAuthFailed", "鉴权失败，请检查 API Key");
+      case "notFound": return t("routing.fetchModelsNotFound", "该端点没有模型列表接口");
+      case "timeout": return t("routing.fetchModelsTimeout", "获取超时，请稍后重试");
+      case "unsupported": return t("routing.fetchModelsUnsupported", "该端点未返回模型列表");
+      default: return t("routing.fetchModelsFailed", "获取模型列表失败");
+    }
+  }
+
+  async function runFetchModels() {
+    if (!onFetchModels) return;
+    setModelFetchError(null);
+    setModelFetchLoading(true);
+    try {
+      const result = await onFetchModels({ baseUrl: baseUrl.trim(), apiKey, userAgent: customUserAgent.trim() || undefined });
+      if (result.ok) {
+        setFetchedModels(result.models);
+        if (result.models.length === 0) setModelFetchError(t("routing.fetchModelsEmpty", "该端点未返回可用模型"));
+      } else {
+        setFetchedModels([]);
+        setModelFetchError(fetchModelsErrorText(result.errorCode));
+      }
+    } catch {
+      setModelFetchError(fetchModelsErrorText("failed"));
+    } finally {
+      setModelFetchLoading(false);
+    }
+  }
+
   function buildProviderRecord(): ClaudeProvider {
     const settingsConfig = parseConfig(configText) ?? { env: {} };
     const meta: ClaudeProvider["meta"] = { ...(provider.meta ?? {}) };
@@ -361,6 +398,9 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   // Portal to <body>: ancestors with backdrop-filter/transform would otherwise
   // trap position:fixed and the footer could scroll out of view.
   const formId = mode === "add" ? "claude-provider-add-form" : "claude-provider-edit-form";
+  // Unique per instance: the Add form stays prewarmed/mounted alongside Edit, so a
+  // shared datalist id would collide in the DOM.
+  const modelsListId = `${formId}-models`;
 
   return (
     <>
@@ -532,22 +572,35 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                 <div className="ccs-model-mapping">
                   <div className="ccs-model-mapping-head">
                     <span className="ccs-field-label">{t("routing.modelMapping", "模型映射")}</span>
-                    <button
-                      type="button"
-                      className="ccs-model-quickset"
-                      disabled={configInvalid}
-                      onClick={() => {
-                        const seed = stripClaudeOneMMarker(MODEL_ROLES.map(({ envKey }) => env[envKey]).find(Boolean) || env.ANTHROPIC_MODEL || "");
-                        if (!seed) return;
-                        updateConfig(config => {
-                          const envBlock = (config.env && typeof config.env === "object" ? config.env : {}) as Record<string, string>;
-                          for (const { envKey } of MODEL_ROLES) {
-                            if (!envBlock[envKey]) envBlock[envKey] = seed;
-                          }
-                          config.env = envBlock;
-                        });
-                      }}
-                    >{t("routing.quickSetModels", "一键填充")}</button>
+                    <div className="ccs-model-mapping-actions">
+                      <button
+                        type="button"
+                        className="ccs-model-quickset"
+                        disabled={configInvalid}
+                        onClick={() => {
+                          const seed = stripClaudeOneMMarker(MODEL_ROLES.map(({ envKey }) => env[envKey]).find(Boolean) || env.ANTHROPIC_MODEL || "");
+                          if (!seed) return;
+                          updateConfig(config => {
+                            const envBlock = (config.env && typeof config.env === "object" ? config.env : {}) as Record<string, string>;
+                            for (const { envKey } of MODEL_ROLES) {
+                              if (!envBlock[envKey]) envBlock[envKey] = seed;
+                            }
+                            config.env = envBlock;
+                          });
+                        }}
+                      >{t("routing.quickSetModels", "一键填充")}</button>
+                      {onFetchModels ? (
+                        <button
+                          type="button"
+                          className="ccs-model-quickset"
+                          disabled={modelFetchLoading || configInvalid || !baseUrl.trim() || !apiKey.trim()}
+                          onClick={() => void runFetchModels()}
+                        >
+                          {modelFetchLoading ? <Loader2 size={13} className="ccs-spin" /> : <Download size={13} />}
+                          {t("routing.fetchModels", "获取模型列表")}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                   <small className="ccs-field-hint">{t("routing.modelMappingHint2", "显示名称只影响 /model 菜单；1M 只是给 Claude Code 声明 1M 上下文能力。")}</small>
                   <div className="ccs-model-table">
@@ -578,6 +631,7 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                             onChange={event => setEnvValue(envKey, setClaudeOneMMarker(event.target.value, oneM))}
                             placeholder={t("routing.modelPlaceholder", "实际请求模型，可留空")}
                             aria-label={`${role} ${t("routing.modelActual", "实际请求模型")}`}
+                            list={fetchedModels.length > 0 ? modelsListId : undefined}
                             spellCheck={false}
                           />
                           {supportsOneM ? (
@@ -603,9 +657,16 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                       disabled={configInvalid}
                       onChange={event => setEnvValue("ANTHROPIC_MODEL", event.target.value)}
                       placeholder={t("routing.fallbackModelPlaceholder", "未命中角色映射时使用")}
+                      list={fetchedModels.length > 0 ? modelsListId : undefined}
                       spellCheck={false}
                     />
                   </label>
+                  {modelFetchError ? <small className="ccs-field-error">{modelFetchError}</small> : null}
+                  {fetchedModels.length > 0 ? (
+                    <datalist id={modelsListId}>
+                      {fetchedModels.map(model => <option key={model} value={model} />)}
+                    </datalist>
+                  ) : null}
                 </div>
 
                 <div className="ccs-form-grid two">

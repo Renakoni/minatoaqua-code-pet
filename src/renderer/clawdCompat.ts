@@ -23,6 +23,7 @@ import {
   type ClaudeProviderSaveResult,
   type ClaudeProviderSwitchResult,
   type ClaudeProviderTestResult,
+  type ClaudeProviderModelsResult,
   type CompanionConnectionStatus,
   type CompanionEvent,
   type CompanionEventType,
@@ -126,6 +127,7 @@ type CompanionApi = {
   reorderClaudeProviders: (orderedIds: string[]) => Promise<{ ok: boolean; error?: string }>;
   switchClaudeProvider: (id: string) => Promise<ClaudeProviderSwitchResult>;
   testClaudeProvider: (payload: { id?: string; baseUrl?: string }) => Promise<ClaudeProviderTestResult>;
+  fetchClaudeProviderModels: (payload: { baseUrl?: string; apiKey?: string; userAgent?: string }) => Promise<ClaudeProviderModelsResult>;
   openClaudeProviderTerminal: (providerId: string, cwd: string) => Promise<{ ok: boolean; command: string; error?: string }>;
   pickTerminalDirectory: () => Promise<string | null>;
   onCcSwitchChanged: (callback: Listener<unknown>) => Unsubscribe;
@@ -628,6 +630,7 @@ export function installClawdCompat() {
       url: payload.baseUrl ?? "",
       message: "Connectivity tests are only available in the desktop app."
     }),
+    fetchClaudeProviderModels: async () => ({ ok: false, models: [], errorCode: "failed" }),
     openClaudeProviderTerminal: async () => ({ ok: false, command: "", error: "Terminal launch is only available in the desktop app." }),
     pickTerminalDirectory: async () => null,
     onCcSwitchChanged: () => () => undefined,

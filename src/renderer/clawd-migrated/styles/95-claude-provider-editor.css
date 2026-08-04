@@ -330,7 +330,16 @@
   gap: 10px;
 }
 
+.ccs-model-mapping-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .ccs-model-quickset {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-height: 26px;
   padding: 0 9px;
   border: 1px solid var(--ccs-editor-line-strong);

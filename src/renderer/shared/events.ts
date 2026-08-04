@@ -256,6 +256,15 @@ export interface ClaudeProviderSaveResult {
   error?: string;
 }
 
+export type ClaudeProviderModelsErrorCode = "config" | "auth" | "notFound" | "timeout" | "unsupported" | "failed";
+
+/** Result of querying a provider's /v1/models endpoint for available model ids. */
+export interface ClaudeProviderModelsResult {
+  ok: boolean;
+  models: string[];
+  errorCode?: ClaudeProviderModelsErrorCode;
+}
+
 export interface CompanionSettings {
   claudeProviders?: Record<string, ClaudeProviderConfig>;
   currentClaudeProviderId?: string;

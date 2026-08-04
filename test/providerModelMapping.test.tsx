@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderEditPanel } from "../src/renderer/clawd-migrated/components/claude-routing/ProviderEditPanel";
@@ -81,5 +81,51 @@ describe("provider model mapping (cc-switch parity)", () => {
     expect(saved.settingsConfig.env.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME).toBe("Fancy Opus");
     // Editing the display name must not disturb the actual model value.
     expect(saved.settingsConfig.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe("opus-real");
+  });
+
+  it("fetches models with the form's base url + key and offers them as input suggestions", async () => {
+    const onFetchModels = vi.fn(async () => ({ ok: true, models: ["prov-a", "prov-b"] }));
+    render(
+      <I18nProvider initialLocale="en">
+        <ProviderEditPanel
+          provider={{ id: "p1", name: "Provider 1", category: "custom", settingsConfig: { env: { ...baseEnv, ANTHROPIC_DEFAULT_SONNET_MODEL: "seed" } } }}
+          mode="edit"
+          open
+          onSave={vi.fn()}
+          onClose={vi.fn()}
+          onFetchModels={onFetchModels}
+        />
+      </I18nProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
+    await waitFor(() => expect(onFetchModels).toHaveBeenCalledTimes(1));
+    const [payload] = onFetchModels.mock.calls[0] as unknown as [{ baseUrl?: string; apiKey?: string }];
+    expect(payload).toMatchObject({ baseUrl: "https://api.example.test", apiKey: "sk-token" });
+
+    await waitFor(() => expect(document.querySelector("datalist#claude-provider-edit-form-models")).not.toBeNull());
+    const options = Array.from(document.querySelectorAll("datalist#claude-provider-edit-form-models option")).map(node => (node as HTMLOptionElement).value);
+    expect(options).toEqual(["prov-a", "prov-b"]);
+    // A model input bound to a datalist reports role "combobox", not "textbox".
+    expect((screen.getByRole("combobox", { name: "Sonnet Actual Request Model" }) as HTMLInputElement).getAttribute("list")).toBe("claude-provider-edit-form-models");
+  });
+
+  it("surfaces a localized error when the fetch fails", async () => {
+    const onFetchModels = vi.fn(async () => ({ ok: false, models: [], errorCode: "auth" as const }));
+    render(
+      <I18nProvider initialLocale="en">
+        <ProviderEditPanel
+          provider={{ id: "p1", name: "Provider 1", category: "custom", settingsConfig: { env: { ...baseEnv, ANTHROPIC_DEFAULT_SONNET_MODEL: "seed" } } }}
+          mode="edit"
+          open
+          onSave={vi.fn()}
+          onClose={vi.fn()}
+          onFetchModels={onFetchModels}
+        />
+      </I18nProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
+    await screen.findByText("Authentication failed — check the API key");
   });
 });

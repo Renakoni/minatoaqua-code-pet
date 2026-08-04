@@ -297,6 +297,10 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     (baseUrl: string) => companion.testClaudeProvider({ baseUrl }),
     [companion]
   );
+  const fetchEditorModels = useCallback(
+    (payload: { baseUrl: string; apiKey: string; userAgent?: string }) => companion.fetchClaudeProviderModels(payload),
+    [companion]
+  );
 
   return (
     <section className="ccs-provider-board">
@@ -346,6 +350,7 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
         onSave={saveEditorProvider}
         onClose={closeAddEditor}
         onTestEndpoint={testEditorEndpoint}
+        onFetchModels={fetchEditorModels}
       />
 
       <ProviderEditPanel
@@ -357,6 +362,7 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
         onSave={saveEditorProvider}
         onClose={closeEditEditor}
         onTestEndpoint={testEditorEndpoint}
+        onFetchModels={fetchEditorModels}
       />
 
       {pendingDelete ? (

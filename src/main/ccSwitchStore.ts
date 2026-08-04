@@ -559,6 +559,73 @@ export async function probeClaudeEndpoint(baseUrl: string, options: EndpointProb
   return last;
 }
 
+/* ---------- model list fetch (cc-switch parity) ---------- */
+
+export interface FetchProviderModelsResult {
+  ok: boolean;
+  models: string[];
+  errorCode?: "config" | "auth" | "notFound" | "timeout" | "unsupported" | "failed";
+}
+
+// Given a provider base URL, produce the /models URLs to try in order, matching
+// cc-switch: a base that already ends in a version segment (…/v1) just needs
+// /models; otherwise try /v1/models first, then a bare /models fallback.
+export function buildModelsUrlCandidates(baseUrl: string): string[] {
+  const trimmed = (baseUrl ?? "").trim().replace(/\/+$/, "");
+  if (!trimmed) return [];
+  if (/\/v\d+$/i.test(trimmed)) return [`${trimmed}/models`];
+  return [`${trimmed}/v1/models`, `${trimmed}/models`];
+}
+
+export async function fetchProviderModels(payload: { baseUrl?: string; apiKey?: string; userAgent?: string }): Promise<FetchProviderModelsResult> {
+  const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
+  const apiKey = typeof payload?.apiKey === "string" ? payload.apiKey.trim() : "";
+  if (!baseUrl || !apiKey) return { ok: false, models: [], errorCode: "config" };
+  const candidates = buildModelsUrlCandidates(baseUrl);
+  if (!candidates.length) return { ok: false, models: [], errorCode: "config" };
+
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    // cc-switch parity: a bearer token authenticates both ANTHROPIC_AUTH_TOKEN
+    // and ANTHROPIC_API_KEY relays. The key rides in the header only — never the
+    // URL, and it is never logged.
+    authorization: `Bearer ${apiKey}`
+  };
+  if (payload.userAgent && payload.userAgent.trim()) headers["user-agent"] = payload.userAgent.trim();
+
+  let lastError: FetchProviderModelsResult["errorCode"] = "failed";
+  for (const url of candidates) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(url, { method: "GET", headers, signal: controller.signal });
+      if (response.status === 401 || response.status === 403) return { ok: false, models: [], errorCode: "auth" };
+      if (response.status === 404 || response.status === 405) { lastError = "notFound"; continue; }
+      if (!response.ok) { lastError = "failed"; continue; }
+      let json: unknown;
+      try { json = await response.json(); } catch { lastError = "unsupported"; continue; }
+      const rows = Array.isArray(json)
+        ? json
+        : Array.isArray((json as { data?: unknown } | null)?.data)
+          ? (json as { data: unknown[] }).data
+          : null;
+      if (!rows) { lastError = "unsupported"; continue; }
+      const models = Array.from(new Set(
+        rows
+          .map(item => (typeof item === "string" ? item : typeof (item as { id?: unknown })?.id === "string" ? (item as { id: string }).id : ""))
+          .filter(Boolean)
+      )).sort();
+      return { ok: true, models };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return { ok: false, models: [], errorCode: "timeout" };
+      lastError = "failed";
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return { ok: false, models: [], errorCode: lastError };
+}
+
 /* ---------- external change watching ---------- */
 
 let watcher: FSWatcher | null = null;

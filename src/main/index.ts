@@ -37,6 +37,7 @@ import {
   listCcSwitchProviders,
   reorderCcSwitchProviders,
   probeClaudeEndpoint,
+  fetchProviderModels,
   stopWatchingCcSwitch,
   switchCcSwitchProvider,
   updateCcSwitchProvider,
@@ -3539,6 +3540,14 @@ app.whenReady().then(() => {
       return await testUnifiedProvider(payload ?? {});
     } catch (error) {
       return { status: "failed", success: false, message: error instanceof Error ? error.message : String(error), url: "" };
+    }
+  });
+  ipcMain.handle("companion:providers-fetch-models", async (_, payload: { baseUrl?: string; apiKey?: string; userAgent?: string }) => {
+    try {
+      return await fetchProviderModels(payload ?? {});
+    } catch {
+      // Never surface the raw error (it can embed the request URL); map to a code.
+      return { ok: false, models: [], errorCode: "failed" as const };
     }
   });
   ipcMain.handle("companion:get-update-status", () => getUpdateStatus());
