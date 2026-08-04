@@ -166,7 +166,6 @@ type ProviderEditPanelContentProps = {
 const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   provider,
   mode,
-  hasCommonConfig,
   onSave,
   onClose,
   onTestEndpoint,
@@ -187,8 +186,6 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   const [apiKeyField, setApiKeyField] = useState<AuthField>(
     provider.meta?.apiKeyField === "ANTHROPIC_API_KEY" ? "ANTHROPIC_API_KEY" : "ANTHROPIC_AUTH_TOKEN"
   );
-  const [customUserAgent, setCustomUserAgent] = useState(String(provider.meta?.customUserAgent ?? ""));
-  const [commonConfigEnabled, setCommonConfigEnabled] = useState(provider.meta?.commonConfigEnabled === true);
   const [showApiKey, setShowApiKey] = useState(false);
   const [presetIndex, setPresetIndex] = useState<number | "custom">("custom");
   const [templateBase, setTemplateBase] = useState<string | null>(null);
@@ -303,7 +300,8 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
     setModelFetchError(null);
     setModelFetchLoading(true);
     try {
-      const result = await onFetchModels({ baseUrl: baseUrl.trim(), apiKey, userAgent: customUserAgent.trim() || undefined });
+      const savedUserAgent = typeof provider.meta?.customUserAgent === "string" ? provider.meta.customUserAgent.trim() : "";
+      const result = await onFetchModels({ baseUrl: baseUrl.trim(), apiKey, userAgent: savedUserAgent || undefined });
       if (result.ok) {
         setFetchedModels(result.models);
         if (result.models.length === 0) setModelFetchError(t("routing.fetchModelsEmpty", "该端点未返回可用模型"));
@@ -325,9 +323,8 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
     else delete meta.apiFormat;
     if (apiKeyField !== "ANTHROPIC_AUTH_TOKEN") meta.apiKeyField = apiKeyField;
     else delete meta.apiKeyField;
-    if (customUserAgent.trim()) meta.customUserAgent = customUserAgent.trim();
-    else delete meta.customUserAgent;
-    if (hasCommonConfig) meta.commonConfigEnabled = commonConfigEnabled;
+    // customUserAgent / commonConfigEnabled: no UI anymore, but preserve whatever
+    // the record already had (carried by the `...provider.meta` spread above).
     return {
       ...provider,
       id: mode === "edit" ? provider.id : "",
@@ -389,10 +386,8 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
 
   const advancedActive = apiFormat !== "anthropic"
     || apiKeyField !== "ANTHROPIC_AUTH_TOKEN"
-    || Boolean(customUserAgent.trim())
     || MODEL_ROLES.some(({ envKey }) => Boolean(env[envKey]))
-    || Boolean(env.ANTHROPIC_MODEL)
-    || commonConfigEnabled;
+    || Boolean(env.ANTHROPIC_MODEL);
   const [advancedOpen, setAdvancedOpen] = useState(advancedActive);
 
   // Portal to <body>: ancestors with backdrop-filter/transform would otherwise
@@ -401,6 +396,47 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   // Unique per instance: the Add form stays prewarmed/mounted alongside Edit, so a
   // shared datalist id would collide in the DOM.
   const modelsListId = `${formId}-models`;
+
+  // Config quick-toggles (cc-switch parity): each is DERIVED from the JSON (the
+  // source of truth) and mutates it. On -> the key/value below; off -> the key is
+  // removed. All but "hide attribution" live under env.
+  const attribution = (parsedConfig as { attribution?: { commit?: unknown; pr?: unknown } } | null)?.attribution;
+  const configToggles = [
+    {
+      id: "hideAttribution",
+      label: t("routing.toggleHideAttribution", "隐藏 AI 署名"),
+      checked: attribution?.commit === "" && attribution?.pr === "",
+      onToggle: (checked: boolean) => updateConfig(config => {
+        const c = config as { attribution?: { commit: string; pr: string } };
+        if (checked) c.attribution = { commit: "", pr: "" };
+        else delete c.attribution;
+      })
+    },
+    {
+      id: "teammates",
+      label: t("routing.toggleTeammates", "Teammates 模式"),
+      checked: env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === "1",
+      onToggle: (checked: boolean) => setEnvValue("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", checked ? "1" : "")
+    },
+    {
+      id: "toolSearch",
+      label: t("routing.toggleToolSearch", "启用 Tool Search"),
+      checked: env.ENABLE_TOOL_SEARCH === "true" || env.ENABLE_TOOL_SEARCH === "1",
+      onToggle: (checked: boolean) => setEnvValue("ENABLE_TOOL_SEARCH", checked ? "true" : "")
+    },
+    {
+      id: "effortMax",
+      label: t("routing.toggleEffortMax", "最大强度思考"),
+      checked: env.CLAUDE_CODE_EFFORT_LEVEL === "max",
+      onToggle: (checked: boolean) => setEnvValue("CLAUDE_CODE_EFFORT_LEVEL", checked ? "max" : "")
+    },
+    {
+      id: "disableAutoUpgrade",
+      label: t("routing.toggleDisableAutoUpgrade", "禁用自动升级"),
+      checked: env.DISABLE_AUTOUPDATER === "1",
+      onToggle: (checked: boolean) => setEnvValue("DISABLE_AUTOUPDATER", checked ? "1" : "")
+    }
+  ];
 
   return (
     <>
@@ -576,19 +612,25 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                       <button
                         type="button"
                         className="ccs-model-quickset"
-                        disabled={configInvalid}
+                        disabled={configInvalid || (!env.ANTHROPIC_MODEL && !MODEL_ROLES.some(({ envKey }) => env[envKey]))}
                         onClick={() => {
-                          const seed = stripClaudeOneMMarker(MODEL_ROLES.map(({ envKey }) => env[envKey]).find(Boolean) || env.ANTHROPIC_MODEL || "");
-                          if (!seed) return;
+                          // cc-switch parity: propagate the first model found (the
+                          // fallback first, then the role slots) to every role —
+                          // keeping the [1M] marker for 1M-capable roles, stripping it
+                          // for Haiku — and set each display name to the base id.
+                          const seedRaw = env.ANTHROPIC_MODEL || MODEL_ROLES.map(({ envKey }) => env[envKey]).find(Boolean) || "";
+                          if (!stripClaudeOneMMarker(seedRaw).trim()) return;
                           updateConfig(config => {
                             const envBlock = (config.env && typeof config.env === "object" ? config.env : {}) as Record<string, string>;
-                            for (const { envKey } of MODEL_ROLES) {
-                              if (!envBlock[envKey]) envBlock[envKey] = seed;
+                            for (const { envKey, nameKey, supportsOneM } of MODEL_ROLES) {
+                              const roleValue = supportsOneM ? seedRaw : stripClaudeOneMMarker(seedRaw);
+                              envBlock[envKey] = roleValue;
+                              envBlock[nameKey] = stripClaudeOneMMarker(roleValue);
                             }
                             config.env = envBlock;
                           });
                         }}
-                      >{t("routing.quickSetModels", "一键填充")}</button>
+                      >{t("routing.quickSetModels", "一键设置")}</button>
                       {onFetchModels ? (
                         <button
                           type="button"
@@ -668,22 +710,6 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                     </datalist>
                   ) : null}
                 </div>
-
-                <div className="ccs-form-grid two">
-                  <label>
-                    <span>{t("routing.customUserAgent", "自定义 User-Agent")}</span>
-                    <input value={customUserAgent} onChange={event => setCustomUserAgent(event.target.value)} placeholder={t("routing.optional", "可选")} spellCheck={false} />
-                  </label>
-                  {hasCommonConfig ? (
-                    <label className="ccs-inline-check">
-                      <span>{t("routing.commonConfig", "公共配置片段")}</span>
-                      <span className="ccs-inline-check-row">
-                        <input type="checkbox" checked={commonConfigEnabled} onChange={event => setCommonConfigEnabled(event.target.checked)} />
-                        <em>{t("routing.commonConfigHint", "切换时合并 cc-switch 的公共配置")}</em>
-                      </span>
-                    </label>
-                  ) : null}
-                </div>
               </div>
             ) : null}
           </section>
@@ -694,6 +720,14 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                 <h3>{t("routing.configLabel", "配置（settings.json）")}</h3>
                 <p>{t("routing.configDesc", "切换到此供应商时写入 ~/.claude/settings.json 的完整内容")}</p>
               </div>
+            </div>
+            <div className="ccs-config-toggles">
+              {configToggles.map(toggle => (
+                <label key={toggle.id} className="ccs-config-toggle">
+                  <input type="checkbox" checked={toggle.checked} disabled={configInvalid} onChange={event => toggle.onToggle(event.target.checked)} />
+                  <span>{toggle.label}</span>
+                </label>
+              ))}
             </div>
             {/* cc-switch parity: the settings.json editor is always shown (no
                 show/hide toggle). It stays a lazy chunk, so the CodeMirror bundle

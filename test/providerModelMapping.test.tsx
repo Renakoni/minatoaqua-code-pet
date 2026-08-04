@@ -128,4 +128,47 @@ describe("provider model mapping (cc-switch parity)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
     await screen.findByText("Authentication failed — check the API key");
   });
+
+  it("Quick Set propagates the seed to every role, keeps [1M] except Haiku, and fills display names", () => {
+    const onSave = renderPanel({ ...baseEnv, ANTHROPIC_MODEL: "seed-model[1M]" });
+    fireEvent.click(screen.getByRole("button", { name: "Quick Set" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    const env = onSave.mock.calls[0][0].settingsConfig.env;
+    expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe("seed-model[1M]");
+    expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe("seed-model[1M]");
+    expect(env.ANTHROPIC_DEFAULT_FABLE_MODEL).toBe("seed-model[1M]");
+    expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe("seed-model");
+    expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME).toBe("seed-model");
+  });
+
+  it("disables Quick Set when no model is entered anywhere", () => {
+    renderPanel({ ...baseEnv, ANTHROPIC_DEFAULT_SONNET_MODEL: "x" });
+    // Clear the one model so nothing remains to propagate.
+    fireEvent.change(screen.getByRole("textbox", { name: "Sonnet Actual Request Model" }), { target: { value: "" } });
+    expect((screen.getByRole("button", { name: "Quick Set" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("config quick-toggles write the exact cc-switch config keys", () => {
+    const onSave = renderPanel(baseEnv);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Enable Tool Search" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Max Effort Thinking" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Hide AI Attribution" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    const config = onSave.mock.calls[0][0].settingsConfig;
+    expect(config.env.ENABLE_TOOL_SEARCH).toBe("true");
+    expect(config.env.CLAUDE_CODE_EFFORT_LEVEL).toBe("max");
+    expect(config.attribution).toEqual({ commit: "", pr: "" });
+  });
+
+  it("unchecking a config toggle deletes its key", () => {
+    const onSave = renderPanel({ ...baseEnv, ENABLE_TOOL_SEARCH: "true" });
+    const toggle = screen.getByRole("checkbox", { name: "Enable Tool Search" }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave.mock.calls[0][0].settingsConfig.env.ENABLE_TOOL_SEARCH).toBeUndefined();
+  });
 });

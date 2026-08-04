@@ -453,6 +453,30 @@
   font-style: normal;
 }
 
+/* ---------- config quick-toggles (cc-switch parity) ---------- */
+
+.ccs-config-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+
+.ccs-config-toggles .ccs-config-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ccs-editor-muted);
+  font-size: 13px;
+}
+
+.ccs-config-toggles .ccs-config-toggle input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  min-height: 0;
+  accent-color: var(--ccs-editor-primary);
+}
+
 /* ---------- JSON editor ---------- */
 
 .ccs-json-editor {

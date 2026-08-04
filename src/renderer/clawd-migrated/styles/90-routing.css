@@ -198,8 +198,8 @@
    heavier hardcoded palette. */
 .ccs-provider-form { display: grid; gap: 24px; max-width: 920px; margin: 0 auto; padding: 24px; border: 1px solid var(--ccs-editor-line); border-radius: 14px; background: var(--ccs-editor-surface); box-shadow: var(--ccs-editor-shadow); }
 .ccs-provider-form label { display: grid; gap: 8px; color: var(--ccs-editor-muted); font-size: 14px; font-weight: 500; }
-.ccs-provider-form label span { color: var(--ccs-editor-ink); font-weight: 500; }
-.ccs-provider-form input, .ccs-provider-form select, .ccs-provider-form textarea { min-height: 38px; border: 1px solid var(--ccs-editor-line-strong); border-radius: 8px; background: var(--ccs-editor-raised); color: var(--ccs-editor-ink); padding: 0 12px; font: inherit; font-weight: 400; outline: none; }
+.ccs-provider-form label span { color: var(--ccs-editor-ink); font-size: 14px; font-weight: 600; }
+.ccs-provider-form input, .ccs-provider-form select, .ccs-provider-form textarea { min-height: 38px; border: 1px solid var(--ccs-editor-line-strong); border-radius: 8px; background: var(--ccs-editor-raised); color: var(--ccs-editor-ink); padding: 0 12px; font: inherit; font-size: 14px; font-weight: 400; outline: none; }
 .ccs-provider-form textarea { min-height: 86px; padding: 10px 12px; resize: vertical; line-height: 1.45; }
 .ccs-provider-form input:focus, .ccs-provider-form select:focus, .ccs-provider-form textarea:focus { border-color: var(--ccs-editor-focus); box-shadow: 0 0 0 3px var(--ccs-editor-focus); }
 .ccs-provider-form select option { background: var(--ccs-editor-surface); color: var(--ccs-editor-ink); }
@@ -211,7 +211,7 @@
 /* No border-bottom between sections — cc-switch relies on whitespace alone. */
 .ccs-form-card { display: grid; gap: 16px; }
 .ccs-form-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.ccs-form-section-heading h3 { margin: 0; color: var(--ccs-editor-ink); font-size: 14px; font-weight: 600; }
+.ccs-form-section-heading h3 { margin: 0; color: var(--ccs-editor-ink); font-size: 15px; font-weight: 600; }
 .ccs-form-section-heading p { margin: 4px 0 0; color: var(--ccs-editor-faint); font-size: 12px; font-weight: 400; line-height: 1.5; }
 .ccs-icon-block { display: flex; justify-content: center; margin-bottom: 8px; }
 .ccs-icon-block button { width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; padding: 12px; border: 2px solid rgba(127,127,127,.28); border-radius: 14px; background: rgba(127,127,127,.09); cursor: pointer; transition: border-color 150ms ease, background-color 150ms ease; }
