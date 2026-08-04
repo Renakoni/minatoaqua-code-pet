@@ -61,6 +61,41 @@ describe("Claude provider Add form lifecycle", () => {
     expect(addPanel).not.toBeNull();
     expect(addPanel?.classList.contains("ccs-fullscreen-hidden")).toBe(true);
     expect(addPanel?.querySelector(".ccs-preset-grid")).not.toBeNull();
+    // ...and it is `inert` while hidden, so its ~60 preset buttons and every
+    // form field stay out of the keyboard tab order until the form is opened.
+    expect(addPanel?.hasAttribute("inert")).toBe(true);
+  });
+
+  it("leaves the tab order on open and returns focus to the Add trigger on close", async () => {
+    render(
+      <I18nProvider initialLocale="en">
+        <ClaudeRoutingPanel />
+      </I18nProvider>
+    );
+    await screen.findByText("Provider 1");
+
+    // The stable outer panel node persists across open/close (only its content
+    // is rebuilt), so we can watch its `inert` state through the whole cycle.
+    const panel = document.querySelector(".ccs-fullscreen-panel") as HTMLElement;
+    expect(panel.hasAttribute("inert")).toBe(true);
+
+    // Open from a focused Add trigger — the panel becomes interactive.
+    const addButton = screen.getByRole("button", { name: /Add provider/i }) as HTMLButtonElement;
+    addButton.focus();
+    fireEvent.click(addButton);
+    await waitFor(() => expect(visiblePanel()).not.toBeNull());
+    expect(panel.hasAttribute("inert")).toBe(false);
+
+    // Move focus into the form, then cancel.
+    const input = apiKeyInput()!;
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    fireEvent.click(visiblePanel()!.querySelector(".ccs-panel-cancel") as HTMLButtonElement);
+
+    // Focus is handed back to the Add trigger, and the hidden form goes inert
+    // again instead of stranding the keyboard user on <body>.
+    await waitFor(() => expect(document.activeElement).toBe(addButton));
+    await waitFor(() => expect(panel.hasAttribute("inert")).toBe(true));
   });
 
   it("gives a fresh form on reopen after cancel (no stale input)", async () => {

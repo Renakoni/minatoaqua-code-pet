@@ -685,6 +685,12 @@ export const ProviderEditPanel = memo(function ProviderEditPanel({
   const providerRef = useRef(provider);
   if (open && provider) providerRef.current = provider;
 
+  // Remember whoever opened us (the Add / row Edit trigger) so focus can return
+  // there on close. Once the panel goes inert, a keyboard user whose focus is
+  // still inside it would otherwise be dropped on <body>.
+  const openerRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(open);
+
   useEffect(() => {
     if (open) {
       setRendered(true);
@@ -697,13 +703,35 @@ export const ProviderEditPanel = memo(function ProviderEditPanel({
     return () => window.clearTimeout(timer);
   }, [open, prewarm]);
 
+  useEffect(() => {
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (open && !wasOpen) {
+      // Capture the trigger the moment we open, before focus moves into the form.
+      openerRef.current = document.activeElement as HTMLElement | null;
+    } else if (!open && wasOpen) {
+      const opener = openerRef.current;
+      openerRef.current = null;
+      // Restore after the panel is inert so the browser doesn't fight us for the
+      // active element.
+      if (opener && typeof opener.focus === "function") {
+        requestAnimationFrame(() => opener.focus());
+      }
+    }
+  }, [open]);
+
   const activeProvider = providerRef.current;
   if (!rendered || !activeProvider) return null;
 
   return createPortal(
     <div
       className={`ccs-fullscreen-panel${shown ? "" : " ccs-fullscreen-hidden"}`}
-      aria-hidden={open ? undefined : true}
+      // `inert` when not open removes the whole subtree from the tab order, from
+      // pointer/focus, and from the accessibility tree. The prewarmed Add form
+      // stays mounted+hidden, so without this every field, preset button and the
+      // footer stayed keyboard-focusable behind `opacity:0` — and `aria-hidden`
+      // over focusable descendants is itself invalid. `inert` supersedes both.
+      inert={!open}
     >
       <ProviderEditPanelContent
         key={sessionKey}
