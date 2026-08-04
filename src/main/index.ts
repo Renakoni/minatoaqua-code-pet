@@ -3542,7 +3542,7 @@ app.whenReady().then(() => {
       return { status: "failed", success: false, message: error instanceof Error ? error.message : String(error), url: "" };
     }
   });
-  ipcMain.handle("companion:providers-fetch-models", async (_, payload: { baseUrl?: string; apiKey?: string; userAgent?: string }) => {
+  ipcMain.handle("companion:providers-fetch-models", async (_, payload: { baseUrl?: string; apiKey?: string; apiFormat?: string; apiKeyField?: string; userAgent?: string }) => {
     try {
       return await fetchProviderModels(payload ?? {});
     } catch {

@@ -171,4 +171,43 @@ describe("provider model mapping (cc-switch parity)", () => {
 
     expect(onSave.mock.calls[0][0].settingsConfig.env.ENABLE_TOOL_SEARCH).toBeUndefined();
   });
+
+  it("disables Fetch Models for an unsupported API format and explains why", () => {
+    render(
+      <I18nProvider initialLocale="en">
+        <ProviderEditPanel
+          provider={{ id: "p1", name: "Provider 1", category: "custom", meta: { apiFormat: "gemini_native" }, settingsConfig: { env: { ...baseEnv, ANTHROPIC_DEFAULT_SONNET_MODEL: "seed" } } }}
+          mode="edit"
+          open
+          onSave={vi.fn()}
+          onClose={vi.fn()}
+          onFetchModels={vi.fn()}
+        />
+      </I18nProvider>
+    );
+    expect((screen.getByRole("button", { name: "Fetch Models" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("This API format doesn't support fetching a model list")).toBeTruthy();
+  });
+
+  it("clears stale model suggestions when the endpoint changes", async () => {
+    const onFetchModels = vi.fn(async () => ({ ok: true, models: ["prov-a"] }));
+    render(
+      <I18nProvider initialLocale="en">
+        <ProviderEditPanel
+          provider={{ id: "p1", name: "Provider 1", category: "custom", settingsConfig: { env: { ...baseEnv, ANTHROPIC_DEFAULT_SONNET_MODEL: "seed" } } }}
+          mode="edit"
+          open
+          onSave={vi.fn()}
+          onClose={vi.fn()}
+          onFetchModels={onFetchModels}
+        />
+      </I18nProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
+    await waitFor(() => expect(document.querySelector("datalist#claude-provider-edit-form-models")).not.toBeNull());
+
+    fireEvent.change(screen.getByRole("textbox", { name: "API Endpoint" }), { target: { value: "https://api.other.test" } });
+    await waitFor(() => expect(document.querySelector("datalist#claude-provider-edit-form-models")).toBeNull());
+  });
 });

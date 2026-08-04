@@ -778,6 +778,7 @@
     "fetchModelsUnsupported": "This endpoint returned no model list",
     "fetchModelsFailed": "Failed to fetch the model list",
     "fetchModelsEmpty": "This endpoint returned no available models",
+    "fetchModelsFormatUnsupported": "This API format doesn't support fetching a model list",
     "toggleHideAttribution": "Hide AI Attribution",
     "toggleTeammates": "Teammates Mode",
     "toggleToolSearch": "Enable Tool Search",

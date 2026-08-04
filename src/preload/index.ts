@@ -97,7 +97,7 @@ contextBridge.exposeInMainWorld("companion", {
   reorderClaudeProviders: (orderedIds: string[]) => ipcRenderer.invoke("companion:providers-reorder", orderedIds),
   switchClaudeProvider: (id: string) => ipcRenderer.invoke("companion:providers-switch", id),
   testClaudeProvider: (payload: { id?: string; baseUrl?: string }) => ipcRenderer.invoke("companion:providers-test", payload),
-  fetchClaudeProviderModels: (payload: { baseUrl?: string; apiKey?: string; userAgent?: string }) => ipcRenderer.invoke("companion:providers-fetch-models", payload),
+  fetchClaudeProviderModels: (payload: { baseUrl?: string; apiKey?: string; apiFormat?: string; apiKeyField?: string; userAgent?: string }) => ipcRenderer.invoke("companion:providers-fetch-models", payload),
   onCcSwitchChanged: (callback: (payload: unknown) => void) => onChannel("companion:ccswitch-changed", callback),
   getUpdateStatus: () => ipcRenderer.invoke("companion:get-update-status"),
   getAppVersion: () => ipcRenderer.invoke("companion:get-app-version"),

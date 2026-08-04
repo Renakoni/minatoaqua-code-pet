@@ -256,9 +256,20 @@ export interface ClaudeProviderSaveResult {
   error?: string;
 }
 
-export type ClaudeProviderModelsErrorCode = "config" | "auth" | "notFound" | "timeout" | "unsupported" | "failed";
+export type ClaudeProviderModelsErrorCode = "config" | "auth" | "notFound" | "timeout" | "unsupported" | "unsupportedFormat" | "failed";
 
-/** Result of querying a provider's /v1/models endpoint for available model ids. */
+/** Request to query a provider's models endpoint. apiFormat/apiKeyField pick the
+ *  endpoint + auth convention; a format without an OpenAI-style /v1/models is
+ *  rejected with errorCode "unsupportedFormat". */
+export interface ClaudeProviderModelsRequest {
+  baseUrl: string;
+  apiKey: string;
+  apiFormat?: string;
+  apiKeyField?: string;
+  userAgent?: string;
+}
+
+/** Result of querying a provider's models endpoint for available model ids. */
 export interface ClaudeProviderModelsResult {
   ok: boolean;
   models: string[];

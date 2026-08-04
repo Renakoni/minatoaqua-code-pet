@@ -146,21 +146,19 @@ type ProviderEditPanelProps = {
   // after close for the prewarmed Add form (off the visible path), and on each
   // open for Edit — so a reopen never shows stale, cancelled input.
   sessionKey?: number;
-  hasCommonConfig?: boolean;
   onSave: (provider: ClaudeProvider, originalId?: string) => void;
   onClose: () => void;
   onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
-  onFetchModels?: (payload: { baseUrl: string; apiKey: string; userAgent?: string }) => Promise<ClaudeProviderModelsResult>;
+  onFetchModels?: (payload: { baseUrl: string; apiKey: string; apiFormat?: string; apiKeyField?: string; userAgent?: string }) => Promise<ClaudeProviderModelsResult>;
 };
 
 type ProviderEditPanelContentProps = {
   provider: ClaudeProvider;
   mode: "add" | "edit";
-  hasCommonConfig?: boolean;
   onSave: (provider: ClaudeProvider, originalId?: string) => void;
   onClose: () => void;
   onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
-  onFetchModels?: (payload: { baseUrl: string; apiKey: string; userAgent?: string }) => Promise<ClaudeProviderModelsResult>;
+  onFetchModels?: (payload: { baseUrl: string; apiKey: string; apiFormat?: string; apiKeyField?: string; userAgent?: string }) => Promise<ClaudeProviderModelsResult>;
 };
 
 const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
@@ -198,6 +196,7 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [modelFetchLoading, setModelFetchLoading] = useState(false);
   const [modelFetchError, setModelFetchError] = useState<string | null>(null);
+  const fetchSeqRef = useRef(0);
 
   const activePreset: ClaudeProviderPreset | null = presetIndex === "custom" ? null : presetsWithIcons[presetIndex] ?? null;
   const parsedConfig = useMemo(() => parseConfig(configText), [configText]);
@@ -291,6 +290,7 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
       case "auth": return t("routing.fetchModelsAuthFailed", "鉴权失败，请检查 API Key");
       case "notFound": return t("routing.fetchModelsNotFound", "该端点没有模型列表接口");
       case "timeout": return t("routing.fetchModelsTimeout", "获取超时，请稍后重试");
+      case "unsupportedFormat": return t("routing.fetchModelsFormatUnsupported", "当前 API 格式暂不支持获取模型列表");
       case "unsupported": return t("routing.fetchModelsUnsupported", "该端点未返回模型列表");
       default: return t("routing.fetchModelsFailed", "获取模型列表失败");
     }
@@ -298,11 +298,16 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
 
   async function runFetchModels() {
     if (!onFetchModels) return;
+    fetchSeqRef.current += 1;
+    const seq = fetchSeqRef.current;
     setModelFetchError(null);
     setModelFetchLoading(true);
     try {
       const savedUserAgent = typeof provider.meta?.customUserAgent === "string" ? provider.meta.customUserAgent.trim() : "";
-      const result = await onFetchModels({ baseUrl: baseUrl.trim(), apiKey, userAgent: savedUserAgent || undefined });
+      const result = await onFetchModels({ baseUrl: baseUrl.trim(), apiKey, apiFormat, apiKeyField, userAgent: savedUserAgent || undefined });
+      // A newer fetch — or a provider/address/key/format change — superseded this
+      // one: drop the stale response so it can't overwrite the current state.
+      if (seq !== fetchSeqRef.current) return;
       if (result.ok) {
         setFetchedModels(result.models);
         if (result.models.length === 0) setModelFetchError(t("routing.fetchModelsEmpty", "该端点未返回可用模型"));
@@ -311,11 +316,27 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
         setModelFetchError(fetchModelsErrorText(result.errorCode));
       }
     } catch {
-      setModelFetchError(fetchModelsErrorText("failed"));
+      if (seq === fetchSeqRef.current) setModelFetchError(fetchModelsErrorText("failed"));
     } finally {
-      setModelFetchLoading(false);
+      if (seq === fetchSeqRef.current) setModelFetchLoading(false);
     }
   }
+
+  // Fetched suggestions belong to one provider identity. When the address, key,
+  // auth field, or API format changes (including via a preset), drop the stale
+  // suggestions and invalidate any in-flight fetch so a slow old response can't
+  // overwrite the new provider's state.
+  useEffect(() => {
+    fetchSeqRef.current += 1;
+    setFetchedModels([]);
+    setModelFetchError(null);
+    setModelFetchLoading(false);
+  }, [baseUrl, apiKey, apiKeyField, apiFormat]);
+
+  // Only Anthropic / OpenAI-compatible formats expose an OpenAI-style /v1/models
+  // list; gemini_native (and anything unknown) does not, so the fetch button is
+  // disabled for them rather than offering an action that always fails.
+  const fetchSupported = apiFormat === "anthropic" || apiFormat === "openai_chat" || apiFormat === "openai_responses";
 
   function buildProviderRecord(): ClaudeProvider {
     const settingsConfig = parseConfig(configText) ?? { env: {} };
@@ -647,8 +668,9 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                         <button
                           type="button"
                           className="ccs-model-quickset"
-                          disabled={modelFetchLoading || configInvalid || !baseUrl.trim() || !apiKey.trim()}
+                          disabled={modelFetchLoading || configInvalid || !fetchSupported || !baseUrl.trim() || !apiKey.trim()}
                           onClick={() => void runFetchModels()}
+                          title={!fetchSupported ? t("routing.fetchModelsFormatUnsupported", "当前 API 格式暂不支持获取模型列表") : undefined}
                         >
                           {modelFetchLoading ? <Loader2 size={13} className="ccs-spin" /> : <Download size={13} />}
                           {t("routing.fetchModels", "获取模型列表")}
@@ -657,6 +679,9 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                     </div>
                   </div>
                   <small className="ccs-field-hint">{t("routing.modelMappingHint2", "显示名称只影响 /model 菜单；1M 只是给 Claude Code 声明 1M 上下文能力。")}</small>
+                  {onFetchModels && !fetchSupported ? (
+                    <small className="ccs-field-hint">{t("routing.fetchModelsFormatUnsupported", "当前 API 格式暂不支持获取模型列表")}</small>
+                  ) : null}
                   <div className="ccs-model-table">
                     <div className="ccs-model-row ccs-model-row-head" aria-hidden="true">
                       <span>{t("routing.modelRole", "模型角色")}</span>

@@ -564,7 +564,7 @@ export async function probeClaudeEndpoint(baseUrl: string, options: EndpointProb
 export interface FetchProviderModelsResult {
   ok: boolean;
   models: string[];
-  errorCode?: "config" | "auth" | "notFound" | "timeout" | "unsupported" | "failed";
+  errorCode?: "config" | "auth" | "notFound" | "timeout" | "unsupported" | "unsupportedFormat" | "failed";
 }
 
 // Given a provider base URL, produce the /models URLs to try in order, matching
@@ -577,20 +577,31 @@ export function buildModelsUrlCandidates(baseUrl: string): string[] {
   return [`${trimmed}/v1/models`, `${trimmed}/models`];
 }
 
-export async function fetchProviderModels(payload: { baseUrl?: string; apiKey?: string; userAgent?: string }): Promise<FetchProviderModelsResult> {
+// Formats that expose an OpenAI-style /v1/models list. gemini_native (and any
+// unknown format) uses a different endpoint + auth, so we don't pretend to
+// support it — the caller disables the button and we hard-stop here as a backstop.
+const MODELS_FETCH_FORMATS = new Set(["anthropic", "openai_chat", "openai_responses"]);
+
+export async function fetchProviderModels(payload: { baseUrl?: string; apiKey?: string; apiFormat?: string; apiKeyField?: string; userAgent?: string }): Promise<FetchProviderModelsResult> {
   const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
   const apiKey = typeof payload?.apiKey === "string" ? payload.apiKey.trim() : "";
+  const apiFormat = typeof payload?.apiFormat === "string" && payload.apiFormat ? payload.apiFormat : "anthropic";
   if (!baseUrl || !apiKey) return { ok: false, models: [], errorCode: "config" };
+  if (!MODELS_FETCH_FORMATS.has(apiFormat)) return { ok: false, models: [], errorCode: "unsupportedFormat" };
   const candidates = buildModelsUrlCandidates(baseUrl);
   if (!candidates.length) return { ok: false, models: [], errorCode: "config" };
 
-  const headers: Record<string, string> = {
-    accept: "application/json",
-    // cc-switch parity: a bearer token authenticates both ANTHROPIC_AUTH_TOKEN
-    // and ANTHROPIC_API_KEY relays. The key rides in the header only — never the
-    // URL, and it is never logged.
-    authorization: `Bearer ${apiKey}`
-  };
+  // Match the provider's own auth convention: an Anthropic-native provider keyed
+  // by ANTHROPIC_API_KEY uses `x-api-key`; everything else (relays, OpenAI
+  // gateways, ANTHROPIC_AUTH_TOKEN) uses a bearer token. The key rides in the
+  // header only — never the URL, and it is never logged.
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (apiFormat === "anthropic" && payload.apiKeyField === "ANTHROPIC_API_KEY") {
+    headers["x-api-key"] = apiKey;
+    headers["anthropic-version"] = "2023-06-01";
+  } else {
+    headers["authorization"] = `Bearer ${apiKey}`;
+  }
   if (payload.userAgent && payload.userAgent.trim()) headers["user-agent"] = payload.userAgent.trim();
 
   let lastError: FetchProviderModelsResult["errorCode"] = "failed";

@@ -298,7 +298,7 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     [companion]
   );
   const fetchEditorModels = useCallback(
-    (payload: { baseUrl: string; apiKey: string; userAgent?: string }) => companion.fetchClaudeProviderModels(payload),
+    (payload: { baseUrl: string; apiKey: string; apiFormat?: string; apiKeyField?: string; userAgent?: string }) => companion.fetchClaudeProviderModels(payload),
     [companion]
   );
 
@@ -346,7 +346,6 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
         prewarm
         open={creating}
         sessionKey={addSessionKey}
-        hasCommonConfig={listing?.hasCommonConfig}
         onSave={saveEditorProvider}
         onClose={closeAddEditor}
         onTestEndpoint={testEditorEndpoint}
@@ -358,7 +357,6 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
         mode="edit"
         open={Boolean(editingProvider)}
         sessionKey={editSessionKey}
-        hasCommonConfig={listing?.hasCommonConfig}
         onSave={saveEditorProvider}
         onClose={closeEditEditor}
         onTestEndpoint={testEditorEndpoint}

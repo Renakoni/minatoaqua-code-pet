@@ -65,4 +65,33 @@ describe("fetchProviderModels", () => {
     expect(result).toEqual({ ok: true, models: ["m1"] });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("rejects an unsupported API format without any network call", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await fetchProviderModels({ baseUrl: "https://x", apiKey: "sk", apiFormat: "gemini_native" });
+    expect(result).toEqual({ ok: false, models: [], errorCode: "unsupportedFormat" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses x-api-key + anthropic-version for an Anthropic-native ANTHROPIC_API_KEY provider", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ data: [{ id: "m" }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchProviderModels({ baseUrl: "https://api.anthropic.com", apiKey: "sk-ant", apiFormat: "anthropic", apiKeyField: "ANTHROPIC_API_KEY" });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["x-api-key"]).toBe("sk-ant");
+    expect(headers["anthropic-version"]).toBeTruthy();
+    expect(headers.authorization).toBeUndefined();
+  });
+
+  it("uses a bearer token for AUTH_TOKEN relays and OpenAI gateways", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ data: [{ id: "m" }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchProviderModels({ baseUrl: "https://relay.example", apiKey: "sk-r", apiFormat: "openai_chat", apiKeyField: "ANTHROPIC_AUTH_TOKEN" });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers.authorization).toBe("Bearer sk-r");
+    expect(headers["x-api-key"]).toBeUndefined();
+  });
 });

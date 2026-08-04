@@ -778,6 +778,7 @@
     "fetchModelsUnsupported": "该端点未返回模型列表",
     "fetchModelsFailed": "获取模型列表失败",
     "fetchModelsEmpty": "该端点未返回可用模型",
+    "fetchModelsFormatUnsupported": "当前 API 格式暂不支持获取模型列表",
     "toggleHideAttribution": "隐藏 AI 署名",
     "toggleTeammates": "Teammates 模式",
     "toggleToolSearch": "启用 Tool Search",
