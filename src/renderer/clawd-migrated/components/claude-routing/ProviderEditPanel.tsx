@@ -10,6 +10,7 @@ import { getIconMetadata } from "./icons/metadata";
 import { addIconsToPresets } from "./iconInference";
 import { claudeProviderPresets, type ClaudeProviderPreset } from "./presets";
 import type { ClaudeProvider } from "./types";
+import { hasClaudeOneMMarker, setClaudeOneMMarker, stripClaudeOneMMarker } from "./claudeModelMarkers";
 
 const presetsWithIcons = addIconsToPresets(claudeProviderPresets);
 const JsonConfigEditor = lazy(() => import("./JsonConfigEditor").then(module => ({ default: module.JsonConfigEditor })));
@@ -19,11 +20,13 @@ type SettingsConfig = ClaudeProvider["settingsConfig"];
 const AUTH_FIELDS = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"] as const;
 type AuthField = (typeof AUTH_FIELDS)[number];
 
+// Haiku has no 1M toggle: it does not offer a 1M context window in Claude's
+// lineup, so cc-switch omits the marker for it too.
 const MODEL_ROLES = [
-  { role: "Sonnet", envKey: "ANTHROPIC_DEFAULT_SONNET_MODEL" },
-  { role: "Opus", envKey: "ANTHROPIC_DEFAULT_OPUS_MODEL" },
-  { role: "Fable", envKey: "ANTHROPIC_DEFAULT_FABLE_MODEL" },
-  { role: "Haiku", envKey: "ANTHROPIC_DEFAULT_HAIKU_MODEL" }
+  { role: "Sonnet", envKey: "ANTHROPIC_DEFAULT_SONNET_MODEL", nameKey: "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME", supportsOneM: true },
+  { role: "Opus", envKey: "ANTHROPIC_DEFAULT_OPUS_MODEL", nameKey: "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME", supportsOneM: true },
+  { role: "Fable", envKey: "ANTHROPIC_DEFAULT_FABLE_MODEL", nameKey: "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME", supportsOneM: true },
+  { role: "Haiku", envKey: "ANTHROPIC_DEFAULT_HAIKU_MODEL", nameKey: "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME", supportsOneM: false }
 ] as const;
 
 function parseConfig(text: string): SettingsConfig | null {
@@ -506,7 +509,7 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
             </button>
             {advancedOpen ? (
               <div className="ccs-advanced-body">
-                <div className="ccs-form-grid two">
+                <div className="ccs-form-grid">
                   <label>
                     <span>{t("routing.apiFormat", "API 格式")}</span>
                     <select value={apiFormat} onChange={event => setApiFormat(event.target.value)}>
@@ -534,7 +537,7 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                       className="ccs-model-quickset"
                       disabled={configInvalid}
                       onClick={() => {
-                        const seed = MODEL_ROLES.map(({ envKey }) => env[envKey]).find(Boolean) || env.ANTHROPIC_MODEL || "";
+                        const seed = stripClaudeOneMMarker(MODEL_ROLES.map(({ envKey }) => env[envKey]).find(Boolean) || env.ANTHROPIC_MODEL || "");
                         if (!seed) return;
                         updateConfig(config => {
                           const envBlock = (config.env && typeof config.env === "object" ? config.env : {}) as Record<string, string>;
@@ -546,31 +549,63 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
                       }}
                     >{t("routing.quickSetModels", "一键填充")}</button>
                   </div>
-                  <div className="ccs-model-grid">
-                    {MODEL_ROLES.map(({ role, envKey }) => (
-                      <label key={envKey}>
-                        <span>{role}</span>
-                        <input
-                          value={env[envKey] ?? ""}
-                          disabled={configInvalid}
-                          onChange={event => setEnvValue(envKey, event.target.value)}
-                          placeholder={t("routing.modelPlaceholder", "实际请求模型，可留空")}
-                          spellCheck={false}
-                        />
-                      </label>
-                    ))}
-                    <label>
-                      <span>{t("routing.fallbackModel", "默认兜底模型")}</span>
-                      <input
-                        value={env.ANTHROPIC_MODEL ?? ""}
-                        disabled={configInvalid}
-                        onChange={event => setEnvValue("ANTHROPIC_MODEL", event.target.value)}
-                        placeholder={t("routing.fallbackModelPlaceholder", "未命中角色映射时使用")}
-                        spellCheck={false}
-                      />
-                    </label>
+                  <small className="ccs-field-hint">{t("routing.modelMappingHint2", "显示名称只影响 /model 菜单；1M 只是给 Claude Code 声明 1M 上下文能力。")}</small>
+                  <div className="ccs-model-table">
+                    <div className="ccs-model-row ccs-model-row-head" aria-hidden="true">
+                      <span>{t("routing.modelRole", "模型角色")}</span>
+                      <span>{t("routing.modelDisplayName", "显示名称")}</span>
+                      <span>{t("routing.modelActual", "实际请求模型")}</span>
+                      <span>{t("routing.modelOneM", "声明支持 1M")}</span>
+                    </div>
+                    {MODEL_ROLES.map(({ role, envKey, nameKey, supportsOneM }) => {
+                      const raw = env[envKey] ?? "";
+                      const base = stripClaudeOneMMarker(raw);
+                      const oneM = supportsOneM && hasClaudeOneMMarker(raw);
+                      return (
+                        <div className="ccs-model-row" key={envKey}>
+                          <div className="ccs-model-role">{role}</div>
+                          <input
+                            value={env[nameKey] ?? ""}
+                            disabled={configInvalid}
+                            onChange={event => setEnvValue(nameKey, event.target.value)}
+                            placeholder={t("routing.modelNamePlaceholder", "例如 DeepSeek V4 Pro")}
+                            aria-label={`${role} ${t("routing.modelDisplayName", "显示名称")}`}
+                            spellCheck={false}
+                          />
+                          <input
+                            value={base}
+                            disabled={configInvalid}
+                            onChange={event => setEnvValue(envKey, setClaudeOneMMarker(event.target.value, oneM))}
+                            placeholder={t("routing.modelPlaceholder", "实际请求模型，可留空")}
+                            aria-label={`${role} ${t("routing.modelActual", "实际请求模型")}`}
+                            spellCheck={false}
+                          />
+                          {supportsOneM ? (
+                            <label className="ccs-model-onem">
+                              <input
+                                type="checkbox"
+                                checked={oneM}
+                                disabled={configInvalid || !base}
+                                onChange={event => setEnvValue(envKey, setClaudeOneMMarker(base, event.target.checked))}
+                                aria-label={`${role} 1M`}
+                              />
+                              <span>1M</span>
+                            </label>
+                          ) : <span className="ccs-model-onem-empty" aria-hidden="true" />}
+                        </div>
+                      );
+                    })}
                   </div>
-                  <small className="ccs-field-hint">{t("routing.modelMappingHint", "写入 ANTHROPIC_DEFAULT_*_MODEL / ANTHROPIC_MODEL 环境变量")}</small>
+                  <label className="ccs-model-fallback">
+                    <span>{t("routing.fallbackModel", "默认兜底模型")}</span>
+                    <input
+                      value={env.ANTHROPIC_MODEL ?? ""}
+                      disabled={configInvalid}
+                      onChange={event => setEnvValue("ANTHROPIC_MODEL", event.target.value)}
+                      placeholder={t("routing.fallbackModelPlaceholder", "未命中角色映射时使用")}
+                      spellCheck={false}
+                    />
+                  </label>
                 </div>
 
                 <div className="ccs-form-grid two">

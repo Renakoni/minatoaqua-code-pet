@@ -182,6 +182,12 @@ export interface ClaudeProviderEnv {
   ANTHROPIC_DEFAULT_OPUS_MODEL?: string;
   ANTHROPIC_DEFAULT_HAIKU_MODEL?: string;
   ANTHROPIC_DEFAULT_FABLE_MODEL?: string;
+  // Per-role /model menu display names (cc-switch parity). The actual request
+  // model stays in the *_MODEL keys above; the "[1M]" marker rides on that value.
+  ANTHROPIC_DEFAULT_SONNET_MODEL_NAME?: string;
+  ANTHROPIC_DEFAULT_OPUS_MODEL_NAME?: string;
+  ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME?: string;
+  ANTHROPIC_DEFAULT_FABLE_MODEL_NAME?: string;
   [key: string]: string | undefined;
 }
 

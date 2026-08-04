@@ -320,7 +320,7 @@
 
 .ccs-model-mapping {
   display: grid;
-  gap: 8px;
+  gap: 12px;
 }
 
 .ccs-model-mapping-head {
@@ -346,10 +346,64 @@
   background: var(--ccs-editor-hover);
 }
 
-.ccs-model-grid {
+/* cc-switch parity: an aligned table — role pill | display name | actual model |
+   1M — so every row sits on one line instead of wrapping boxes. */
+.ccs-model-table {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 10px;
+  gap: 8px;
+}
+
+.ccs-model-row {
+  display: grid;
+  grid-template-columns: 104px 1fr minmax(0, 1fr) 96px;
+  gap: 8px;
+  align-items: center;
+}
+
+.ccs-model-row-head {
+  padding: 0 2px;
+  color: var(--ccs-editor-faint);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ccs-model-role {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--ccs-editor-line);
+  border-radius: 8px;
+  background: var(--ccs-editor-hover);
+  color: var(--ccs-editor-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ccs-model-row .ccs-model-onem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  color: var(--ccs-editor-muted);
+  font-size: 13px;
+}
+
+.ccs-model-row .ccs-model-onem input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  min-height: 0;
+  accent-color: var(--ccs-editor-primary);
+}
+
+.ccs-model-onem-empty {
+  min-height: 38px;
+}
+
+@media (max-width: 760px) {
+  .ccs-model-row { grid-template-columns: 1fr; }
+  .ccs-model-row-head,
+  .ccs-model-onem-empty { display: none; }
 }
 
 .ccs-model-grid label {
