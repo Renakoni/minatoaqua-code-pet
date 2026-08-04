@@ -22,8 +22,17 @@ export function SettingsInfoRow({ label, value, title, tone }: { label: string; 
 }
 
 export function Toggle({ label, checked, onChange }: { label: React.ReactNode; checked: boolean; onChange: (value: boolean) => void }) {
+  // Native <button> already handles Enter/Space activation and focus; role="switch"
+  // + aria-checked let assistive tech announce the on/off state (conveyed only by the
+  // icon/class otherwise), and type="button" keeps it from submitting an ancestor form.
   return (
-    <button className={`toggle ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      className={`toggle ${checked ? "on" : ""}`}
+      onClick={() => onChange(!checked)}
+    >
       {checked ? <Eye size={17} /> : <EyeOff size={17} />}
       <span>{label}</span>
       <i />
