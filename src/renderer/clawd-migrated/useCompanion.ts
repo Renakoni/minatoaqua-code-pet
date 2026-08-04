@@ -4,6 +4,7 @@ import type { CompanionConnectionStatus, CompanionEvent, CompanionSession, Compa
 import { defaultSettings, stateFromEvent } from "../shared/events";
 import { redactDisplayEvent } from "../../shared/privacy";
 import { applyCompanionAppearance } from "./appearance";
+import { pickThrottledStateEvent } from "./eventThrottle";
 
 export interface ToolStream {
   event: CompanionEvent;
@@ -209,8 +210,12 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
             pendingEventsRef.current = [];
             eventThrottleRef.current.timer = null;
             eventThrottleRef.current.lastFlush = Date.now();
+            // Pet state must reflect the LATEST meaningful event in the burst, not
+            // the first tool_start — otherwise a burst ending in done/error left the
+            // pet stuck on "using tool". Computed before the in-place reverse below,
+            // and order-independent regardless of keepEventList.
+            const stateEvent = pickThrottledStateEvent(pending);
             if (keepEventList) setEvents(previous => [...pending.reverse(), ...previous].slice(0, settingsRef.current.eventHistoryLimit));
-            const stateEvent = pending.find(e => e.event === "tool_start") ?? pending.find(e => e.event !== "tool_end" && e.event !== "git_operation");
             if (stateEvent) showEvent(stateEvent);
           }, 100 - (now - eventThrottleRef.current.lastFlush));
         }
