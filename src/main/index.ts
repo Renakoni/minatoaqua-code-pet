@@ -44,6 +44,7 @@ import {
   watchCcSwitch,
   type CcSwitchProvider
 } from "./ccSwitchStore";
+import { ModelPricingMemo, parseLiteLlmPricing, type ModelPricingRates } from "./claudePricing";
 import { PermissionBroker, type PendingPermission, type PermissionPollResult } from "./permissionBroker";
 import { inspectPetPackZip, installPetPack, listPetPacks, readPetPack, removePetPack, resolvePetAssetPath } from "./petPackStore";
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
@@ -1883,39 +1884,16 @@ function emptyClaudeTokenStats(scannedAt = Date.now()): ClaudeTokenStats {
   };
 }
 
-type ModelPricingRates = { input: number; output: number; cacheRead?: number; cacheWrite?: number };
-
 type PricingCacheFile = { timestamp: number; rates: Record<string, ModelPricingRates> };
 
 let dynamicPricingRates: Map<string, ModelPricingRates> | null = null;
 let pendingDynamicPricingLoad: Promise<Map<string, ModelPricingRates>> | null = null;
-
-function normalizePricingModel(model: string) {
-  return model.toLowerCase().replace(/^(anthropic|openai|github-copilot|openrouter)\//, "").trim();
-}
+// Memoizes per-model rate resolution so a cold token scan of thousands of records
+// doesn't re-fuzzy-scan the ~1000-entry LiteLLM map per record.
+const pricingMemo = new ModelPricingMemo();
 
 function pricingCachePath() {
   return join(app.getPath("userData"), "pricing-litellm-cache.json");
-}
-
-function ratesFromLiteLlmEntry(entry: Record<string, unknown>): ModelPricingRates | null {
-  const input = typeof entry.input_cost_per_token === "number" ? entry.input_cost_per_token * 1_000_000 : undefined;
-  const output = typeof entry.output_cost_per_token === "number" ? entry.output_cost_per_token * 1_000_000 : undefined;
-  if (!input || !output) return null;
-  const cacheRead = typeof entry.cache_read_input_token_cost === "number" ? entry.cache_read_input_token_cost * 1_000_000 : undefined;
-  const cacheWrite = typeof entry.cache_creation_input_token_cost === "number" ? entry.cache_creation_input_token_cost * 1_000_000 : undefined;
-  return { input, output, cacheRead, cacheWrite };
-}
-
-function parseLiteLlmPricing(data: unknown) {
-  const rates = new Map<string, ModelPricingRates>();
-  if (!data || typeof data !== "object" || Array.isArray(data)) return rates;
-  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-    const parsed = ratesFromLiteLlmEntry(value as Record<string, unknown>);
-    if (parsed) rates.set(normalizePricingModel(key), parsed);
-  }
-  return rates;
 }
 
 function loadCachedDynamicPricing() {
@@ -1958,59 +1936,6 @@ async function loadDynamicPricingRates() {
     return dynamicPricingRates;
   })().finally(() => { pendingDynamicPricingLoad = null; });
   return pendingDynamicPricingLoad;
-}
-
-function findDynamicPricingRate(model: string) {
-  const rates = dynamicPricingRates;
-  if (!rates || rates.size === 0) return null;
-  const normalized = normalizePricingModel(model).replace(/_/g, "-");
-  if (rates.has(normalized)) return rates.get(normalized)!;
-  const candidates = Array.from(rates.entries())
-    .filter(([key]) => normalized === key || normalized.includes(key) || key.includes(normalized))
-    .sort((a, b) => b[0].length - a[0].length);
-  return candidates[0]?.[1] ?? null;
-}
-
-function modelPricingRates(model: string): ModelPricingRates | null {
-  const dynamic = findDynamicPricingRate(model);
-  if (dynamic) return dynamic;
-  const normalized = normalizePricingModel(model).replace(/_/g, "-");
-
-  if (normalized.includes("claude")) {
-    if (normalized.includes("fable") || normalized.includes("mythos")) return { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 };
-    if (normalized.includes("opus-4-8") || normalized.includes("opus-4.8") || normalized.includes("opus-4-7") || normalized.includes("opus-4.7") || normalized.includes("opus-4-6") || normalized.includes("opus-4.6") || normalized.includes("opus-4-5") || normalized.includes("opus-4.5")) return { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 };
-    if (normalized.includes("opus")) return { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 };
-    if (normalized.includes("sonnet")) return { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 };
-    if (normalized.includes("haiku-4-5") || normalized.includes("haiku-4.5")) return { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 };
-    if (normalized.includes("haiku")) return { input: 0.8, output: 4, cacheWrite: 1, cacheRead: 0.08 };
-  }
-
-  if (normalized.includes("gpt-5.5") || normalized.includes("gpt-5-5")) return { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 5 };
-  if (normalized.includes("gpt-5.4-mini") || normalized.includes("gpt-5-4-mini")) return { input: 0.75, output: 4.5, cacheRead: 0.075, cacheWrite: 0.75 };
-  if (normalized.includes("gpt-5.4") || normalized.includes("gpt-5-4")) return { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 2.5 };
-  if (normalized.includes("gpt-5-codex")) return { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 1.25 };
-  if (normalized === "gpt-5" || normalized.startsWith("gpt-5-")) return { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 1.25 };
-  if (normalized.includes("gpt-4.1-mini") || normalized.includes("gpt-4-1-mini")) return { input: 0.4, output: 1.6, cacheRead: 0.1, cacheWrite: 0.4 };
-  if (normalized.includes("gpt-4.1-nano") || normalized.includes("gpt-4-1-nano")) return { input: 0.1, output: 0.4, cacheRead: 0.025, cacheWrite: 0.1 };
-  if (normalized.includes("gpt-4.1") || normalized.includes("gpt-4-1")) return { input: 2, output: 8, cacheRead: 0.5, cacheWrite: 2 };
-  if (normalized.includes("gpt-4o-mini")) return { input: 0.15, output: 0.6, cacheRead: 0.075, cacheWrite: 0.15 };
-  if (normalized.includes("gpt-4o")) return { input: 2.5, output: 10, cacheRead: 1.25, cacheWrite: 2.5 };
-
-  return null;
-}
-
-function computeClaudeCost(model: string, usage: TokenBreakdown) {
-  const rates = modelPricingRates(model);
-  if (!rates) return { costUsd: 0, priced: false };
-  const cacheWrite = rates.cacheWrite ?? rates.input * 1.25;
-  const cacheRead = rates.cacheRead ?? rates.input * 0.1;
-  const costUsd = (
-    usage.inputTokens * rates.input +
-    usage.cacheCreationTokens * cacheWrite +
-    usage.cacheReadTokens * cacheRead +
-    usage.outputTokens * rates.output
-  ) / 1_000_000;
-  return { costUsd, priced: true };
 }
 
 function addTokenBreakdown<T extends TokenBreakdown>(target: T, usage: TokenBreakdown) {
@@ -2134,13 +2059,13 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string): Pr
         existing.cacheReadTokens = Math.max(existing.cacheReadTokens, usage.cacheReadTokens);
         existing.cacheCreationTokens = Math.max(existing.cacheCreationTokens, usage.cacheCreationTokens);
         existing.totalTokens = existing.inputTokens + existing.outputTokens + existing.cacheReadTokens + existing.cacheCreationTokens;
-        const cost = computeClaudeCost(existing.model, existing);
+        const cost = pricingMemo.cost(dynamicPricingRates, existing.model, existing);
         existing.costUsd = cost.costUsd;
         existing.priced = cost.priced;
         existing.timestamp = Math.max(existing.timestamp, timestamp);
         continue;
       }
-      const cost = computeClaudeCost(model, usage);
+      const cost = pricingMemo.cost(dynamicPricingRates, model, usage);
       const request: ClaudeTokenRequest = {
         ...usage,
         ...cost,
