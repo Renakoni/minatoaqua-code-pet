@@ -15,6 +15,7 @@ vi.mock("../src/renderer/clawd-migrated/components/claude-routing/ProviderIcon",
 }));
 
 vi.mock("../src/renderer/clawd-migrated/components/claude-routing/ProviderEditPanel", () => ({
+  PANEL_EXIT_MS: 220,
   ProviderEditPanel: (props: unknown) => {
     providerEditorRender(props);
     return null;
@@ -66,22 +67,26 @@ describe("Claude routing render isolation", () => {
 
     await screen.findByText("Provider 39");
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-    expect(providerEditorRender).toHaveBeenCalledWith(expect.objectContaining({ mode: "add", visible: false }));
+    // The add editor is prewarmed (always rendered, `open` toggles visibility);
+    // the edit editor mounts on demand. Pick the add editor's latest props.
+    const lastAddProps = () =>
+      providerEditorRender.mock.calls
+        .map(call => call[0])
+        .filter((props: { mode: string }) => props.mode === "add")
+        .at(-1) as { open: boolean; onClose: () => void } | undefined;
+    expect(lastAddProps()).toEqual(expect.objectContaining({ mode: "add", open: false }));
     providerIconRender.mockClear();
-    providerEditorRender.mockClear();
 
     fireEvent.click(screen.getByRole("button", { name: /Add provider/i }));
-    await waitFor(() => expect(providerEditorRender).toHaveBeenCalledWith(expect.objectContaining({ mode: "add", visible: true })));
+    await waitFor(() => expect(lastAddProps()).toEqual(expect.objectContaining({ mode: "add", open: true })));
 
+    // Opening the editor must not re-render the sortable provider cards.
     expect(providerIconRender).not.toHaveBeenCalled();
 
-    const editorProps = providerEditorRender.mock.calls.at(-1)?.[0] as { onClose: () => void };
-    providerEditorRender.mockClear();
-    act(() => editorProps.onClose());
-    expect(providerEditorRender).not.toHaveBeenCalled();
-    await waitFor(() => {
-      expect(providerEditorRender).toHaveBeenCalledWith(expect.objectContaining({ mode: "add", visible: false }));
-    });
+    act(() => lastAddProps()!.onClose());
+    await waitFor(() => expect(lastAddProps()).toEqual(expect.objectContaining({ mode: "add", open: false })));
+    // Close schedules a post-fade rebuild (sessionKey bump); flush it inside act.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 260)); });
   });
 
   it("merges a saved provider without re-reading the full provider list", async () => {
@@ -128,9 +133,10 @@ describe("Claude routing render isolation", () => {
     await screen.findByText("Provider 1");
     fireEvent.click(screen.getByRole("button", { name: /Add provider/i }));
     await waitFor(() => expect(providerEditorRender).toHaveBeenCalled());
-    const editorProps = providerEditorRender.mock.calls.at(-1)?.[0] as {
-      onSave: (provider: typeof savedProvider) => void;
-    };
+    const editorProps = providerEditorRender.mock.calls
+      .map(call => call[0])
+      .filter((props: { mode: string }) => props.mode === "add")
+      .at(-1) as { onSave: (provider: typeof savedProvider) => void };
 
     act(() => editorProps.onSave(savedProvider));
 
