@@ -347,8 +347,15 @@ export function updateCcSwitchProvider(provider: CcSwitchProvider, originalId?: 
     }
   });
   if (previousId !== provider.id) {
-    const settings = readCcSwitchSettings();
-    if (settings.currentProviderClaude === previousId) writeCurrentPointer(provider.id);
+    // The DB row is already renamed; the pointer update is best-effort and must not
+    // escape here — a thrown pointer write over a completed rename would surface as a
+    // failure while the rename actually succeeded. getCurrentCcSwitchProviderId falls
+    // back to the db is_current flag (which the rename preserved on the new id), so a
+    // failed pointer write is recoverable.
+    try {
+      const settings = readCcSwitchSettings();
+      if (settings.currentProviderClaude === previousId) writeCurrentPointer(provider.id);
+    } catch { /* best-effort pointer; db is_current is the authoritative fallback */ }
   }
 }
 
@@ -419,7 +426,11 @@ function readLiveJsonObject(path: string): JsonObject {
 }
 
 function writeCurrentPointer(id: string) {
-  const settings = readJsonObjectFile(getCcSwitchSettingsPath());
+  // Resilient read: readCcSwitchSettings() returns {} on a corrupt/empty/array
+  // settings file instead of throwing like readJsonObjectFile. So a garbled pointer
+  // file self-heals into a valid one carrying the new pointer, rather than throwing
+  // mid-operation and stranding the just-renamed provider.
+  const settings = readCcSwitchSettings();
   settings.currentProviderClaude = id;
   writeTextFileAtomic(getCcSwitchSettingsPath(), JSON.stringify(settings, null, 2));
 }
