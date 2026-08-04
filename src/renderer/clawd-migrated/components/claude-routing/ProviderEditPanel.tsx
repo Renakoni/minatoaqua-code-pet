@@ -1,4 +1,4 @@
-import { Suspense, lazy, memo, useMemo, useState } from "react";
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Gauge, Plus, Save } from "lucide-react";
 import { useI18n } from "../../useI18n";
@@ -61,17 +61,102 @@ function isValidHttpEndpoint(value: string) {
   }
 }
 
+// The preset grid is the heaviest part of the form: ~60 buttons, each with a
+// ProviderIcon that parses an inline SVG. cc-switch keeps this in its own
+// ProviderPresetSelector with search/sort state held locally so typing in the
+// provider fields never touches it. We mirror that: search/sort/filtering live
+// here, and the component is memoized on { activeIndex, onSelect } — both stable
+// while editing other fields — so a keystroke in API Key / Base URL / model
+// inputs no longer reconciles the grid.
+type PresetGridProps = {
+  activeIndex: number | "custom";
+  onSelect: (index: number | "custom") => void;
+};
+
+const PresetGrid = memo(function PresetGrid({ activeIndex, onSelect }: PresetGridProps) {
+  const { t } = useI18n();
+  const [search, setSearch] = useState("");
+  const [sorted, setSorted] = useState(false);
+
+  const visiblePresets = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    let list = presetsWithIcons.map((preset, index) => ({ preset, index }));
+    if (query) list = list.filter(({ preset }) => preset.name.toLowerCase().includes(query));
+    if (sorted) list = [...list].sort((a, b) => a.preset.name.localeCompare(b.preset.name, "zh-CN"));
+    return list;
+  }, [search, sorted]);
+
+  return (
+    <section className="ccs-form-card">
+      <div className="ccs-preset-head">
+        <span className="ccs-field-label">{t("routing.presetLabel", "预设供应商")}</span>
+        <div className="ccs-preset-tools">
+          <input
+            value={search}
+            onChange={event => setSearch(event.target.value)}
+            placeholder={t("routing.presetSearch", "搜索预设…")}
+            aria-label={t("routing.presetSearch", "搜索预设…")}
+          />
+          <button
+            type="button"
+            className={sorted ? "active" : ""}
+            onClick={() => setSorted(current => !current)}
+            title={t("routing.presetSort", "按名称排序")}
+          >A-Z</button>
+        </div>
+      </div>
+      <div className="ccs-preset-grid">
+        <button
+          type="button"
+          className={`ccs-preset-item ${activeIndex === "custom" ? "active" : ""}`}
+          onClick={() => onSelect("custom")}
+        >{t("routing.presetCustom", "自定义")}</button>
+        {visiblePresets.map(({ preset, index }) => (
+          <button
+            key={`${preset.name}-${index}`}
+            type="button"
+            className={`ccs-preset-item ${activeIndex === index ? "active" : ""}`}
+            onClick={() => onSelect(index)}
+            title={preset.websiteUrl}
+          >
+            <ProviderIcon icon={preset.icon} name={preset.name} color={preset.iconColor} size={16} />
+            <span>{preset.name}</span>
+            {preset.isPartner ? <em title={t("routing.presetPartner", "合作伙伴")}>★</em> : null}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+});
+
 type ProviderEditPanelProps = {
-  provider: ClaudeProvider;
+  // Null while closed (the parent clears its selection); the panel retains the
+  // last non-null provider so the exit fade still has something to render.
+  provider: ClaudeProvider | null;
   mode: "add" | "edit";
-  visible?: boolean;
+  open: boolean;
+  // Add uses prewarm=true: the heavy form (~60 preset icons) stays mounted and
+  // hidden so opening never pays the ~85ms mount on the click. Edit leaves it
+  // false and mounts on demand (it has no preset grid, so the mount is cheap).
+  prewarm?: boolean;
+  // Bumped by the parent to force a fresh ProviderEditPanelContent instance —
+  // after close for the prewarmed Add form (off the visible path), and on each
+  // open for Edit — so a reopen never shows stale, cancelled input.
+  sessionKey?: number;
   hasCommonConfig?: boolean;
   onSave: (provider: ClaudeProvider, originalId?: string) => void;
   onClose: () => void;
   onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
 };
 
-type ProviderEditPanelContentProps = Omit<ProviderEditPanelProps, "visible">;
+type ProviderEditPanelContentProps = {
+  provider: ClaudeProvider;
+  mode: "add" | "edit";
+  hasCommonConfig?: boolean;
+  onSave: (provider: ClaudeProvider, originalId?: string) => void;
+  onClose: () => void;
+  onTestEndpoint?: (baseUrl: string) => Promise<ClaudeProviderTestResult>;
+};
 
 const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   provider,
@@ -101,8 +186,6 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   const [showApiKey, setShowApiKey] = useState(false);
   const [showRawConfig, setShowRawConfig] = useState(false);
   const [presetIndex, setPresetIndex] = useState<number | "custom">("custom");
-  const [presetSearch, setPresetSearch] = useState("");
-  const [presetSorted, setPresetSorted] = useState(false);
   const [templateBase, setTemplateBase] = useState<string | null>(null);
   const [templateValues, setTemplateValues] = useState<Record<string, string>>({});
   const [endpointCandidates, setEndpointCandidates] = useState<string[]>([]);
@@ -117,14 +200,6 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   const baseUrl = env.ANTHROPIC_BASE_URL ?? "";
   const apiKey = env[apiKeyField] ?? "";
   const isOfficial = category === "official";
-
-  const visiblePresets = useMemo(() => {
-    const query = presetSearch.trim().toLowerCase();
-    let list = presetsWithIcons.map((preset, index) => ({ preset, index }));
-    if (query) list = list.filter(({ preset }) => preset.name.toLowerCase().includes(query));
-    if (presetSorted) list = [...list].sort((a, b) => a.preset.name.localeCompare(b.preset.name, "zh-CN"));
-    return list;
-  }, [presetSearch, presetSorted]);
 
   function updateConfig(mutate: (config: SettingsConfig) => void) {
     if (!parsedConfig) return;
@@ -154,7 +229,9 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
     setApiKeyField(nextField);
   }
 
-  function applyPreset(index: number | "custom") {
+  // Stable identity so the memoized PresetGrid doesn't re-render when unrelated
+  // form fields change — it only closes over stable setters and module data.
+  const applyPreset = useCallback((index: number | "custom") => {
     setPresetIndex(index);
     setEndpointResults({});
     if (index === "custom") {
@@ -187,7 +264,7 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
       setTemplateValues({});
       setConfigText(baseText);
     }
-  }
+  }, []);
 
   function handleTemplateValue(key: string, value: string) {
     const nextValues = { ...templateValues, [key]: value };
@@ -300,45 +377,7 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
           onSubmit={event => { event.preventDefault(); submit(); }}
         >
           {mode === "add" ? (
-            <section className="ccs-form-card">
-              <div className="ccs-preset-head">
-                <span className="ccs-field-label">{t("routing.presetLabel", "预设供应商")}</span>
-                <div className="ccs-preset-tools">
-                  <input
-                    value={presetSearch}
-                    onChange={event => setPresetSearch(event.target.value)}
-                    placeholder={t("routing.presetSearch", "搜索预设…")}
-                    aria-label={t("routing.presetSearch", "搜索预设…")}
-                  />
-                  <button
-                    type="button"
-                    className={presetSorted ? "active" : ""}
-                    onClick={() => setPresetSorted(current => !current)}
-                    title={t("routing.presetSort", "按名称排序")}
-                  >A-Z</button>
-                </div>
-              </div>
-              <div className="ccs-preset-grid">
-                <button
-                  type="button"
-                  className={`ccs-preset-item ${presetIndex === "custom" ? "active" : ""}`}
-                  onClick={() => applyPreset("custom")}
-                >{t("routing.presetCustom", "自定义")}</button>
-                {visiblePresets.map(({ preset, index }) => (
-                  <button
-                    key={`${preset.name}-${index}`}
-                    type="button"
-                    className={`ccs-preset-item ${presetIndex === index ? "active" : ""}`}
-                    onClick={() => applyPreset(index)}
-                    title={preset.websiteUrl}
-                  >
-                    <ProviderIcon icon={preset.icon} name={preset.name} color={preset.iconColor} size={16} />
-                    <span>{preset.name}</span>
-                    {preset.isPartner ? <em title={t("routing.presetPartner", "合作伙伴")}>★</em> : null}
-                  </button>
-                ))}
-              </div>
-            </section>
+            <PresetGrid activeIndex={presetIndex} onSelect={applyPreset} />
           ) : null}
 
           <section className="ccs-form-card">
@@ -616,16 +655,90 @@ const ProviderEditPanelContent = memo(function ProviderEditPanelContent({
   );
 });
 
+// Matches the CSS opacity/transform transition on .ccs-fullscreen-panel; a
+// mount-on-demand (Edit) form stays mounted this long after close so the exit
+// fade can play, and the parent waits at least this long before resetting the
+// prewarmed (Add) form.
+export const PANEL_EXIT_MS = 220;
+
 export const ProviderEditPanel = memo(function ProviderEditPanel({
-  visible = true,
+  open,
+  prewarm = false,
+  sessionKey = 0,
+  provider,
+  onClose,
   ...contentProps
 }: ProviderEditPanelProps) {
+  // Two lifecycles share this shell (see the `prewarm` prop doc):
+  //  - Add (prewarm): the heavy form stays mounted+hidden so opening is instant;
+  //    the parent bumps `sessionKey` after close to rebuild it off the visible
+  //    path. This restores the #69 prewarm that v3 regressed to an ~85ms mount.
+  //  - Edit (on demand): cheap to mount, so it mounts on open and unmounts after
+  //    the exit fade; the parent bumps `sessionKey` on each open.
+  //
+  //  - `rendered` keeps content in the DOM: always when prewarmed, else across
+  //    the exit fade only.
+  //  - `shown` drives the visual fade; it dips false for the pre-enter frame and
+  //    during exit. a11y visibility tracks `open`, not the animation frame.
+  const [rendered, setRendered] = useState(prewarm || open);
+  const [shown, setShown] = useState(false);
+  const providerRef = useRef(provider);
+  if (open && provider) providerRef.current = provider;
+
+  // Remember whoever opened us (the Add / row Edit trigger) so focus can return
+  // there on close. Once the panel goes inert, a keyboard user whose focus is
+  // still inside it would otherwise be dropped on <body>.
+  const openerRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(open);
+
+  useEffect(() => {
+    if (open) {
+      setRendered(true);
+      const raf = requestAnimationFrame(() => setShown(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    setShown(false);
+    if (prewarm) return undefined; // stay mounted (hidden) for an instant reopen
+    const timer = window.setTimeout(() => setRendered(false), PANEL_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [open, prewarm]);
+
+  useEffect(() => {
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (open && !wasOpen) {
+      // Capture the trigger the moment we open, before focus moves into the form.
+      openerRef.current = document.activeElement as HTMLElement | null;
+    } else if (!open && wasOpen) {
+      const opener = openerRef.current;
+      openerRef.current = null;
+      // Restore after the panel is inert so the browser doesn't fight us for the
+      // active element.
+      if (opener && typeof opener.focus === "function") {
+        requestAnimationFrame(() => opener.focus());
+      }
+    }
+  }, [open]);
+
+  const activeProvider = providerRef.current;
+  if (!rendered || !activeProvider) return null;
+
   return createPortal(
     <div
-      className={`ccs-fullscreen-panel${visible ? "" : " ccs-provider-editor-prewarm"}`}
-      aria-hidden={visible ? undefined : true}
+      className={`ccs-fullscreen-panel${shown ? "" : " ccs-fullscreen-hidden"}`}
+      // `inert` when not open removes the whole subtree from the tab order, from
+      // pointer/focus, and from the accessibility tree. The prewarmed Add form
+      // stays mounted+hidden, so without this every field, preset button and the
+      // footer stayed keyboard-focusable behind `opacity:0` — and `aria-hidden`
+      // over focusable descendants is itself invalid. `inert` supersedes both.
+      inert={!open}
     >
-      <ProviderEditPanelContent {...contentProps} />
+      <ProviderEditPanelContent
+        key={sessionKey}
+        provider={activeProvider}
+        onClose={onClose}
+        {...contentProps}
+      />
     </div>,
     document.body
   );

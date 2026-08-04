@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import type { ClaudeProviderListResult, ClaudeProviderTestResult } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { ProviderEditPanel } from "./ProviderEditPanel";
+import { PANEL_EXIT_MS, ProviderEditPanel } from "./ProviderEditPanel";
 import { RoutingToaster } from "./RoutingToaster";
 import { SortableClaudeProviderCard } from "./ProviderCard";
 import type { ClaudeProvider } from "./types";
@@ -95,10 +95,17 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
   const [orderOverride, setOrderOverride] = useState<string[] | null>(null);
   const [editingProvider, setEditingProvider] = useState<ClaudeProvider | null>(null);
   const [creating, setCreating] = useState(false);
-  const [addEditorMounted, setAddEditorMounted] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<ClaudeProvider | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
-  const addEditorPrewarmTimerRef = useRef<number | null>(null);
+  // Bumped to force a fresh form instance: after the Add form closes (rebuilt
+  // off the visible path so the prewarm stays instant) and on each Edit open.
+  const [addSessionKey, setAddSessionKey] = useState(0);
+  const [editSessionKey, setEditSessionKey] = useState(0);
+  const addResetTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (addResetTimerRef.current !== null) window.clearTimeout(addResetTimerRef.current);
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -115,12 +122,6 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     const unsubscribe = companion.onCcSwitchChanged?.(() => { void refresh(); });
     return () => { unsubscribe?.(); };
   }, [companion, refresh]);
-
-  useEffect(() => () => {
-    if (addEditorPrewarmTimerRef.current !== null) {
-      window.clearTimeout(addEditorPrewarmTimerRef.current);
-    }
-  }, []);
 
   const providers = useMemo(() => listing?.providers ?? [], [listing]);
   const currentId = listing?.currentId ?? "";
@@ -163,15 +164,14 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
   }, [companion, refresh, sortedProviders, t]);
 
   const closeAddEditor = useCallback(() => {
-    setAddEditorMounted(false);
-    if (addEditorPrewarmTimerRef.current !== null) {
-      window.clearTimeout(addEditorPrewarmTimerRef.current);
-    }
-    addEditorPrewarmTimerRef.current = window.setTimeout(() => {
-      addEditorPrewarmTimerRef.current = null;
-      setAddEditorMounted(true);
-    }, 50);
     setCreating(false);
+    // Once the fade-out has finished, rebuild a fresh empty Add form off the
+    // visible path so the next open is both instant (prewarmed) and clean.
+    if (addResetTimerRef.current !== null) window.clearTimeout(addResetTimerRef.current);
+    addResetTimerRef.current = window.setTimeout(() => {
+      addResetTimerRef.current = null;
+      setAddSessionKey(key => key + 1);
+    }, PANEL_EXIT_MS);
   }, []);
 
   const closeEditEditor = useCallback(() => {
@@ -269,13 +269,22 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
   }, [companion, t]);
 
   const openNewProvider = useCallback(() => {
-    if (addEditorPrewarmTimerRef.current !== null) {
-      window.clearTimeout(addEditorPrewarmTimerRef.current);
-      addEditorPrewarmTimerRef.current = null;
+    // If the post-close rebuild hasn't fired yet, flush it now so a fast reopen
+    // still gets a fresh form instead of the previous cancelled one.
+    if (addResetTimerRef.current !== null) {
+      window.clearTimeout(addResetTimerRef.current);
+      addResetTimerRef.current = null;
+      setAddSessionKey(key => key + 1);
     }
-    setAddEditorMounted(true);
     setCreating(true);
     setEditingProvider(null);
+  }, []);
+
+  const openEditProvider = useCallback((provider: ClaudeProvider) => {
+    // New instance each open so a reopen during the exit fade never reuses the
+    // previous edit's in-progress input.
+    setEditSessionKey(key => key + 1);
+    setEditingProvider(provider);
   }, []);
   const emptyProvider = useMemo(
     () => createEmptyProvider(sortedProviders.length, t("routing.newProvider", "新供应商")),
@@ -320,35 +329,35 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
         emptyLabel={t("routing.noProviders", "还没有供应商，点击右上角添加")}
         onDragEnd={handleDragEnd}
         onSwitch={handleSwitch}
-        onEdit={setEditingProvider}
+        onEdit={openEditProvider}
         onDuplicate={handleDuplicate}
         onTest={handleTest}
         onTerminal={handleTerminal}
         onRemove={setPendingDelete}
       />
 
-      {addEditorMounted ? (
-        <ProviderEditPanel
-          provider={emptyProvider}
-          mode="add"
-          visible={creating}
-          hasCommonConfig={listing?.hasCommonConfig}
-          onSave={saveEditorProvider}
-          onClose={closeAddEditor}
-          onTestEndpoint={testEditorEndpoint}
-        />
-      ) : null}
+      <ProviderEditPanel
+        provider={emptyProvider}
+        mode="add"
+        prewarm
+        open={creating}
+        sessionKey={addSessionKey}
+        hasCommonConfig={listing?.hasCommonConfig}
+        onSave={saveEditorProvider}
+        onClose={closeAddEditor}
+        onTestEndpoint={testEditorEndpoint}
+      />
 
-      {editingProvider ? (
-        <ProviderEditPanel
-          provider={editingProvider}
-          mode="edit"
-          hasCommonConfig={listing?.hasCommonConfig}
-          onSave={saveEditorProvider}
-          onClose={closeEditEditor}
-          onTestEndpoint={testEditorEndpoint}
-        />
-      ) : null}
+      <ProviderEditPanel
+        provider={editingProvider}
+        mode="edit"
+        open={Boolean(editingProvider)}
+        sessionKey={editSessionKey}
+        hasCommonConfig={listing?.hasCommonConfig}
+        onSave={saveEditorProvider}
+        onClose={closeEditEditor}
+        onTestEndpoint={testEditorEndpoint}
+      />
 
       {pendingDelete ? (
         <ConfirmDialog
