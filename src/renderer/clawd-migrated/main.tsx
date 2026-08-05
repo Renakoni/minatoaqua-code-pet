@@ -768,19 +768,16 @@ function StateProp({ state }: { state: PetState }) {
 
 function SettingsApp() {
   const { t, setLocale, locale } = useI18n();
-  const { settings, updateSettings, connection, applyConnection, events, petState, toolStreams, clearActivityHistory } = useCompanion();
+  const { settings, updateSettings, connection, applyConnection, petState, toolStreams } = useCompanion();
   const { petPacks, refreshPetPacks } = usePetPacks();
 
   // Stable callback identities for the memoized sections below. useCompanion
-  // redefines updateSettings/clearActivityHistory on every render, so hand the
-  // sections a ref-backed wrapper that always calls the latest one but keeps a
-  // fixed identity — otherwise React.memo on the sections could never bail.
+  // redefines updateSettings on every render, so hand the sections a ref-backed
+  // wrapper that always calls the latest one but keeps a fixed identity —
+  // otherwise React.memo on the sections could never bail.
   const updateSettingsRef = useRef(updateSettings);
   updateSettingsRef.current = updateSettings;
   const stableUpdateSettings = useCallback(next => updateSettingsRef.current(next), []);
-  const clearActivityRef = useRef(clearActivityHistory);
-  clearActivityRef.current = clearActivityHistory;
-  const stableClearActivity = useCallback(() => clearActivityRef.current(), []);
 
   const activePetTheme = getPetTheme(settings.petTheme, petPacks);
   // Active theme's animation catalog and (for imported packs) its sheet — the
@@ -1078,9 +1075,7 @@ function SettingsApp() {
           <div style={{ display: activeSection === "data" ? "contents" : "none" }} aria-hidden={activeSection !== "data"}>
             <DataSection
               persistedStats={persistedStats}
-              activityCount={events.length}
               hideSensitiveContent={settings.hideSensitiveContent}
-              onClearActivity={stableClearActivity}
               onResetStats={handleResetStats}
             />
           </div>

@@ -91,6 +91,15 @@ function pickToolName(payload) {
   return undefined;
 }
 
+// Claude Code stamps every hook payload with the session id; forward it on every
+// event so the app can count distinct sessions from any event, not just SessionStart
+// (which a session already running when the pet launches never re-sends). Capped to
+// the app's PetEvent validation limit.
+function pickSessionId(payload) {
+  const id = payload.session_id ?? payload.sessionId;
+  return typeof id === "string" && id ? id.slice(0, 128) : undefined;
+}
+
 function shorten(value, maxLength = 500) {
   if (value === undefined || value === null) return undefined;
 
@@ -568,7 +577,7 @@ async function main() {
     return;
   }
 
-  const event = { ...mapHookToPetEvent(hook, payload), hook };
+  const event = { ...mapHookToPetEvent(hook, payload), hook, sessionId: pickSessionId(payload) };
   if (await postPetEvent(event)) return;
   if (!shouldAutoStartWithCli()) return;
 
@@ -585,7 +594,8 @@ module.exports = {
   payloadIndicatesError,
   pickErrorMessage,
   pickToolName,
-  pickToolDetail
+  pickToolDetail,
+  pickSessionId
 };
 
 if (require.main === module) {

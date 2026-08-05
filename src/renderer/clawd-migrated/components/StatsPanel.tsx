@@ -194,34 +194,33 @@ export function StatsPanel({ stats }: { stats: AppStats }) {
           </div>
         </header>
 
-        <header className="stats-range-head">
-          <div>
+        <div className="stats-range-block">
+          <header className="stats-range-bar">
             <h3>{t("stats.rangeMetricsTitle", "统计范围")}</h3>
-            <span>{t("stats.rangeMetricsHint", "仅影响下方指标，不影响累计运行")}</span>
-          </div>
-          <div className="stats-range-switch" role="tablist" aria-label={t("stats.timeRange", "时间范围")}>
-            {rangeOptions.map(option => (
-              <button
-                key={option.value}
-                type="button"
-                className={range === option.value ? "active" : ""}
-                onClick={() => setRange(option.value)}
-                role="tab"
-                aria-selected={range === option.value}
-              >
-                {option.label}
-              </button>
+            <div className="stats-range-switch" role="tablist" aria-label={t("stats.timeRange", "时间范围")}>
+              {rangeOptions.map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={range === option.value ? "active" : ""}
+                  onClick={() => setRange(option.value)}
+                  role="tab"
+                  aria-selected={range === option.value}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </header>
+
+          <div className="stats-range-metrics">
+            {rangeRows.map(row => (
+              <article key={row.label} className="stats-range-metric">
+                <span>{row.label}</span>
+                <strong>{row.value}</strong>
+              </article>
             ))}
           </div>
-        </header>
-
-        <div className="stats-range-metrics">
-          {rangeRows.map(row => (
-            <article key={row.label} className="stats-range-metric">
-              <span>{row.label}</span>
-              <strong>{row.value}</strong>
-            </article>
-          ))}
         </div>
 
         <div className="stats-hours-section">

@@ -267,42 +267,28 @@
   border-top: 1px solid var(--workbench-line);
 }
 
-.stats-range-head {
+/* The range switch is a compact caption bar fused to the metrics grid below it (no
+   divider between them), so it reads as one "these numbers, for <range>" card — while
+   累计运行 stays in its own bordered row above, keeping the toggle's scope unambiguous. */
+.stats-range-block {
+  min-width: 0;
+}
+
+.stats-range-bar {
   min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  padding: 9px 12px 6px;
 }
 
-.stats-range-head > div:first-child {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.stats-range-head h3 {
+.stats-range-bar h3 {
   margin: 0;
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 780;
-  line-height: 1.15;
-}
-
-.stats-range-head span {
-  min-width: 0;
-  overflow: hidden;
   color: var(--workbench-muted);
-  font-size: 11px;
-  font-weight: 720;
+  font-size: 12px;
+  font-weight: 760;
   line-height: 1.15;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.stats-activity-board > .stats-range-head {
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--workbench-line);
 }
 
 .stats-range-switch {
@@ -1509,7 +1495,7 @@
     width: 100%;
   }
 
-  .stats-range-head {
+  .stats-range-bar {
     align-items: stretch;
     flex-direction: column;
   }

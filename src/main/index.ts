@@ -68,6 +68,7 @@ import { EVENT_SERVER_DEV_ORIGIN, isAcceptedEventServerRequest } from "./eventSe
 import { visitJsonlTail } from "./jsonlTail";
 import { historyToSortedArray, mergeTokenDailyHistory, normalizeTokenDailyHistory } from "./tokenHistory";
 import { mergeRuntimeStats, type RuntimeStatsShape } from "./runtimeStatsMerge";
+import { recordSessionSighting } from "./runtimeSessions";
 import type { CompanionInitialState } from "../renderer/shared/events";
 
 type DailyRuntimeStats = {
@@ -91,6 +92,10 @@ type RuntimeStats = {
   hourlyActivity: number[];
   dailyHourlyActivity: Record<string, number[]>;
   dailyToolUsage: Record<string, Record<string, number>>;
+  /** Distinct Claude session ids seen per day, so `dailyStats[day].sessions` counts real
+   *  sessions (any event marks one) rather than only SessionStart hooks. Main-only; the
+   *  raw ids are stripped before the stats leave the process. Pruned with the heavy maps. */
+  dailySessionIds: Record<string, string[]>;
   firstStartTime: number;
   lastEventTime: number;
   /** Ids of previous app-name installs whose stats have already been folded in, so a
@@ -2066,6 +2071,13 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string): Pr
   if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.requests;
   const fallbackTime = stat.mtimeMs;
   let sessionId = sessionIdFromPath(filePath);
+  // Pin the project to the session's ORIGIN cwd — the first cwd seen in the file. Claude Code
+  // stamps the LIVE cwd on every row, and it drifts when a session is continued (`claude -c` /
+  // resume) from a subdirectory, so trusting the latest cwd splits one session across bogus
+  // sub-projects (…/android, …/logs/device-*, …/node_modules/…) that were never real project
+  // roots. Setting it once keeps the session under where it began; a session genuinely started in
+  // a subdir keeps that subdir as its origin (and Claude Code files it in its own project dir),
+  // so real separate projects still stand apart.
   let projectPath: string | undefined;
   let pendingUserTimestamp: number | undefined;
   const byDedup = new Map<string, ClaudeTokenRequest>();
@@ -2082,7 +2094,7 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string): Pr
           const userRecord = JSON.parse(line) as Record<string, unknown>;
           pendingUserTimestamp = timestampFromRecord(userRecord, fallbackTime);
           if (typeof userRecord.sessionId === "string") sessionId = userRecord.sessionId;
-          if (typeof userRecord.cwd === "string") projectPath = userRecord.cwd;
+          if (projectPath === undefined && typeof userRecord.cwd === "string") projectPath = userRecord.cwd;
         } catch { /* ignore bad user rows */ }
         continue;
       }
@@ -2098,7 +2110,7 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string): Pr
       if (record.type !== "assistant") continue;
       if (typeof record.sessionId === "string") sessionId = record.sessionId;
       if (typeof record.session_id === "string") sessionId = record.session_id;
-      if (typeof record.cwd === "string") projectPath = record.cwd;
+      if (projectPath === undefined && typeof record.cwd === "string") projectPath = record.cwd;
       const message = record.message && typeof record.message === "object" && !Array.isArray(record.message)
         ? record.message as Record<string, unknown>
         : null;
@@ -2259,7 +2271,10 @@ function aggregateClaudeTokenStats(requests: ClaudeTokenRequest[], scannedAt: nu
     modelTotals,
     dailyTotals,
     projectTotals,
-    recentRequests: requests.sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 30),
+    // "高消耗请求" ranks by spend: cost desc, tiebreaking on total tokens so unpriced
+    // requests (costUsd 0) still land in a stable size order at the bottom rather than
+    // scrambling the cost column (which reads as random when sorted by tokens instead).
+    recentRequests: requests.slice().sort((a, b) => (b.costUsd - a.costUsd) || (b.totalTokens - a.totalTokens)).slice(0, 30),
     totalTokens: total.totalTokens,
     totalCostUsd,
     totalSessions: sessionMap.size,
@@ -2910,6 +2925,16 @@ function normalizeDailyToolUsage(value: unknown): Record<string, Record<string, 
   );
 }
 
+function normalizeDailySessionIds(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([day, ids]) => [
+      day,
+      Array.isArray(ids) ? Array.from(new Set(ids.filter((id): id is string => typeof id === "string" && id.length > 0))) : []
+    ])
+  );
+}
+
 function createRuntimeStats(): RuntimeStats {
   return {
     toolUsage: {},
@@ -2924,6 +2949,7 @@ function createRuntimeStats(): RuntimeStats {
     hourlyActivity: new Array(24).fill(0),
     dailyHourlyActivity: {},
     dailyToolUsage: {},
+    dailySessionIds: {},
     firstStartTime: appStartedAt,
     lastEventTime: 0,
     importedLegacySources: []
@@ -2947,6 +2973,7 @@ function normalizeRuntimeStats(value: unknown): RuntimeStats {
     hourlyActivity: normalizeHourlyBuckets(raw.hourlyActivity),
     dailyHourlyActivity: normalizeDailyHourlyActivity(raw.dailyHourlyActivity),
     dailyToolUsage: normalizeDailyToolUsage(raw.dailyToolUsage),
+    dailySessionIds: normalizeDailySessionIds(raw.dailySessionIds),
     firstStartTime: typeof raw.firstStartTime === "number" && raw.firstStartTime > 0 ? raw.firstStartTime : appStartedAt,
     lastEventTime: typeof raw.lastEventTime === "number" ? raw.lastEventTime : 0,
     importedLegacySources: Array.isArray(raw.importedLegacySources) ? raw.importedLegacySources.filter((id): id is string => typeof id === "string") : []
@@ -3039,15 +3066,15 @@ function pruneRuntimeStatsDays(stats: ReturnType<typeof loadRuntimeStats>): void
   const cutoff = localDateKey(Date.now() - HEAVY_DAILY_RETENTION_DAYS * 86_400_000);
   for (const key of Object.keys(stats.dailyHourlyActivity)) if (key < cutoff) delete stats.dailyHourlyActivity[key];
   for (const key of Object.keys(stats.dailyToolUsage)) if (key < cutoff) delete stats.dailyToolUsage[key];
+  for (const key of Object.keys(stats.dailySessionIds)) if (key < cutoff) delete stats.dailySessionIds[key];
 }
 
-function recordRuntimeEvent(event: CompanionEvent) {
+function recordRuntimeEvent(event: CompanionEvent, claudeSessionId?: string) {
   const stats = loadRuntimeStats();
   stats.eventTypeCounts[event.event] = (stats.eventTypeCounts[event.event] ?? 0) + 1;
   if (event.tool) stats.toolUsage[event.tool] = (stats.toolUsage[event.tool] ?? 0) + 1;
   if (event.event === "error") stats.errorCount++;
   if (event.event === "permission_wait") stats.permissionRequests++;
-  if (event.event === "session_start") stats.totalSessions++;
   const date = new Date(event.timestamp);
   const day = localDateKey(event.timestamp);
   const isNewDay = !(day in stats.dailyStats);
@@ -3062,7 +3089,12 @@ function recordRuntimeEvent(event: CompanionEvent) {
     stats.dailyToolUsage[day] ??= {};
     stats.dailyToolUsage[day][event.tool] = (stats.dailyToolUsage[day][event.tool] ?? 0) + 1;
   }
-  if (event.event === "session_start") stats.dailyStats[day].sessions++;
+  // Count a session the first time ANY of its events lands today — keyed on the Claude
+  // session id, not the once-per-session SessionStart hook — so a session already running
+  // when the pet launched (and two concurrent sessions) are both counted. The day's count
+  // never drops below what it already held (see recordSessionSighting), so the upgrade day's
+  // earlier tally survives even though its ended sessions can't re-emit.
+  recordSessionSighting(stats.dailyStats[day], (stats.dailySessionIds[day] ??= []), claudeSessionId);
   if (event.event === "error") stats.dailyStats[day].errors = (stats.dailyStats[day].errors ?? 0) + 1;
   if (event.event === "permission_wait") stats.dailyStats[day].permissionRequests = (stats.dailyStats[day].permissionRequests ?? 0) + 1;
   if (!stats.firstStartTime || stats.firstStartTime > event.timestamp) stats.firstStartTime = event.timestamp;
@@ -3171,8 +3203,12 @@ function respondPermission(id: string, decision: "allow" | "deny", reason?: stri
 
 function getStats() {
   const persisted = loadRuntimeStats();
-  const stats = { ...persisted, totalRuntime: (persisted.totalRuntime ?? 0) + (Date.now() - appStartedAt) };
-  return stats;
+  // "会话" is derived from the per-day distinct-session counts (always consistent with the
+  // range views, which sum dailyStats), and the raw per-day session ids never leave the
+  // process. dailyStats is kept all-time, so this sum is complete.
+  const { dailySessionIds, ...rest } = persisted;
+  const totalSessions = Object.values(persisted.dailyStats).reduce((sum, day) => sum + (day.sessions ?? 0), 0);
+  return { ...rest, totalSessions, totalRuntime: (persisted.totalRuntime ?? 0) + (Date.now() - appStartedAt) };
 }
 
 function getSessionHistory() {
@@ -3374,7 +3410,7 @@ function publishPetEvent(event: PetEvent) {
   if (event.notificationKind !== "info") currentState = event.event;
   eventHistory = [event, ...eventHistory].slice(0, 100);
   const companionEvent = toCompanionEvent(event);
-  recordRuntimeEvent(companionEvent);
+  recordRuntimeEvent(companionEvent, event.sessionId);
   petWindow?.webContents.send("pet-event", event);
   panelWindow?.webContents.send("pet-event", event);
   panelWindow?.webContents.send("pet-snapshot", getSnapshot());

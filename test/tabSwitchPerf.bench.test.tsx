@@ -183,7 +183,7 @@ function Harness() {
         </Profiler>
         <Profiler id="data" onRender={onRender}>
           <div style={{ display: "none" }}>
-            <DataSection persistedStats={null} activityCount={3} hideSensitiveContent={settings.hideSensitiveContent} onClearActivity={asyncNoop} onResetStats={asyncNoop} />
+            <DataSection persistedStats={null} hideSensitiveContent={settings.hideSensitiveContent} onResetStats={asyncNoop} />
           </div>
         </Profiler>
       </div>
