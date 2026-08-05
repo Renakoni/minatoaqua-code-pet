@@ -66,6 +66,7 @@ import { setClaudeProfileResourceEnabled } from "./claudeProfileRuntime";
 import { backupJsonFile, writeTextFileAtomic } from "./filePersistence";
 import { EVENT_SERVER_DEV_ORIGIN, isAcceptedEventServerRequest } from "./eventServerSecurity";
 import { visitJsonlTail } from "./jsonlTail";
+import { mergeRuntimeStats, type RuntimeStatsShape } from "./runtimeStatsMerge";
 import type { CompanionInitialState } from "../renderer/shared/events";
 
 type DailyRuntimeStats = {
@@ -91,6 +92,9 @@ type RuntimeStats = {
   dailyToolUsage: Record<string, Record<string, number>>;
   firstStartTime: number;
   lastEventTime: number;
+  /** Ids of previous app-name installs whose stats have already been folded in, so a
+   *  one-time migration never double-counts across restarts. Main-only bookkeeping. */
+  importedLegacySources?: string[];
 };
 
 type UpdateStatus = {
@@ -2867,7 +2871,8 @@ function createRuntimeStats(): RuntimeStats {
     dailyHourlyActivity: {},
     dailyToolUsage: {},
     firstStartTime: appStartedAt,
-    lastEventTime: 0
+    lastEventTime: 0,
+    importedLegacySources: []
   };
 }
 
@@ -2889,8 +2894,44 @@ function normalizeRuntimeStats(value: unknown): RuntimeStats {
     dailyHourlyActivity: normalizeDailyHourlyActivity(raw.dailyHourlyActivity),
     dailyToolUsage: normalizeDailyToolUsage(raw.dailyToolUsage),
     firstStartTime: typeof raw.firstStartTime === "number" && raw.firstStartTime > 0 ? raw.firstStartTime : appStartedAt,
-    lastEventTime: typeof raw.lastEventTime === "number" ? raw.lastEventTime : 0
+    lastEventTime: typeof raw.lastEventTime === "number" ? raw.lastEventTime : 0,
+    importedLegacySources: Array.isArray(raw.importedLegacySources) ? raw.importedLegacySources.filter((id): id is string => typeof id === "string") : []
   };
+}
+
+// Previous app-name userData dirs. Electron keys userData by app name, so each rename
+// (clawd-companion → claude-codex-pet → Chara Desk) orphaned the prior runtime-stats.
+// Fold them in once so "全部" spans the whole history. They are siblings of the current
+// userData under app.getPath("appData").
+const LEGACY_RUNTIME_STATS_SOURCES: Array<{ id: string; relPath: string[] }> = [
+  { id: "claude-codex-pet", relPath: ["claude-codex-pet", "runtime-stats.json"] },
+  { id: "clawd-companion", relPath: ["clawd-companion", "clawd-companion", "stats.json"] }
+];
+
+// One-time merge of any legacy install's stats into `stats`. Each source is processed at
+// most once (recorded in importedLegacySources) so restarts never double-count, even
+// when the source is absent or corrupt. Returns true if the bookkeeping changed.
+function migrateLegacyRuntimeStats(stats: RuntimeStats): boolean {
+  const imported = new Set(stats.importedLegacySources ?? []);
+  let changed = false;
+  for (const source of LEGACY_RUNTIME_STATS_SOURCES) {
+    if (imported.has(source.id)) continue;
+    let path: string;
+    try { path = join(app.getPath("appData"), ...source.relPath); } catch { continue; }
+    // Only mark a source imported AFTER a successful read + merge. If the file is absent
+    // (e.g. an old dir not yet restored from backup), or a read/parse fails (a transient
+    // lock or a copy in progress), skip WITHOUT marking so a later launch can retry once
+    // it's available — no merge happened, so nothing is double-counted by retrying.
+    if (path === runtimeStatsPath() || !existsSync(path)) continue;
+    try {
+      const legacy = normalizeRuntimeStats(JSON.parse(readFileSync(path, "utf8")));
+      Object.assign(stats, mergeRuntimeStats(stats as RuntimeStatsShape, legacy as RuntimeStatsShape));
+      imported.add(source.id);
+      changed = true;
+    } catch { /* transient/corrupt legacy file — leave unmarked and retry next launch */ }
+  }
+  if (changed) stats.importedLegacySources = Array.from(imported);
+  return changed;
 }
 
 function loadRuntimeStats() {
@@ -2898,11 +2939,16 @@ function loadRuntimeStats() {
   try {
     if (existsSync(runtimeStatsPath())) {
       runtimeStats = normalizeRuntimeStats(JSON.parse(readFileSync(runtimeStatsPath(), "utf8")));
-      return runtimeStats;
     }
   } catch { /* ignore corrupt stats */ }
-  runtimeStats = createRuntimeStats();
-  runtimeStatsDirty = true;
+  if (!runtimeStats) {
+    runtimeStats = createRuntimeStats();
+    runtimeStatsDirty = true;
+  }
+  if (migrateLegacyRuntimeStats(runtimeStats)) {
+    runtimeStatsDirty = true;
+    saveRuntimeStats(true); // persist the migration immediately so it never repeats
+  }
   return runtimeStats;
 }
 
@@ -2927,16 +2973,16 @@ function saveRuntimeStats(force = false) {
   if (!runtimeStatsSaveTimer) runtimeStatsSaveTimer = setTimeout(writeRuntimeStats, 750);
 }
 
-const RUNTIME_STATS_RETENTION_DAYS = 90;
+// dailyStats is tiny (a handful of numbers per day), so keep the FULL history — "全部"
+// should mean all-time, and one calendar entry/day is trivial even over many years.
+// Only the heavier per-day maps (24 hourly buckets + a tool map each) get a long safety
+// cap so an extreme multi-year install can't grow them without bound. Keys are
+// YYYY-MM-DD, so a lexicographic compare against the cutoff is correct. Runs only on a
+// day rollover, so it costs ~nothing.
+const HEAVY_DAILY_RETENTION_DAYS = 730; // ~2 years
 
-// The day-keyed stat maps only ever grow — one entry per calendar day for the
-// install's lifetime, and the whole object is re-serialized to disk on every
-// event. Drop day keys older than the retention window (the UI only shows recent
-// days). Keys are YYYY-MM-DD, so a lexicographic compare against the cutoff is
-// correct. Runs only on a day rollover, so it costs ~nothing.
 function pruneRuntimeStatsDays(stats: ReturnType<typeof loadRuntimeStats>): void {
-  const cutoff = localDateKey(Date.now() - RUNTIME_STATS_RETENTION_DAYS * 86_400_000);
-  for (const key of Object.keys(stats.dailyStats)) if (key < cutoff) delete stats.dailyStats[key];
+  const cutoff = localDateKey(Date.now() - HEAVY_DAILY_RETENTION_DAYS * 86_400_000);
   for (const key of Object.keys(stats.dailyHourlyActivity)) if (key < cutoff) delete stats.dailyHourlyActivity[key];
   for (const key of Object.keys(stats.dailyToolUsage)) if (key < cutoff) delete stats.dailyToolUsage[key];
 }
@@ -3600,6 +3646,10 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:get-stats", () => getStats());
   ipcMain.handle("companion:reset-stats", () => {
     runtimeStats = createRuntimeStats();
+    // Seal every legacy source as already imported: the user explicitly cleared their
+    // stats ("permanent, unrecoverable"), so the one-time migration must not re-import
+    // the same old-install data on the next launch and resurrect what was deleted.
+    runtimeStats.importedLegacySources = LEGACY_RUNTIME_STATS_SOURCES.map(source => source.id);
     runtimeStatsDirty = true;
     saveRuntimeStats(true);
   });
