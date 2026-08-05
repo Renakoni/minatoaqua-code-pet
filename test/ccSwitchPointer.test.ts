@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commitPointerPlan, planCurrentPointerWrite, planPointerRename, resolveCurrentPointerBase } from "../src/main/ccSwitchPointer";
+import { commitPointerPlan, currentPointerFromRaw, planCurrentPointerWrite, planPointerRename, resolveCurrentPointerBase } from "../src/main/ccSwitchPointer";
 
 describe("resolveCurrentPointerBase (cc-switch write path)", () => {
   it("treats a genuinely missing file (null) as a fresh, non-corrupt base", () => {
@@ -173,5 +173,37 @@ describe("commitPointerPlan (optimistic concurrency)", () => {
     expect(res).toEqual({ written: false, refused: false, backupPath: null });
     expect(h.writes).toHaveLength(0);
     expect(h.counts.backups).toBe(0);
+  });
+
+  it("reports committedRaw = the LATEST content after re-planning past an external switch", () => {
+    // A switch must backfill the provider that OWNS the live config now, not the pre-gate one.
+    // read #1 = A (plan write B); re-read = C (external switch to C) → changed → loop;
+    // read #2 = C → plan write B; re-read = C (unchanged) → write B over C.
+    const C = JSON.stringify({ currentProviderClaude: "C", currentProviderCodex: "cdx" });
+    const h = scriptedIo([A, C, C, C]);
+    const res = commitPointerPlan(raw => planCurrentPointerWrite(raw, "B"), h.io);
+    expect(res.written).toBe(true);
+    expect(res.committedRaw).toBe(C);
+    expect(currentPointerFromRaw(res.committedRaw ?? null)).toBe("C"); // switch backfills C, not stale A
+  });
+
+  it("reports refused (never throws) when the write itself fails — the switch then cancels cleanly", () => {
+    const res = commitPointerPlan(raw => planCurrentPointerWrite(raw, "B"), {
+      read: () => A,
+      write: () => { throw new Error("EACCES: read-only file"); },
+      backup: () => "/backup/path",
+      pause: () => {}
+    });
+    expect(res).toEqual({ written: false, refused: true, backupPath: null });
+  });
+
+  it("still reports refused when the backup itself throws on a persistently unreadable file", () => {
+    const res = commitPointerPlan(raw => planCurrentPointerWrite(raw, "B"), {
+      read: () => "",
+      write: () => {},
+      backup: () => { throw new Error("sharing lock"); },
+      pause: () => {}
+    }, 2);
+    expect(res).toEqual({ written: false, refused: true, backupPath: null });
   });
 });

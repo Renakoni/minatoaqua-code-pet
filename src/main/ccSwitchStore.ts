@@ -27,7 +27,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { backupJsonFile, readJsonObjectFile, writeTextFileAtomic } from "./filePersistence";
-import { commitPointerPlan, planCurrentPointerWrite, planPointerRename } from "./ccSwitchPointer";
+import { commitPointerPlan, currentPointerFromRaw, planCurrentPointerWrite, planPointerRename } from "./ccSwitchPointer";
 
 type JsonObject = Record<string, unknown>;
 
@@ -448,10 +448,12 @@ function readLiveJsonObject(path: string): JsonObject {
 interface PointerWriteResult {
   /** True when the pointer was actually written to settings.json. */
   written: boolean;
-  /** True when the file was unreadable and left intact — the caller should warn. */
+  /** True when the file was unreadable/unwritable and left intact — the caller should warn. */
   refused: boolean;
   /** A backup of an unreadable file we refused to overwrite (for recovery), if any. */
   backupPath: string | null;
+  /** The content committed over (null if missing) — lets the switch read the pointer it replaced. */
+  committedRaw?: string | null;
 }
 
 // Brief synchronous pause without extra deps — used only on the rare unreadable-settings
@@ -511,46 +513,31 @@ export function switchCcSwitchProvider(id: string): SwitchOutcome {
 
   const livePath = getClaudeSettingsPath();
   const snippet = getCommonConfigSnippet();
-  const currentId = getCurrentCcSwitchProviderId(providers);
-  const outgoing = currentId && currentId !== id ? providers.find(provider => provider.id === currentId) : undefined;
-
   // Commit the shared device pointer FIRST, as a gate. If it can't be written — the settings
-  // file is unreadable, or under constant external contention — abort BEFORE touching the
-  // live config. Otherwise ~/.claude/settings.json would hold `id`'s config while the pointer
-  // still names the old provider, and because the file pointer outranks db is_current, the
-  // NEXT switch would backfill id's live config into the old provider and corrupt it. Nothing
-  // is mutated yet, so aborting here leaves a fully consistent state (the switch just didn't
-  // happen), rather than reporting a stable success on top of an inconsistent one.
+  // file is unreadable/unwritable, or under constant external contention — abort BEFORE
+  // touching anything else, and return a localized cancellation rather than a stable success on
+  // top of an inconsistent state (the switch simply didn't happen). Otherwise
+  // ~/.claude/settings.json would hold `id`'s config while the pointer still names the old
+  // provider, and because the file pointer outranks db is_current, the next switch would
+  // backfill id's live config into the old provider and corrupt it.
   const pointer = writeCurrentPointer(id);
   if (!pointer.written) {
     warnings.push(`cc_switch_settings_unreadable:${pointer.backupPath ?? "no_backup"}`);
     return { ok: false, warnings, error: "cc_switch_settings_pointer_unwritable" };
   }
 
-  // 1. Backfill the outgoing provider from the live file (SSOT round-trip).
-  if (outgoing) {
-    try {
-      const live = readLiveJsonObject(livePath);
-      if (Object.keys(live).length > 0) {
-        const backfill = structuredClone(live);
-        if (providerUsesCommonConfig(outgoing, snippet)) {
-          try {
-            jsonDeepRemove(backfill, JSON.parse(snippet.trim()) as JsonObject);
-          } catch {
-            warnings.push(`common_config_strip_failed:${outgoing.id}`);
-          }
-        }
-        withDb(false, db => {
-          db.prepare("UPDATE providers SET settings_config = ? WHERE id = ? AND app_type = ?")
-            .run(JSON.stringify(backfill), outgoing.id, APP_TYPE);
-        });
-      }
-    } catch {
-      warnings.push(`backfill_failed:${outgoing.id}`);
-    }
-  }
+  // The provider that owns the current live config is whoever the pointer named JUST BEFORE we
+  // replaced it — commitPointerPlan may have re-planned against a concurrent external switch, so
+  // this can differ from the pre-gate current. Backfill into THAT provider, never a stale
+  // snapshot (which would corrupt an unrelated provider's config). Capture its live config now,
+  // before the live file is overwritten below.
+  const outgoingId = currentPointerFromRaw(pointer.committedRaw ?? null);
+  const outgoing = outgoingId && outgoingId !== id ? providers.find(provider => provider.id === outgoingId) : undefined;
+  const outgoingLive = outgoing ? readLiveJsonObject(livePath) : null;
 
-  // 2. Replace the live file with the incoming provider's effective settings.
+  // Replace the live file with the incoming provider's effective settings RIGHT AWAY, so the
+  // pointer (already `id`) and the live config agree with minimal delay — no possibly-blocking
+  // DB work sits in the pointer=id/live=old window (a busy SQLite UPDATE can wait seconds).
   let backupPath: string | null = null;
   try {
     mkdirSync(join(homedir(), ".claude"), { recursive: true });
@@ -561,8 +548,26 @@ export function switchCcSwitchProvider(id: string): SwitchOutcome {
     return { ok: false, warnings, error: error instanceof Error ? error.message : String(error) };
   }
 
-  // 3. Point the db is_current flag at the incoming provider (the shared device pointer was
-  // already committed to `id` by the gate above).
+  // Pointer and live config are now consistent. Do the (possibly slow) bookkeeping: backfill the
+  // outgoing provider's captured live config into its record, then point db is_current at `id`.
+  if (outgoing && outgoingLive && Object.keys(outgoingLive).length > 0) {
+    try {
+      const backfill = structuredClone(outgoingLive);
+      if (providerUsesCommonConfig(outgoing, snippet)) {
+        try {
+          jsonDeepRemove(backfill, JSON.parse(snippet.trim()) as JsonObject);
+        } catch {
+          warnings.push(`common_config_strip_failed:${outgoing.id}`);
+        }
+      }
+      withDb(false, db => {
+        db.prepare("UPDATE providers SET settings_config = ? WHERE id = ? AND app_type = ?")
+          .run(JSON.stringify(backfill), outgoing.id, APP_TYPE);
+      });
+    } catch {
+      warnings.push(`backfill_failed:${outgoing.id}`);
+    }
+  }
   try {
     withDb(false, db => {
       db.prepare("UPDATE providers SET is_current = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE app_type = ?").run(id, APP_TYPE);

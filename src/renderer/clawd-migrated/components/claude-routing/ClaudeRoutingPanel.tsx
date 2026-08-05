@@ -252,9 +252,13 @@ export function ClaudeRoutingPanel({ hideSensitive = false }: { settings?: unkno
   const handleSwitch = useCallback(async (provider: ClaudeProvider) => {
     const result = await companion.switchClaudeProvider(provider.id);
     if (!result.ok) {
+      // Any other error is a raw OS message that can carry an absolute path (username), so
+      // redact it when "hide sensitive content" is on.
       const message = result.error === "cc_switch_settings_pointer_unwritable"
         ? t("routing.switchAbortedUnreadable", "无法写入 cc-switch 设置文件，已取消切换以避免当前项与实际配置不一致。请检查或删除该文件后重试。")
-        : (result.error ?? t("routing.applyFailed", "切换失败"));
+        : result.error
+          ? (hideSensitive ? redactSensitiveText(result.error, locale) : result.error)
+          : t("routing.applyFailed", "切换失败");
       toast.error(message);
       return;
     }

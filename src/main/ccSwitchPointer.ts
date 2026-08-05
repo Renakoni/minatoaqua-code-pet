@@ -105,10 +105,20 @@ export function planPointerRename(raw: string | null, previousId: string, newId:
 export interface PointerCommitResult {
   /** True when the content was actually written. */
   written: boolean;
-  /** True when the file was unreadable and left intact — the caller should warn. */
+  /** True when the file was unreadable/unwritable and left intact — the caller should warn. */
   refused: boolean;
   /** A backup of an unreadable file we refused to overwrite, if any. */
   backupPath: string | null;
+  /** The exact content we committed over (null if the file was missing). Lets a caller read
+   *  the pointer it actually replaced — e.g. a switch that re-planned against an external
+   *  change must backfill the provider that now owns the live config, not a stale snapshot. */
+  committedRaw?: string | null;
+}
+
+/** The currentProviderClaude a settings snapshot names, or "" when missing/unreadable. */
+export function currentPointerFromRaw(raw: string | null): string {
+  const { base, corrupt } = resolveCurrentPointerBase(raw);
+  return !corrupt && typeof base.currentProviderClaude === "string" ? base.currentProviderClaude : "";
 }
 
 export interface PointerCommitIo {
@@ -142,14 +152,23 @@ export function commitPointerPlan(
     if (plan.action === "skip") return { written: false, refused: false, backupPath: null };
     if (plan.action === "refuse") { io.pause(); continue; }
     if (io.read() === raw) {
-      io.write(plan.content);
-      return { written: true, refused: false, backupPath: null };
+      try {
+        io.write(plan.content);
+        return { written: true, refused: false, backupPath: null, committedRaw: raw };
+      } catch {
+        // The write itself failed (read-only file, ACL, or a rename error). Treat it like an
+        // unwritable file so the caller reports the localized cancellation, not a raw error.
+        return { written: false, refused: true, backupPath: null };
+      }
     }
     // The file changed under us — loop, re-read, and re-plan against the new content.
   }
   // Exhausted: back up + report refused if still unreadable; otherwise leave it untouched
   // (a decided skip, or constant external contention — never clobber).
-  return makePlan(io.read()).action === "refuse"
-    ? { written: false, refused: true, backupPath: io.backup() }
-    : { written: false, refused: false, backupPath: null };
+  if (makePlan(io.read()).action === "refuse") {
+    let backupPath: string | null = null;
+    try { backupPath = io.backup(); } catch { /* backup itself failed — still report refused */ }
+    return { written: false, refused: true, backupPath };
+  }
+  return { written: false, refused: false, backupPath: null };
 }
