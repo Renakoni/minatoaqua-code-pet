@@ -253,6 +253,7 @@ export interface ClaudeProviderTestResult {
 export interface ClaudeProviderSaveResult {
   ok: boolean;
   provider?: ClaudeProviderConfig;
+  warnings?: string[];
   error?: string;
 }
 

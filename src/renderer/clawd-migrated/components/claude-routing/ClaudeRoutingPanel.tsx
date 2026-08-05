@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import type { ClaudeProviderListResult, ClaudeProviderTestResult } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
+import { redactSensitiveText, type DisplayLanguage } from "../../../../shared/privacy";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { PANEL_EXIT_MS, ProviderEditPanel } from "./ProviderEditPanel";
 import { RoutingToaster } from "./RoutingToaster";
@@ -76,6 +77,32 @@ function formatI18n(template: string, values: Record<string, string | number>) {
   return Object.entries(values).reduce((text, [key, value]) => text.split(`{${key}}`).join(String(value)), template);
 }
 
+// Turn a structured "<key>:<detail>" provider warning (emitted by the cc-switch store)
+// into a localized, user-facing message. When "hide sensitive content" is on, the detail
+// (a file path or an error message that may embed one) is redacted, and the backup-path
+// variant is skipped entirely — honoring the app's promise to hide paths in the UI.
+// Unknown keys fall back to the (redacted) raw string, so a warning is never hidden.
+function formatProviderWarning(warning: string, t: (key: string, fallback: string) => string, hideSensitive: boolean, locale: DisplayLanguage): string {
+  const redact = (text: string) => (hideSensitive ? redactSensitiveText(text, locale) : text);
+  const sep = warning.indexOf(":");
+  const key = sep === -1 ? warning : warning.slice(0, sep);
+  const detail = sep === -1 ? "" : warning.slice(sep + 1);
+  switch (key) {
+    case "cc_switch_settings_unreadable":
+      return !hideSensitive && detail && detail !== "no_backup"
+        ? formatI18n(t("routing.warnings.settingsUnreadableBackup", "cc-switch 设置文件无法读取，未更新当前项指针（数据库记录仍正确）。已备份到 {detail}"), { detail })
+        : t("routing.warnings.settingsUnreadable", "cc-switch 设置文件无法读取，未更新当前项指针（数据库记录仍正确）");
+    case "current_pointer_update_failed":
+      return formatI18n(t("routing.warnings.pointerUpdateFailed", "更新当前项指针失败（改动已通过数据库生效）：{detail}"), { detail: redact(detail) });
+    case "backfill_failed":
+      return formatI18n(t("routing.warnings.backfillFailed", "回填上一个供应商的实时配置失败（{detail}）"), { detail: redact(detail) });
+    case "common_config_strip_failed":
+      return formatI18n(t("routing.warnings.commonConfigStripFailed", "移除公共配置片段失败（{detail}）"), { detail: redact(detail) });
+    default:
+      return redact(warning);
+  }
+}
+
 function createEmptyProvider(sortIndex: number, name: string): ClaudeProvider {
   return {
     id: "",
@@ -88,7 +115,7 @@ function createEmptyProvider(sortIndex: number, name: string): ClaudeProvider {
   };
 }
 
-export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?: unknown; connection?: unknown } = {}) {
+export function ClaudeRoutingPanel({ hideSensitive = false }: { settings?: unknown; updateSettings?: unknown; connection?: unknown; hideSensitive?: boolean } = {}) {
   const { t, locale } = useI18n();
   const companion = window.companion;
   const [listing, setListing] = useState<ClaudeProviderListResult | null>(null);
@@ -199,11 +226,12 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
       return;
     }
     toast.success(originalId ? t("routing.providerUpdated", "供应商已更新") : t("routing.providerAdded", "供应商已添加"));
+    if (result.warnings && result.warnings.length > 0) toast.warning(result.warnings.map(w => formatProviderWarning(w, t, hideSensitive, locale)).join(" · "));
     if (result.provider) mergeSavedProvider(result.provider, originalId);
     else void refresh();
     if (originalId) closeEditEditor();
     else closeAddEditor();
-  }, [closeAddEditor, closeEditEditor, companion, mergeSavedProvider, refresh, t]);
+  }, [closeAddEditor, closeEditEditor, companion, hideSensitive, locale, mergeSavedProvider, refresh, t]);
 
   async function confirmDelete() {
     if (!pendingDelete) return;
@@ -224,15 +252,22 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
   const handleSwitch = useCallback(async (provider: ClaudeProvider) => {
     const result = await companion.switchClaudeProvider(provider.id);
     if (!result.ok) {
-      toast.error(result.error ?? t("routing.applyFailed", "切换失败"));
+      // Any other error is a raw OS message that can carry an absolute path (username), so
+      // redact it when "hide sensitive content" is on.
+      const message = result.error === "cc_switch_settings_pointer_unwritable"
+        ? t("routing.switchAbortedUnreadable", "无法写入 cc-switch 设置文件，已取消切换以避免当前项与实际配置不一致。请检查或删除该文件后重试。")
+        : result.error
+          ? (hideSensitive ? redactSensitiveText(result.error, locale) : result.error)
+          : t("routing.applyFailed", "切换失败");
+      toast.error(message);
       return;
     }
     toast.success(formatI18n(t("routing.switchedTo", "已切换到 {name}，已写入 Claude Code 全局配置"), { name: provider.name }));
     if (result.warnings && result.warnings.length > 0) {
-      toast.warning(result.warnings.join(", "));
+      toast.warning(result.warnings.map(w => formatProviderWarning(w, t, hideSensitive, locale)).join(" · "));
     }
     void refresh();
-  }, [companion, refresh, t]);
+  }, [companion, hideSensitive, locale, refresh, t]);
 
   // Toast pattern ported from cc-switch's useStreamCheck: success with
   // latency, warning when reachable but slow, error with a network hint.

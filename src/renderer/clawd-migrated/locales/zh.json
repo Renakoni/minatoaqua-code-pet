@@ -664,12 +664,20 @@
   },
   "routing": {
     "title": "Claude Code 路由",
+    "warnings": {
+      "settingsUnreadable": "cc-switch 设置文件无法读取，未更新当前项指针（数据库记录仍正确）",
+      "settingsUnreadableBackup": "cc-switch 设置文件无法读取，未更新当前项指针（数据库记录仍正确）。已备份到 {detail}",
+      "pointerUpdateFailed": "更新当前项指针失败（改动已通过数据库生效）：{detail}",
+      "backfillFailed": "回填上一个供应商的实时配置失败（{detail}）",
+      "commonConfigStripFailed": "移除公共配置片段失败（{detail}）"
+    },
     "providerCount": "{count} 个供应商",
     "providerCountCurrent": "{count} 个供应商 · 当前 {name}",
     "orderUpdated": "排序已更新",
     "orderFailed": "排序保存失败",
     "newProvider": "新供应商",
     "applyFailed": "切换失败",
+    "switchAbortedUnreadable": "无法写入 cc-switch 设置文件，已取消切换以避免当前项与实际配置不一致。请检查或删除该文件后重试。",
     "switchedTo": "已切换到 {name}，已写入 Claude Code 全局配置",
     "saveFailed": "保存失败",
     "providerUpdated": "供应商已更新",

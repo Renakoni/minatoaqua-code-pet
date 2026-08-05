@@ -2619,8 +2619,8 @@ function saveUnifiedProvider(provider: CcSwitchProvider, originalId?: string) {
       ? listCcSwitchProviders().some(item => item.id === originalId)
       : listCcSwitchProviders().some(item => item.id === provider.id);
     if (exists) {
-      updateCcSwitchProvider(provider, originalId);
-      return { ok: true, provider };
+      const warnings = updateCcSwitchProvider(provider, originalId);
+      return { ok: true, provider, warnings };
     }
     return { ok: true, provider: addCcSwitchProvider(provider) };
   }

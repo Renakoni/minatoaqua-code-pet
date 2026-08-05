@@ -81,7 +81,7 @@ export function OverviewSection({
 
   return (
     <section className="overview-workbench">
-      <ClaudeRoutingPanel />
+      <ClaudeRoutingPanel hideSensitive={hideSensitive} />
       {connection.error ? <section className="connection-error"><Wrench size={18} />{hideSensitive ? redactSensitiveText(connection.error, locale) : connection.error}</section> : null}
 
       <section className="overview-connection">
