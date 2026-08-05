@@ -2916,15 +2916,19 @@ function migrateLegacyRuntimeStats(stats: RuntimeStats): boolean {
   let changed = false;
   for (const source of LEGACY_RUNTIME_STATS_SOURCES) {
     if (imported.has(source.id)) continue;
-    imported.add(source.id);
-    changed = true;
     let path: string;
     try { path = join(app.getPath("appData"), ...source.relPath); } catch { continue; }
+    // Only mark a source imported AFTER a successful read + merge. If the file is absent
+    // (e.g. an old dir not yet restored from backup), or a read/parse fails (a transient
+    // lock or a copy in progress), skip WITHOUT marking so a later launch can retry once
+    // it's available — no merge happened, so nothing is double-counted by retrying.
     if (path === runtimeStatsPath() || !existsSync(path)) continue;
     try {
       const legacy = normalizeRuntimeStats(JSON.parse(readFileSync(path, "utf8")));
       Object.assign(stats, mergeRuntimeStats(stats as RuntimeStatsShape, legacy as RuntimeStatsShape));
-    } catch { /* corrupt legacy file — skip; already marked processed */ }
+      imported.add(source.id);
+      changed = true;
+    } catch { /* transient/corrupt legacy file — leave unmarked and retry next launch */ }
   }
   if (changed) stats.importedLegacySources = Array.from(imported);
   return changed;
@@ -3642,6 +3646,10 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:get-stats", () => getStats());
   ipcMain.handle("companion:reset-stats", () => {
     runtimeStats = createRuntimeStats();
+    // Seal every legacy source as already imported: the user explicitly cleared their
+    // stats ("permanent, unrecoverable"), so the one-time migration must not re-import
+    // the same old-install data on the next launch and resurrect what was deleted.
+    runtimeStats.importedLegacySources = LEGACY_RUNTIME_STATS_SOURCES.map(source => source.id);
     runtimeStatsDirty = true;
     saveRuntimeStats(true);
   });
