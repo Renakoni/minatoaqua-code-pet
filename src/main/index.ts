@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, protocol, screen, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
@@ -69,6 +69,7 @@ import { visitJsonlTail } from "./jsonlTail";
 import { historyToSortedArray, mergeTokenDailyHistory, normalizeTokenDailyHistory } from "./tokenHistory";
 import { mergeRuntimeStats, type RuntimeStatsShape } from "./runtimeStatsMerge";
 import { recordSessionSighting } from "./runtimeSessions";
+import { loadScanCache, saveScanCache, type CachedScan } from "./scanCachePersistence";
 import type { CompanionInitialState } from "../renderer/shared/events";
 
 type DailyRuntimeStats = {
@@ -1656,6 +1657,13 @@ const CLAUDE_SESSION_DETAIL_MAX_MESSAGES = 240;
 let claudeSessionCache: { data: { sessions: ClaudeSessionIndexItem[]; scannedAt: number; projectsDir: string }; timestamp: number } | null = null;
 let pendingClaudeSessionScan: Promise<{ sessions: ClaudeSessionIndexItem[]; scannedAt: number; projectsDir: string }> | null = null;
 let claudeSessionFileCache = new Map<string, { mtimeMs: number; size: number; item: ClaudeSessionIndexItem }>();
+// Bump when ClaudeSessionIndexItem's shape or scanSingleClaudeSessionStream's logic changes, so a
+// stale on-disk cache is discarded rather than served.
+const SESSION_INDEX_CACHE_VERSION = 1;
+let sessionFileCacheLoaded = false;
+function sessionIndexCachePath() {
+  return join(app.getPath("userData"), "session-index-cache.ndjson");
+}
 
 async function mapInBatches<T, R>(items: T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = [];
@@ -1787,15 +1795,31 @@ async function scanSingleClaudeSessionStream(filePath: string, encodedProject: s
 
 async function scanClaudeSessionsFresh() {
   const paths = getClaudePaths();
+  // Warm the per-file cache from disk once so a cold start reuses unchanged sessions' parsed
+  // items instead of re-streaming every jsonl (see scanCachePersistence for the safety model).
+  if (!sessionFileCacheLoaded) {
+    for (const [filePath, entry] of loadScanCache<ClaudeSessionIndexItem>(sessionIndexCachePath(), SESSION_INDEX_CACHE_VERSION)) {
+      claudeSessionFileCache.set(filePath, { mtimeMs: entry.mtimeMs, size: entry.size, item: entry.payload });
+    }
+    sessionFileCacheLoaded = true;
+  }
   const projectDirs = await collectClaudeProjectDirs(paths.projectsDir);
   const projectResults = await mapInBatches(projectDirs, CLAUDE_SESSION_SCAN_CONCURRENCY, project => scanClaudeProjectDirectory(project.projectDir, project.encodedProject));
   const sessions = projectResults.flat();
+  const seenFiles = new Set(sessions.map(session => session.filePath));
   if (claudeSessionFileCache.size > sessions.length + 200) {
-    const seenFiles = new Set(sessions.map(session => session.filePath));
     for (const filePath of claudeSessionFileCache.keys()) {
       if (!seenFiles.has(filePath)) claudeSessionFileCache.delete(filePath);
     }
   }
+  // Persist the refreshed cache (only entries for files that still exist) for the next cold start.
+  saveScanCache<ClaudeSessionIndexItem>(
+    sessionIndexCachePath(),
+    SESSION_INDEX_CACHE_VERSION,
+    [...claudeSessionFileCache.entries()]
+      .filter(([filePath]) => seenFiles.has(filePath))
+      .map(([filePath, entry]) => [filePath, { mtimeMs: entry.mtimeMs, size: entry.size, payload: entry.item }] as [string, CachedScan<ClaudeSessionIndexItem>])
+  );
 
   return {
     sessions: sessions.sort((a, b) => b.lastMessageAt - a.lastMessageAt).slice(0, 500),
@@ -1879,6 +1903,17 @@ const CLAUDE_TOKEN_SCAN_CONCURRENCY = 10;
 let claudeTokenStatsCache: { data: ClaudeTokenStats; timestamp: number } | null = null;
 let pendingClaudeTokenStatsScan: Promise<ClaudeTokenStats> | null = null;
 let claudeTokenFileCache = new Map<string, { mtimeMs: number; size: number; requests: ClaudeTokenRequest[] }>();
+// Bump when ClaudeTokenRequest's shape or scanClaudeTokenFile's parse/dedup logic changes, so a
+// stale on-disk cache is discarded rather than served. (Costs are recomputed only on a re-parse,
+// matching the in-memory cache's existing behaviour — an unchanged file keeps its cached costs.)
+const TOKEN_FILE_CACHE_VERSION = 1;
+let tokenFileCacheLoaded = false;
+// The (path:mtime:size) signature of the file set at the last full scan. When it is unchanged the
+// aggregate is provably identical, so a background refresh can skip the whole re-parse+re-aggregate.
+let lastTokenScanSignature = "";
+function tokenFileCachePath() {
+  return join(app.getPath("userData"), "token-file-cache.ndjson");
+}
 
 // Durable per-day request/token history for the heatmap: it survives Claude Code rotating
 // away old session logs, which a live-only scan cannot (see ./tokenHistory).
@@ -1913,7 +1948,8 @@ function saveTokenDailyHistory(history: Record<string, TokenDailyTotal>) {
   tokenDailyHistory = history;
   if (tokenDailyHistoryUnreadable) return; // never clobber an existing-but-unreadable file
   try {
-    writeTextFileAtomic(tokenDailyHistoryPath(), JSON.stringify({ version: 1, days: history }, null, 2));
+    // Machine-only file — skip pretty-printing to cut serialize cost and on-disk size.
+    writeTextFileAtomic(tokenDailyHistoryPath(), JSON.stringify({ version: 1, days: history }));
   } catch { /* best effort — durability is a nice-to-have, not a hard requirement */ }
 }
 
@@ -1923,8 +1959,22 @@ function saveTokenDailyHistory(history: Record<string, TokenDailyTotal>) {
 // consistent with totalTokens/totalRequests/totalCostUsd; only the long-term heatmap
 // reads the durable set.
 function applyDurableDailyHistory(stats: ClaudeTokenStats): ClaudeTokenStats {
-  const merged = mergeTokenDailyHistory(loadTokenDailyHistory(), stats.dailyTotals);
-  saveTokenDailyHistory(merged);
+  const before = loadTokenDailyHistory();
+  const merged = mergeTokenDailyHistory(before, stats.dailyTotals);
+  // Only rewrite the file when a day's stored totals actually changed (or a day was added), so an
+  // idle refresh that re-derives identical past days doesn't re-serialize + fsync the whole history.
+  let changed = Object.keys(merged).length !== Object.keys(before).length;
+  if (!changed) {
+    for (const date of Object.keys(merged)) {
+      const next = merged[date];
+      const prev = before[date];
+      if (!prev || (Number(next.requestCount) || 0) !== (Number(prev.requestCount) || 0) || (Number(next.totalTokens) || 0) !== (Number(prev.totalTokens) || 0)) {
+        changed = true;
+        break;
+      }
+    }
+  }
+  if (changed) saveTokenDailyHistory(merged);
   return { ...stats, heatmapDailyTotals: historyToSortedArray(merged) };
 }
 
@@ -2042,22 +2092,31 @@ function claudeProjectName(projectPath: string | undefined, encodedProject: stri
   return projectPath ? projectPath.split(/[\\/]/).filter(Boolean).pop() ?? projectPath : decodeClaudeProjectName(encodedProject);
 }
 
-function collectClaudeJsonlFilesRecursive(projectsDir: string) {
-  const files: Array<{ filePath: string; encodedProject: string }> = [];
-  const visit = (dir: string, encodedProject: string, depth: number) => {
+type TokenScanFile = { filePath: string; encodedProject: string; mtimeMs: number; size: number };
+
+// Async directory walk (no synchronous readdirSync on the main thread) that also stats each jsonl
+// up front, so the caller can both build the change signature and skip re-stating in the scanner.
+async function collectClaudeJsonlFilesRecursive(projectsDir: string): Promise<TokenScanFile[]> {
+  const files: TokenScanFile[] = [];
+  const visit = async (dir: string, encodedProject: string, depth: number) => {
     if (depth > 4) return;
     let entries;
-    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) visit(fullPath, encodedProject, depth + 1);
-      else if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push({ filePath: fullPath, encodedProject });
+      if (entry.isDirectory()) await visit(fullPath, encodedProject, depth + 1);
+      else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+        try {
+          const st = await stat(fullPath);
+          files.push({ filePath: fullPath, encodedProject, mtimeMs: st.mtimeMs, size: st.size });
+        } catch { /* file vanished between readdir and stat — skip it */ }
+      }
     }
   };
   try {
     if (!existsSync(projectsDir)) return files;
-    for (const projectEntry of readdirSync(projectsDir, { withFileTypes: true })) {
-      if (projectEntry.isDirectory()) visit(join(projectsDir, projectEntry.name), projectEntry.name, 0);
+    for (const projectEntry of await readdir(projectsDir, { withFileTypes: true })) {
+      if (projectEntry.isDirectory()) await visit(join(projectsDir, projectEntry.name), projectEntry.name, 0);
     }
   } catch {
     return files;
@@ -2065,11 +2124,10 @@ function collectClaudeJsonlFilesRecursive(projectsDir: string) {
   return files;
 }
 
-async function scanClaudeTokenFile(filePath: string, encodedProject: string): Promise<ClaudeTokenRequest[]> {
-  const stat = statSync(filePath);
+async function scanClaudeTokenFile(filePath: string, encodedProject: string, mtimeMs: number, size: number): Promise<ClaudeTokenRequest[]> {
   const cached = claudeTokenFileCache.get(filePath);
-  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.requests;
-  const fallbackTime = stat.mtimeMs;
+  if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached.requests;
+  const fallbackTime = mtimeMs;
   let sessionId = sessionIdFromPath(filePath);
   // Pin the project to the session's ORIGIN cwd — the first cwd seen in the file. Claude Code
   // stamps the LIVE cwd on every row, and it drifts when a session is continued (`claude -c` /
@@ -2156,21 +2214,44 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string): Pr
     reader.close();
     stream.destroy();
   }
-  claudeTokenFileCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, requests });
+  claudeTokenFileCache.set(filePath, { mtimeMs, size, requests });
   return requests;
 }
 
 async function scanClaudeTokenStatsFresh(): Promise<ClaudeTokenStats> {
   await loadDynamicPricingRates();
   const paths = getClaudePaths();
-  const files = collectClaudeJsonlFilesRecursive(paths.projectsDir);
+  // Warm the per-file parse cache from disk once so a cold start reuses every unchanged file's
+  // parsed requests instead of re-streaming the whole ~/.claude/projects tree.
+  if (!tokenFileCacheLoaded) {
+    for (const [filePath, entry] of loadScanCache<ClaudeTokenRequest[]>(tokenFileCachePath(), TOKEN_FILE_CACHE_VERSION)) {
+      claudeTokenFileCache.set(filePath, { mtimeMs: entry.mtimeMs, size: entry.size, requests: entry.payload });
+    }
+    tokenFileCacheLoaded = true;
+  }
+  const files = await collectClaudeJsonlFilesRecursive(paths.projectsDir);
+  // If no file's (path, mtime, size) changed since the last full scan, the aggregate is provably
+  // identical — reuse the last result instead of re-parsing and re-aggregating (the common case
+  // on the 60s background refresh). Only ever a speed skip: any real change flips the signature.
+  const signature = files.map(file => `${file.filePath}:${file.mtimeMs}:${file.size}`).sort().join("|");
+  if (signature === lastTokenScanSignature && claudeTokenStatsCache) {
+    return { ...claudeTokenStatsCache.data, lastScannedAt: Date.now() };
+  }
   const seenFiles = new Set(files.map(file => file.filePath));
   for (const filePath of claudeTokenFileCache.keys()) {
     if (!seenFiles.has(filePath)) claudeTokenFileCache.delete(filePath);
   }
-  const batchResults = await mapInBatches(files, CLAUDE_TOKEN_SCAN_CONCURRENCY, file => scanClaudeTokenFile(file.filePath, file.encodedProject).catch(() => []));
+  const batchResults = await mapInBatches(files, CLAUDE_TOKEN_SCAN_CONCURRENCY, file => scanClaudeTokenFile(file.filePath, file.encodedProject, file.mtimeMs, file.size).catch(() => []));
   const requests = batchResults.flat();
-  return applyDurableDailyHistory(aggregateClaudeTokenStats(requests, Date.now()));
+  const result = applyDurableDailyHistory(aggregateClaudeTokenStats(requests, Date.now()));
+  lastTokenScanSignature = signature;
+  // Persist the refreshed cache (only files that still exist) for the next cold start.
+  saveScanCache<ClaudeTokenRequest[]>(
+    tokenFileCachePath(),
+    TOKEN_FILE_CACHE_VERSION,
+    [...claudeTokenFileCache.entries()].map(([filePath, entry]) => [filePath, { mtimeMs: entry.mtimeMs, size: entry.size, payload: entry.requests }] as [string, CachedScan<ClaudeTokenRequest[]>])
+  );
+  return result;
 }
 
 function aggregateClaudeTokenStats(requests: ClaudeTokenRequest[], scannedAt: number): ClaudeTokenStats {
