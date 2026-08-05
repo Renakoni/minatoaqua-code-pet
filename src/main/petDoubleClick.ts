@@ -8,9 +8,9 @@
 // of those (within the system double-click time and a small distance) and hand the
 // click point to the renderer, which hit-tests it against the actual pet element
 // (document.elementFromPoint). That excludes the status/notification bubble, the
-// permission card and its Allow/Deny buttons, plugin widgets and the transparent
-// background for free, and native dragging (one down then movement, never two quick
-// stationary downs) is preserved.
+// permission card and its Allow/Deny buttons, and the transparent background for
+// free, and native dragging (one down then movement, never two quick stationary
+// downs) is preserved.
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
