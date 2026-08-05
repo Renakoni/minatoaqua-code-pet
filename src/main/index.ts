@@ -3002,6 +3002,20 @@ function saveRuntimeStats(force = false) {
   if (!runtimeStatsSaveTimer) runtimeStatsSaveTimer = setTimeout(writeRuntimeStats, 750);
 }
 
+const RUNTIME_STATS_RETENTION_DAYS = 90;
+
+// The day-keyed stat maps only ever grow — one entry per calendar day for the
+// install's lifetime, and the whole object is re-serialized to disk on every
+// event. Drop day keys older than the retention window (the UI only shows recent
+// days). Keys are YYYY-MM-DD, so a lexicographic compare against the cutoff is
+// correct. Runs only on a day rollover, so it costs ~nothing.
+function pruneRuntimeStatsDays(stats: ReturnType<typeof loadRuntimeStats>): void {
+  const cutoff = localDateKey(Date.now() - RUNTIME_STATS_RETENTION_DAYS * 86_400_000);
+  for (const key of Object.keys(stats.dailyStats)) if (key < cutoff) delete stats.dailyStats[key];
+  for (const key of Object.keys(stats.dailyHourlyActivity)) if (key < cutoff) delete stats.dailyHourlyActivity[key];
+  for (const key of Object.keys(stats.dailyToolUsage)) if (key < cutoff) delete stats.dailyToolUsage[key];
+}
+
 function recordRuntimeEvent(event: CompanionEvent) {
   const stats = loadRuntimeStats();
   stats.eventTypeCounts[event.event] = (stats.eventTypeCounts[event.event] ?? 0) + 1;
@@ -3011,6 +3025,7 @@ function recordRuntimeEvent(event: CompanionEvent) {
   if (event.event === "session_start") stats.totalSessions++;
   const date = new Date(event.timestamp);
   const day = localDateKey(event.timestamp);
+  const isNewDay = !(day in stats.dailyStats);
   const hour = date.getHours();
   stats.hourlyActivity[hour]++;
   stats.dailyHourlyActivity[day] ??= new Array(24).fill(0);
@@ -3027,6 +3042,7 @@ function recordRuntimeEvent(event: CompanionEvent) {
   if (event.event === "permission_wait") stats.dailyStats[day].permissionRequests = (stats.dailyStats[day].permissionRequests ?? 0) + 1;
   if (!stats.firstStartTime || stats.firstStartTime > event.timestamp) stats.firstStartTime = event.timestamp;
   stats.lastEventTime = Math.max(stats.lastEventTime ?? 0, event.timestamp);
+  if (isNewDay) pruneRuntimeStatsDays(stats);
   runtimeStatsDirty = true;
   saveRuntimeStats();
 }
