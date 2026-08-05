@@ -30,8 +30,8 @@ import {
   Wrench,
   X
 } from "lucide-react";
-import type { CompanionEvent, CompanionSettings, CompanionSession, FeedbackMode, PetState, PermissionRequest, PluginWidgetDescriptor, ToolName, UpdateStatus } from "../shared/events";
-import { defaultSettings, stateFromEvent, type EventHistoryEntry, type NotificationRule, type CustomPlugin } from "../shared/events";
+import type { CompanionEvent, CompanionSettings, CompanionSession, FeedbackMode, PetState, PermissionRequest, ToolName, UpdateStatus } from "../shared/events";
+import { defaultSettings, stateFromEvent, type EventHistoryEntry, type NotificationRule } from "../shared/events";
 import { redactDisplayEvent } from "../../shared/privacy";
 import "./styles.css";
 import { I18nProvider, useI18n, detectLocale } from "./useI18n";
@@ -39,7 +39,6 @@ import { useCompanion, type ToolStream } from "./useCompanion";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PermissionCard } from "./components/PermissionCard";
 import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
-import { PluginPomodoroWidget } from "./components/plugins/widgets/PluginPomodoroWidget";
 import { OverviewSection } from "./features/overview/OverviewSection";
 import { SettingsSection } from "./features/settings/SettingsSection";
 import { SessionsPage } from "./components/sessions/SessionsPage";
@@ -140,21 +139,6 @@ function makeEvent(event: CompanionEvent["event"], source: CompanionEvent["sourc
   };
 }
 
-type PluginWidgetInstance = {
-  plugin: CustomPlugin;
-  widget: PluginWidgetDescriptor;
-  widgetKey: string;
-};
-
-function getPluginWidgets(settings: CompanionSettings): PluginWidgetInstance[] {
-  return (settings.customPlugins ?? []).filter(plugin => plugin.enabled).flatMap(plugin =>
-    (plugin.manifest?.widgets ?? []).map(widget => ({ plugin, widget, widgetKey: widget.positionKey ?? widget.type }))
-  );
-}
-
-function getPluginWidgetOffset(settings: CompanionSettings, plugin: CustomPlugin, widgetKey: string): { x: number; y: number } {
-  return plugin.widgetOffsets?.[widgetKey] ?? settings.positionOffsets?.pomodoro ?? defaultSettings.positionOffsets?.pomodoro ?? { x: 735, y: -5 };
-}
 
 function PetApp() {
   const { t, locale } = useI18n();
@@ -243,8 +227,8 @@ function PetApp() {
     const selector = editMode
       ? ".edit-zone, .zone-resize, .edge-handle, .edit-zone-companion"
       : settings.clickThrough
-        ? ".perm-card, .plugin-widget, .pomodoro-widget"
-        : ".clawd, .bubble-wrapper, .tool-streams, .permission-card-wrapper, .perm-card, .plugin-widget, .pomodoro-widget";
+        ? ".perm-card"
+        : ".clawd, .bubble-wrapper, .tool-streams, .permission-card-wrapper, .perm-card";
     let isInteractive = false;
     const setInteractive = (next: boolean) => {
       if (isInteractive === next) return;
@@ -296,15 +280,6 @@ function PetApp() {
         const ny = oy + e.clientY - my;
         const p = offsetsRef.current;
         updateSettings({ positionOffsets: { ...p, view: { x: nx, y: ny } } });
-      } else if (key.startsWith("pluginWidget:")) {
-        const [, pluginId, widgetKey] = key.split(":");
-        const nx = ox + e.clientX - mx;
-        const ny = oy + e.clientY - my;
-        updateSettings({
-          customPlugins: (settings.customPlugins ?? []).map(plugin => plugin.id === pluginId
-            ? { ...plugin, widgetOffsets: { ...(plugin.widgetOffsets ?? {}), [widgetKey]: { x: nx, y: ny } } }
-            : plugin)
-        });
       } else {
         const nx = ox + e.clientX - mx;
         const ny = oy + e.clientY - my;
@@ -316,14 +291,13 @@ function PetApp() {
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
     return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
-  }, [settings.customPlugins]);
+  }, []);
 
   useEffect(() => { offsetsRef.current = settings.positionOffsets ?? {}; }, [settings.positionOffsets]);
   useEffect(() => { scaleRef.current = { clawd: settings.petScale, bubble: settings.feedbackScale, ribbon: settings.feedbackScale, permission: settings.permissionScale }; }, [settings.petScale, settings.feedbackScale, settings.permissionScale]);
 
   const offsets = settings.positionOffsets ?? {};
   const viewOff = offsets.view ?? { x: 0, y: 0 };
-  const pluginWidgets = getPluginWidgets(settings);
 
   const permCardRef = useRef<HTMLDivElement>(null);
   const lastPermissionRect = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
@@ -387,22 +361,9 @@ function PetApp() {
     dragging.current = k;
     if (k === "view") {
       dragStart.current = { mx: e.clientX, my: e.clientY, ox: viewOff.x, oy: viewOff.y };
-    } else if (k.startsWith("pluginWidget:")) {
-      const [, pluginId, widgetKey] = k.split(":");
-      const plugin = (settings.customPlugins ?? []).find(item => item.id === pluginId);
-      const current = plugin ? getPluginWidgetOffset(settings, plugin, widgetKey) : { x: 0, y: 0 };
-      dragStart.current = { mx: e.clientX, my: e.clientY, ox: current.x, oy: current.y };
     } else {
       dragStart.current = { mx: e.clientX, my: e.clientY, ox: offsets[k as keyof typeof offsets]?.x ?? 0, oy: offsets[k as keyof typeof offsets]?.y ?? 0 };
     }
-  }
-
-  function beginPluginWidgetDrag(pluginId: string, widgetKey: string, e: React.MouseEvent | React.PointerEvent) {
-    e.stopPropagation();
-    const plugin = (settings.customPlugins ?? []).find(item => item.id === pluginId);
-    const current = plugin ? getPluginWidgetOffset(settings, plugin, widgetKey) : { x: 0, y: 0 };
-    dragging.current = `pluginWidget:${pluginId}:${widgetKey}`;
-    dragStart.current = { mx: e.clientX, my: e.clientY, ox: current.x, oy: current.y };
   }
 
   function beginResize(k: string, e: React.MouseEvent) {
@@ -421,7 +382,7 @@ function PetApp() {
   function beginNormalDrag(e: React.MouseEvent) {
     if (editMode || settings.clickThrough) return;
     const target = e.target as HTMLElement;
-    if (target.closest(".plugin-widget, .pomodoro-widget, button, input, select, textarea")) return;
+    if (target.closest("button, input, select, textarea")) return;
     dragging.current = "pet";
     dragStart.current = { mx: e.clientX, my: e.clientY, ox: viewOff.x, oy: viewOff.y };
   }
@@ -477,21 +438,7 @@ function PetApp() {
                 offset={offsets.permission}
               />
             ) : null}
-            {pluginWidgets.map(({ plugin, widget, widgetKey }) => widget.type === "pomodoro" ? (
-              <PluginPomodoroWidget key={`${plugin.id}:${widgetKey}:preview`} plugin={plugin} offset={getPluginWidgetOffset(settings, plugin, widgetKey)} preview />
-            ) : null)}
           </div>
-          {pluginWidgets.map(({ plugin, widget, widgetKey }) => widget.type === "pomodoro" ? (
-            <div key={`${plugin.id}:${widgetKey}`} className="edit-zone edit-zone-pomodoro edit-zone-plugin-widget"
-              style={{
-                transform: `translate(${getPluginWidgetOffset(settings, plugin, widgetKey).x}px, ${getPluginWidgetOffset(settings, plugin, widgetKey).y}px)`,
-                width: widget.width ?? 172,
-                height: widget.height ?? 78
-              }}
-              onMouseDown={e => begin(`pluginWidget:${plugin.id}:${widgetKey}`, e)}>
-              <span className="edit-zone-label">{widget.label ?? plugin.name}</span>
-            </div>
-          ) : null)}
           <div className="edit-zone edit-zone-clawd"
             style={{
               left: Math.round((226 - cw) / 2),
@@ -601,10 +548,6 @@ function PetApp() {
         {settings.showBubbles && toolStreams.length > 0 ? (
           <ToolStreams streams={toolStreams} offset={offsets.ribbon} scale={settings.feedbackScale} opacity={settings.feedbackOpacity} />
         ) : null}
-
-        {pluginWidgets.map(({ plugin, widget, widgetKey }) => widget.type === "pomodoro" ? (
-          <PluginPomodoroWidget key={`${plugin.id}:${widgetKey}`} plugin={plugin} offset={getPluginWidgetOffset(settings, plugin, widgetKey)} onBeginDrag={e => beginPluginWidgetDrag(plugin.id, widgetKey, e)} />
-        ) : null)}
 
         {settings.multiSessionEnabled && mainSessionId && sessions
             .filter(s => s.sessionId !== mainSessionId && (s.isActive || exitingSessions.has(s.sessionId)))

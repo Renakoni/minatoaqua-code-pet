@@ -288,6 +288,12 @@ describe("launchDetachedTerminal", () => {
 });
 
 describe("PowerShell launch (real Windows execution)", () => {
+  // Cold-starting real Windows PowerShell via spawnSync can exceed vitest's 5s default
+  // on a loaded CI runner (issue #83). Give these real-execution probes generous
+  // headroom — a per-test timeout, not a global one, so genuine hangs elsewhere still
+  // surface. The window-spawn tests below already carry their own 15s/25s limits.
+  const REAL_EXEC_TIMEOUT_MS = 30_000;
+
   it.skipIf(process.platform !== "win32")("runs the trusted claude via the fixed call-operator command even when its path has metacharacters", () => {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";
     const powershell = trustedPowerShellPath(process.env);
@@ -309,7 +315,7 @@ describe("PowerShell launch (real Windows execution)", () => {
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
-  });
+  }, REAL_EXEC_TIMEOUT_MS);
 
   it.skipIf(process.platform !== "win32")("starts PowerShell in the exact cwd, including spaces and metacharacters", () => {
     const powershell = trustedPowerShellPath(process.env)!;
@@ -325,7 +331,7 @@ describe("PowerShell launch (real Windows execution)", () => {
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
-  });
+  }, REAL_EXEC_TIMEOUT_MS);
 
   it.skipIf(SKIP_WINDOW_SPAWN)("opens PowerShell via cmd /c start, which actually runs the fixed command IN PowerShell", async () => {
     const powershell = trustedPowerShellPath(process.env)!;
