@@ -1,0 +1,47 @@
+# electron-builder packaging config (auto-detected from the project root).
+# Produces an installable, UNSIGNED Windows alpha. Run it with: npm run dist:win
+
+# Windows AppUserModelID — MUST match app.setAppUserModelId("CharaDesk") in the main
+# process, or toast notifications won't be attributed/grouped to this app.
+appId: CharaDesk
+# Display + executable name. Kept as "Chara Desk" so app.getPath("userData") stays
+# %APPDATA%\Chara Desk — changing it would orphan existing users' stats/caches.
+productName: Chara Desk
+copyright: Copyright © 2026 Chara Desk
+
+directories:
+  output: release        # installers land in release/ (already gitignored)
+  buildResources: build  # electron-builder looks here for icon.ico (optional; see win.icon)
+
+# What goes INSIDE app.asar. dist/ = the Vite renderer bundle (includes the default pet
+# sprites), dist-electron/ = the compiled main + preload. electron-builder additionally
+# bundles the production node_modules closure automatically (so electron-updater ships).
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+# Files that MUST live on disk OUTSIDE app.asar:
+#  - hook-forwarder.js is executed by the system `node` (Claude Code's hook command), which
+#    cannot read a file inside an asar → getHookForwarderPath() finds it at resources/scripts/.
+#  - kuaclock.png is the tray icon, loaded from process.resourcesPath when packaged.
+extraResources:
+  - from: scripts/hook-forwarder.js
+    to: scripts/hook-forwarder.js
+  - from: src/main/assets/kuaclock.png
+    to: kuaclock.png
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # icon: build/icon.ico   # drop a 256x256 .ico here later; omitted for now → default Electron icon
+
+nsis:
+  oneClick: false                        # show a small install wizard instead of silent install
+  perMachine: false                      # install per-user → no admin/UAC prompt
+  allowToChangeInstallationDirectory: true
+  artifactName: CharaDesk-Setup-${version}.${ext}   # → CharaDesk-Setup-0.1.0.exe
+
+# Unsigned alpha: no `win.certificateFile` / signing. Windows SmartScreen will warn on first
+# run ("Windows protected your PC" → More info → Run anyway). Sign before broad distribution.
