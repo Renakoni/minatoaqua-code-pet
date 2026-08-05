@@ -314,9 +314,6 @@ export interface CompanionSettings {
   language: "auto" | "zh" | "en";
   notificationRules: NotificationRule[];
   customPlugins: CustomPlugin[];
-  pomodoroEnabled: boolean;
-  pomodoroWorkMinutes: number;
-  pomodoroBreakMinutes: number;
   sound: SoundSettings;
   eventHistoryLimit: number;
   positionOffsets?: {
@@ -328,7 +325,6 @@ export interface CompanionSettings {
     companion0?: { x: number; y: number };
     companion1?: { x: number; y: number };
     companion2?: { x: number; y: number };
-    pomodoro?: { x: number; y: number };
     view?: { x: number; y: number };
     gitToast?: { x: number; y: number };
   };
@@ -439,6 +435,8 @@ export interface TokenStats {
   daily: DailyTokenEntry[];
   modelTotals: ModelTokenTotal[];
   dailyTotals: (TokenCostBreakdown & { date: string; sessionCount: number; requestCount: number; messageCount: number })[];
+  /** Durable long-term per-day totals for the heatmap only (survives log rotation). */
+  heatmapDailyTotals?: (TokenCostBreakdown & { date: string; sessionCount: number; requestCount: number; messageCount: number })[];
   projectTotals: ProjectTokenTotal[];
   recentRequests: RequestTokenRecord[];
   totalTokens: number;
@@ -506,16 +504,6 @@ export interface PluginAssets {
   sprites?: string;
 }
 
-export type PluginWidgetType = "pomodoro";
-
-export interface PluginWidgetDescriptor {
-  type: PluginWidgetType;
-  label?: string;
-  positionKey?: string;
-  width?: number;
-  height?: number;
-}
-
 export interface PluginManifest {
   name?: string;
   nameZh?: string;
@@ -526,7 +514,6 @@ export interface PluginManifest {
   timeoutMs?: number;
   settings?: PluginSettingField[];
   assets?: PluginAssets;
-  widgets?: PluginWidgetDescriptor[];
   readme?: string;
   readmeZh?: string;
   devBadge?: boolean;
@@ -563,7 +550,6 @@ export interface CustomPlugin {
   author?: string;
   readme?: string;
   readmeZh?: string;
-  widgetOffsets?: Record<string, { x: number; y: number }>;
   devBadge?: boolean;
 }
 
@@ -659,9 +645,6 @@ export const defaultSettings: CompanionSettings = {
     { eventType: "notification", enabled: true, playSound: false }
   ],
   customPlugins: [],
-  pomodoroEnabled: false,
-  pomodoroWorkMinutes: 25,
-  pomodoroBreakMinutes: 5,
   sound: {
     enabled: true,
     volume: 0.5,
@@ -680,7 +663,6 @@ export const defaultSettings: CompanionSettings = {
     companion0: { x: 587, y: -18 },
     companion1: { x: 500, y: -17 },
     companion2: { x: 413, y: -17 },
-    pomodoro: { x: 735, y: -5 },
     view: { x: 41, y: -13 },
     gitToast: { x: 676, y: 39 }
   },

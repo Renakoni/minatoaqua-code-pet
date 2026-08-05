@@ -44,6 +44,7 @@ import {
   watchCcSwitch,
   type CcSwitchProvider
 } from "./ccSwitchStore";
+import { ModelPricingMemo, parseLiteLlmPricing, type ModelPricingRates } from "./claudePricing";
 import { PermissionBroker, type PendingPermission, type PermissionPollResult } from "./permissionBroker";
 import { inspectPetPackZip, installPetPack, listPetPacks, readPetPack, removePetPack, resolvePetAssetPath } from "./petPackStore";
 import { cleanupPetDownloads, discardDownloadedPetPack, downloadPetPack } from "./petPackDownload";
@@ -65,6 +66,8 @@ import { setClaudeProfileResourceEnabled } from "./claudeProfileRuntime";
 import { backupJsonFile, writeTextFileAtomic } from "./filePersistence";
 import { EVENT_SERVER_DEV_ORIGIN, isAcceptedEventServerRequest } from "./eventServerSecurity";
 import { visitJsonlTail } from "./jsonlTail";
+import { historyToSortedArray, mergeTokenDailyHistory, normalizeTokenDailyHistory } from "./tokenHistory";
+import { mergeRuntimeStats, type RuntimeStatsShape } from "./runtimeStatsMerge";
 import type { CompanionInitialState } from "../renderer/shared/events";
 
 type DailyRuntimeStats = {
@@ -90,6 +93,9 @@ type RuntimeStats = {
   dailyToolUsage: Record<string, Record<string, number>>;
   firstStartTime: number;
   lastEventTime: number;
+  /** Ids of previous app-name installs whose stats have already been folded in, so a
+   *  one-time migration never double-counts across restarts. Main-only bookkeeping. */
+  importedLegacySources?: string[];
 };
 
 type UpdateStatus = {
@@ -1847,6 +1853,10 @@ type ClaudeTokenStats = {
   daily: Array<TokenBreakdown & { date: string; model: string; costUsd: number; sessionCount: number; requestCount: number; messageCount: number }>;
   modelTotals: Array<TokenBreakdown & { model: string; costUsd: number; requestCount: number; sessionCount: number; messageCount: number; cacheHitRatio: number; priced: boolean }>;
   dailyTotals: Array<TokenBreakdown & { date: string; costUsd: number; sessionCount: number; requestCount: number; messageCount: number }>;
+  // Durable long-term per-day totals for the heatmap only (survives log rotation), added
+  // by applyDurableDailyHistory after aggregation. The live dailyTotals above still back
+  // the today/30-day/breakdown numbers.
+  heatmapDailyTotals?: Array<TokenBreakdown & { date: string; costUsd: number; sessionCount: number; requestCount: number; messageCount: number }>;
   projectTotals: Array<TokenBreakdown & { projectPath: string; projectName: string; costUsd: number; requestCount: number; sessionCount: number; lastActivity: number; models: string[]; cacheHitRatio: number }>;
   recentRequests: ClaudeTokenRequest[];
   totalTokens: number;
@@ -1865,12 +1875,61 @@ let claudeTokenStatsCache: { data: ClaudeTokenStats; timestamp: number } | null 
 let pendingClaudeTokenStatsScan: Promise<ClaudeTokenStats> | null = null;
 let claudeTokenFileCache = new Map<string, { mtimeMs: number; size: number; requests: ClaudeTokenRequest[] }>();
 
+// Durable per-day request/token history for the heatmap: it survives Claude Code rotating
+// away old session logs, which a live-only scan cannot (see ./tokenHistory).
+type TokenDailyTotal = ClaudeTokenStats["dailyTotals"][number];
+let tokenDailyHistory: Record<string, TokenDailyTotal> | null = null;
+let tokenDailyHistoryUnreadable = false; // existing history file failed to read — never overwrite it
+
+function tokenDailyHistoryPath() {
+  return join(app.getPath("userData"), "token-daily-history.json");
+}
+
+function loadTokenDailyHistory(): Record<string, TokenDailyTotal> {
+  if (tokenDailyHistory) return tokenDailyHistory;
+  if (existsSync(tokenDailyHistoryPath())) {
+    try {
+      tokenDailyHistory = normalizeTokenDailyHistory(JSON.parse(readFileSync(tokenDailyHistoryPath(), "utf8"))) as unknown as Record<string, TokenDailyTotal>;
+      return tokenDailyHistory;
+    } catch {
+      // The file exists but is corrupt / unreadable. Do NOT treat it as empty and let the
+      // next save overwrite it — that would permanently drop rotated-away days that only
+      // live here. Serve {} for this session (heatmap falls back to live) and refuse to
+      // save over the original (the file is app-owned, so the failure is not a transient
+      // cross-process lock; preserving it lets the user recover or delete it).
+      tokenDailyHistoryUnreadable = true;
+    }
+  }
+  tokenDailyHistory = {};
+  return tokenDailyHistory;
+}
+
+function saveTokenDailyHistory(history: Record<string, TokenDailyTotal>) {
+  tokenDailyHistory = history;
+  if (tokenDailyHistoryUnreadable) return; // never clobber an existing-but-unreadable file
+  try {
+    writeTextFileAtomic(tokenDailyHistoryPath(), JSON.stringify({ version: 1, days: history }, null, 2));
+  } catch { /* best effort — durability is a nice-to-have, not a hard requirement */ }
+}
+
+// Fold this scan's per-day totals into the persisted history and expose it as a SEPARATE
+// heatmapDailyTotals field. dailyTotals (and the live totals derived from it — today,
+// last-30-days, input/output/cache) stay from this scan so they remain internally
+// consistent with totalTokens/totalRequests/totalCostUsd; only the long-term heatmap
+// reads the durable set.
+function applyDurableDailyHistory(stats: ClaudeTokenStats): ClaudeTokenStats {
+  const merged = mergeTokenDailyHistory(loadTokenDailyHistory(), stats.dailyTotals);
+  saveTokenDailyHistory(merged);
+  return { ...stats, heatmapDailyTotals: historyToSortedArray(merged) };
+}
+
 function emptyClaudeTokenStats(scannedAt = Date.now()): ClaudeTokenStats {
   return {
     sessions: [],
     daily: [],
     modelTotals: [],
     dailyTotals: [],
+    heatmapDailyTotals: [],
     projectTotals: [],
     recentRequests: [],
     totalTokens: 0,
@@ -1883,39 +1942,16 @@ function emptyClaudeTokenStats(scannedAt = Date.now()): ClaudeTokenStats {
   };
 }
 
-type ModelPricingRates = { input: number; output: number; cacheRead?: number; cacheWrite?: number };
-
 type PricingCacheFile = { timestamp: number; rates: Record<string, ModelPricingRates> };
 
 let dynamicPricingRates: Map<string, ModelPricingRates> | null = null;
 let pendingDynamicPricingLoad: Promise<Map<string, ModelPricingRates>> | null = null;
-
-function normalizePricingModel(model: string) {
-  return model.toLowerCase().replace(/^(anthropic|openai|github-copilot|openrouter)\//, "").trim();
-}
+// Memoizes per-model rate resolution so a cold token scan of thousands of records
+// doesn't re-fuzzy-scan the ~1000-entry LiteLLM map per record.
+const pricingMemo = new ModelPricingMemo();
 
 function pricingCachePath() {
   return join(app.getPath("userData"), "pricing-litellm-cache.json");
-}
-
-function ratesFromLiteLlmEntry(entry: Record<string, unknown>): ModelPricingRates | null {
-  const input = typeof entry.input_cost_per_token === "number" ? entry.input_cost_per_token * 1_000_000 : undefined;
-  const output = typeof entry.output_cost_per_token === "number" ? entry.output_cost_per_token * 1_000_000 : undefined;
-  if (!input || !output) return null;
-  const cacheRead = typeof entry.cache_read_input_token_cost === "number" ? entry.cache_read_input_token_cost * 1_000_000 : undefined;
-  const cacheWrite = typeof entry.cache_creation_input_token_cost === "number" ? entry.cache_creation_input_token_cost * 1_000_000 : undefined;
-  return { input, output, cacheRead, cacheWrite };
-}
-
-function parseLiteLlmPricing(data: unknown) {
-  const rates = new Map<string, ModelPricingRates>();
-  if (!data || typeof data !== "object" || Array.isArray(data)) return rates;
-  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-    const parsed = ratesFromLiteLlmEntry(value as Record<string, unknown>);
-    if (parsed) rates.set(normalizePricingModel(key), parsed);
-  }
-  return rates;
 }
 
 function loadCachedDynamicPricing() {
@@ -1958,59 +1994,6 @@ async function loadDynamicPricingRates() {
     return dynamicPricingRates;
   })().finally(() => { pendingDynamicPricingLoad = null; });
   return pendingDynamicPricingLoad;
-}
-
-function findDynamicPricingRate(model: string) {
-  const rates = dynamicPricingRates;
-  if (!rates || rates.size === 0) return null;
-  const normalized = normalizePricingModel(model).replace(/_/g, "-");
-  if (rates.has(normalized)) return rates.get(normalized)!;
-  const candidates = Array.from(rates.entries())
-    .filter(([key]) => normalized === key || normalized.includes(key) || key.includes(normalized))
-    .sort((a, b) => b[0].length - a[0].length);
-  return candidates[0]?.[1] ?? null;
-}
-
-function modelPricingRates(model: string): ModelPricingRates | null {
-  const dynamic = findDynamicPricingRate(model);
-  if (dynamic) return dynamic;
-  const normalized = normalizePricingModel(model).replace(/_/g, "-");
-
-  if (normalized.includes("claude")) {
-    if (normalized.includes("fable") || normalized.includes("mythos")) return { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 };
-    if (normalized.includes("opus-4-8") || normalized.includes("opus-4.8") || normalized.includes("opus-4-7") || normalized.includes("opus-4.7") || normalized.includes("opus-4-6") || normalized.includes("opus-4.6") || normalized.includes("opus-4-5") || normalized.includes("opus-4.5")) return { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 };
-    if (normalized.includes("opus")) return { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 };
-    if (normalized.includes("sonnet")) return { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 };
-    if (normalized.includes("haiku-4-5") || normalized.includes("haiku-4.5")) return { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 };
-    if (normalized.includes("haiku")) return { input: 0.8, output: 4, cacheWrite: 1, cacheRead: 0.08 };
-  }
-
-  if (normalized.includes("gpt-5.5") || normalized.includes("gpt-5-5")) return { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 5 };
-  if (normalized.includes("gpt-5.4-mini") || normalized.includes("gpt-5-4-mini")) return { input: 0.75, output: 4.5, cacheRead: 0.075, cacheWrite: 0.75 };
-  if (normalized.includes("gpt-5.4") || normalized.includes("gpt-5-4")) return { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 2.5 };
-  if (normalized.includes("gpt-5-codex")) return { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 1.25 };
-  if (normalized === "gpt-5" || normalized.startsWith("gpt-5-")) return { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 1.25 };
-  if (normalized.includes("gpt-4.1-mini") || normalized.includes("gpt-4-1-mini")) return { input: 0.4, output: 1.6, cacheRead: 0.1, cacheWrite: 0.4 };
-  if (normalized.includes("gpt-4.1-nano") || normalized.includes("gpt-4-1-nano")) return { input: 0.1, output: 0.4, cacheRead: 0.025, cacheWrite: 0.1 };
-  if (normalized.includes("gpt-4.1") || normalized.includes("gpt-4-1")) return { input: 2, output: 8, cacheRead: 0.5, cacheWrite: 2 };
-  if (normalized.includes("gpt-4o-mini")) return { input: 0.15, output: 0.6, cacheRead: 0.075, cacheWrite: 0.15 };
-  if (normalized.includes("gpt-4o")) return { input: 2.5, output: 10, cacheRead: 1.25, cacheWrite: 2.5 };
-
-  return null;
-}
-
-function computeClaudeCost(model: string, usage: TokenBreakdown) {
-  const rates = modelPricingRates(model);
-  if (!rates) return { costUsd: 0, priced: false };
-  const cacheWrite = rates.cacheWrite ?? rates.input * 1.25;
-  const cacheRead = rates.cacheRead ?? rates.input * 0.1;
-  const costUsd = (
-    usage.inputTokens * rates.input +
-    usage.cacheCreationTokens * cacheWrite +
-    usage.cacheReadTokens * cacheRead +
-    usage.outputTokens * rates.output
-  ) / 1_000_000;
-  return { costUsd, priced: true };
 }
 
 function addTokenBreakdown<T extends TokenBreakdown>(target: T, usage: TokenBreakdown) {
@@ -2134,13 +2117,13 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string): Pr
         existing.cacheReadTokens = Math.max(existing.cacheReadTokens, usage.cacheReadTokens);
         existing.cacheCreationTokens = Math.max(existing.cacheCreationTokens, usage.cacheCreationTokens);
         existing.totalTokens = existing.inputTokens + existing.outputTokens + existing.cacheReadTokens + existing.cacheCreationTokens;
-        const cost = computeClaudeCost(existing.model, existing);
+        const cost = pricingMemo.cost(dynamicPricingRates, existing.model, existing);
         existing.costUsd = cost.costUsd;
         existing.priced = cost.priced;
         existing.timestamp = Math.max(existing.timestamp, timestamp);
         continue;
       }
-      const cost = computeClaudeCost(model, usage);
+      const cost = pricingMemo.cost(dynamicPricingRates, model, usage);
       const request: ClaudeTokenRequest = {
         ...usage,
         ...cost,
@@ -2175,7 +2158,7 @@ async function scanClaudeTokenStatsFresh(): Promise<ClaudeTokenStats> {
   }
   const batchResults = await mapInBatches(files, CLAUDE_TOKEN_SCAN_CONCURRENCY, file => scanClaudeTokenFile(file.filePath, file.encodedProject).catch(() => []));
   const requests = batchResults.flat();
-  return aggregateClaudeTokenStats(requests, Date.now());
+  return applyDurableDailyHistory(aggregateClaudeTokenStats(requests, Date.now()));
 }
 
 function aggregateClaudeTokenStats(requests: ClaudeTokenRequest[], scannedAt: number): ClaudeTokenStats {
@@ -2942,7 +2925,8 @@ function createRuntimeStats(): RuntimeStats {
     dailyHourlyActivity: {},
     dailyToolUsage: {},
     firstStartTime: appStartedAt,
-    lastEventTime: 0
+    lastEventTime: 0,
+    importedLegacySources: []
   };
 }
 
@@ -2964,8 +2948,44 @@ function normalizeRuntimeStats(value: unknown): RuntimeStats {
     dailyHourlyActivity: normalizeDailyHourlyActivity(raw.dailyHourlyActivity),
     dailyToolUsage: normalizeDailyToolUsage(raw.dailyToolUsage),
     firstStartTime: typeof raw.firstStartTime === "number" && raw.firstStartTime > 0 ? raw.firstStartTime : appStartedAt,
-    lastEventTime: typeof raw.lastEventTime === "number" ? raw.lastEventTime : 0
+    lastEventTime: typeof raw.lastEventTime === "number" ? raw.lastEventTime : 0,
+    importedLegacySources: Array.isArray(raw.importedLegacySources) ? raw.importedLegacySources.filter((id): id is string => typeof id === "string") : []
   };
+}
+
+// Previous app-name userData dirs. Electron keys userData by app name, so each rename
+// (clawd-companion → claude-codex-pet → Chara Desk) orphaned the prior runtime-stats.
+// Fold them in once so "全部" spans the whole history. They are siblings of the current
+// userData under app.getPath("appData").
+const LEGACY_RUNTIME_STATS_SOURCES: Array<{ id: string; relPath: string[] }> = [
+  { id: "claude-codex-pet", relPath: ["claude-codex-pet", "runtime-stats.json"] },
+  { id: "clawd-companion", relPath: ["clawd-companion", "clawd-companion", "stats.json"] }
+];
+
+// One-time merge of any legacy install's stats into `stats`. Each source is processed at
+// most once (recorded in importedLegacySources) so restarts never double-count, even
+// when the source is absent or corrupt. Returns true if the bookkeeping changed.
+function migrateLegacyRuntimeStats(stats: RuntimeStats): boolean {
+  const imported = new Set(stats.importedLegacySources ?? []);
+  let changed = false;
+  for (const source of LEGACY_RUNTIME_STATS_SOURCES) {
+    if (imported.has(source.id)) continue;
+    let path: string;
+    try { path = join(app.getPath("appData"), ...source.relPath); } catch { continue; }
+    // Only mark a source imported AFTER a successful read + merge. If the file is absent
+    // (e.g. an old dir not yet restored from backup), or a read/parse fails (a transient
+    // lock or a copy in progress), skip WITHOUT marking so a later launch can retry once
+    // it's available — no merge happened, so nothing is double-counted by retrying.
+    if (path === runtimeStatsPath() || !existsSync(path)) continue;
+    try {
+      const legacy = normalizeRuntimeStats(JSON.parse(readFileSync(path, "utf8")));
+      Object.assign(stats, mergeRuntimeStats(stats as RuntimeStatsShape, legacy as RuntimeStatsShape));
+      imported.add(source.id);
+      changed = true;
+    } catch { /* transient/corrupt legacy file — leave unmarked and retry next launch */ }
+  }
+  if (changed) stats.importedLegacySources = Array.from(imported);
+  return changed;
 }
 
 function loadRuntimeStats() {
@@ -2973,11 +2993,16 @@ function loadRuntimeStats() {
   try {
     if (existsSync(runtimeStatsPath())) {
       runtimeStats = normalizeRuntimeStats(JSON.parse(readFileSync(runtimeStatsPath(), "utf8")));
-      return runtimeStats;
     }
   } catch { /* ignore corrupt stats */ }
-  runtimeStats = createRuntimeStats();
-  runtimeStatsDirty = true;
+  if (!runtimeStats) {
+    runtimeStats = createRuntimeStats();
+    runtimeStatsDirty = true;
+  }
+  if (migrateLegacyRuntimeStats(runtimeStats)) {
+    runtimeStatsDirty = true;
+    saveRuntimeStats(true); // persist the migration immediately so it never repeats
+  }
   return runtimeStats;
 }
 
@@ -3002,6 +3027,20 @@ function saveRuntimeStats(force = false) {
   if (!runtimeStatsSaveTimer) runtimeStatsSaveTimer = setTimeout(writeRuntimeStats, 750);
 }
 
+// dailyStats is tiny (a handful of numbers per day), so keep the FULL history — "全部"
+// should mean all-time, and one calendar entry/day is trivial even over many years.
+// Only the heavier per-day maps (24 hourly buckets + a tool map each) get a long safety
+// cap so an extreme multi-year install can't grow them without bound. Keys are
+// YYYY-MM-DD, so a lexicographic compare against the cutoff is correct. Runs only on a
+// day rollover, so it costs ~nothing.
+const HEAVY_DAILY_RETENTION_DAYS = 730; // ~2 years
+
+function pruneRuntimeStatsDays(stats: ReturnType<typeof loadRuntimeStats>): void {
+  const cutoff = localDateKey(Date.now() - HEAVY_DAILY_RETENTION_DAYS * 86_400_000);
+  for (const key of Object.keys(stats.dailyHourlyActivity)) if (key < cutoff) delete stats.dailyHourlyActivity[key];
+  for (const key of Object.keys(stats.dailyToolUsage)) if (key < cutoff) delete stats.dailyToolUsage[key];
+}
+
 function recordRuntimeEvent(event: CompanionEvent) {
   const stats = loadRuntimeStats();
   stats.eventTypeCounts[event.event] = (stats.eventTypeCounts[event.event] ?? 0) + 1;
@@ -3011,6 +3050,7 @@ function recordRuntimeEvent(event: CompanionEvent) {
   if (event.event === "session_start") stats.totalSessions++;
   const date = new Date(event.timestamp);
   const day = localDateKey(event.timestamp);
+  const isNewDay = !(day in stats.dailyStats);
   const hour = date.getHours();
   stats.hourlyActivity[hour]++;
   stats.dailyHourlyActivity[day] ??= new Array(24).fill(0);
@@ -3027,6 +3067,7 @@ function recordRuntimeEvent(event: CompanionEvent) {
   if (event.event === "permission_wait") stats.dailyStats[day].permissionRequests = (stats.dailyStats[day].permissionRequests ?? 0) + 1;
   if (!stats.firstStartTime || stats.firstStartTime > event.timestamp) stats.firstStartTime = event.timestamp;
   stats.lastEventTime = Math.max(stats.lastEventTime ?? 0, event.timestamp);
+  if (isNewDay) pruneRuntimeStatsDays(stats);
   runtimeStatsDirty = true;
   saveRuntimeStats();
 }
@@ -3659,6 +3700,10 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:get-stats", () => getStats());
   ipcMain.handle("companion:reset-stats", () => {
     runtimeStats = createRuntimeStats();
+    // Seal every legacy source as already imported: the user explicitly cleared their
+    // stats ("permanent, unrecoverable"), so the one-time migration must not re-import
+    // the same old-install data on the next launch and resurrect what was deleted.
+    runtimeStats.importedLegacySources = LEGACY_RUNTIME_STATS_SOURCES.map(source => source.id);
     runtimeStatsDirty = true;
     saveRuntimeStats(true);
   });

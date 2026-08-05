@@ -4,6 +4,7 @@ import type { CompanionConnectionStatus, CompanionEvent, CompanionSession, Compa
 import { defaultSettings, stateFromEvent } from "../shared/events";
 import { redactDisplayEvent } from "../../shared/privacy";
 import { applyCompanionAppearance } from "./appearance";
+import { pickThrottledDisplayEvent, pickThrottledStateEvent } from "./eventThrottle";
 
 export interface ToolStream {
   event: CompanionEvent;
@@ -209,9 +210,18 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
             pendingEventsRef.current = [];
             eventThrottleRef.current.timer = null;
             eventThrottleRef.current.lastFlush = Date.now();
+            // Select display and state SEPARATELY from the burst. The bubble shows the
+            // latest surfacing event (which may be an info notification), but pet state
+            // must be driven by the latest STATE event — info notifications are excluded
+            // there because showEvent refuses to apply them to state. Using one event
+            // for both let a trailing info notification mask an earlier done/error and
+            // strand the pet on "using tool". Both are computed before the in-place
+            // reverse below and are order-independent regardless of keepEventList.
+            const displayEvent = pickThrottledDisplayEvent(pending);
+            const stateEvent = pickThrottledStateEvent(pending);
             if (keepEventList) setEvents(previous => [...pending.reverse(), ...previous].slice(0, settingsRef.current.eventHistoryLimit));
-            const stateEvent = pending.find(e => e.event === "tool_start") ?? pending.find(e => e.event !== "tool_end" && e.event !== "git_operation");
-            if (stateEvent) showEvent(stateEvent);
+            if (displayEvent) setCurrentEvent(displayEvent);
+            if (stateEvent) setPetState(stateFromEvent(stateEvent));
           }, 100 - (now - eventThrottleRef.current.lastFlush));
         }
       } else {

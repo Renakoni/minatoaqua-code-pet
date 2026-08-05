@@ -191,7 +191,7 @@ export function NotificationRulesPanel({ settings, updateSettings }: { settings:
             <div key={eventType} className="notification-rule-row compact">
               <strong>{eventLabels[eventType]}</strong>
               <div className="notification-toggle-cell">
-                <Toggle label="" checked={rule.enabled !== false && rule.playSound !== false} onChange={playSound => updateRule(eventType, { playSound })} />
+                <Toggle label="" ariaLabel={eventLabels[eventType]} checked={rule.enabled !== false && rule.playSound !== false} onChange={playSound => updateRule(eventType, { playSound })} />
               </div>
               <div className="notification-sound-actions">
                 <span className={`sound-file-pill ${customFile ? "custom" : "default"}`}>
