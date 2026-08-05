@@ -3399,11 +3399,44 @@ function getUpdateStatus() {
   return updateStatus;
 }
 
+// The connection status carries a stable identity (port / serverListening / session) plus the
+// last-event fields, which churn on every event. The panel already receives each event on the
+// `companion:event` channel and only shows the connection's last-event time as an "N ago" that ticks
+// off a local clock, so pushing the full status per event during a tool burst is wasted IPC + panel
+// re-renders. Push immediately when the stable identity changes; otherwise coalesce the last-event
+// churn to at most once per second (with a trailing send so the final state always lands).
+let lastConnectionStableKey = "";
+let lastConnectionSentAt = 0;
+let connectionTrailingTimer: ReturnType<typeof setTimeout> | null = null;
+const CONNECTION_BROADCAST_MIN_INTERVAL_MS = 1000;
+
+function sendConnectionStatus() {
+  const status = getConnectionStatus();
+  lastConnectionStableKey = `${status.port}|${status.serverListening}|${status.activeSessionId}|${status.activeClientType}`;
+  lastConnectionSentAt = Date.now();
+  panelWindow?.webContents.send("companion:connection", status);
+}
+
+function broadcastConnectionStatus() {
+  const status = getConnectionStatus();
+  const stableKey = `${status.port}|${status.serverListening}|${status.activeSessionId}|${status.activeClientType}`;
+  const sinceLast = Date.now() - lastConnectionSentAt;
+  if (stableKey !== lastConnectionStableKey || sinceLast >= CONNECTION_BROADCAST_MIN_INTERVAL_MS) {
+    if (connectionTrailingTimer) { clearTimeout(connectionTrailingTimer); connectionTrailingTimer = null; }
+    sendConnectionStatus();
+  } else if (!connectionTrailingTimer) {
+    connectionTrailingTimer = setTimeout(() => {
+      connectionTrailingTimer = null;
+      sendConnectionStatus();
+    }, CONNECTION_BROADCAST_MIN_INTERVAL_MS - sinceLast);
+  }
+}
+
 function broadcastCompanionEvent(event: CompanionEvent) {
   // Permission requests are owned by the PermissionBroker (/permission flow);
   // regular events just fan out to the panel for the activity feed.
   panelWindow?.webContents.send("companion:event", event);
-  panelWindow?.webContents.send("companion:connection", getConnectionStatus());
+  broadcastConnectionStatus();
 }
 
 function publishPetEvent(event: PetEvent) {
@@ -3413,7 +3446,10 @@ function publishPetEvent(event: PetEvent) {
   recordRuntimeEvent(companionEvent, event.sessionId);
   petWindow?.webContents.send("pet-event", event);
   panelWindow?.webContents.send("pet-event", event);
-  panelWindow?.webContents.send("pet-snapshot", getSnapshot());
+  // No per-event `pet-snapshot`: nothing in the Electron panel subscribes to it (the list is kept
+  // current incrementally via `pet-event` / `companion:event`), so serializing the whole 100-event
+  // history on every hook event was pure waste. The snapshot is still sent at the explicit resync
+  // points (initial render / clear-history) that own it.
   broadcastCompanionEvent(companionEvent);
   handleCompanionAlerts(companionEvent);
 }
