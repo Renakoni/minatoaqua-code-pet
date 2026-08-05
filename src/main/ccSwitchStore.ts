@@ -27,6 +27,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { backupJsonFile, readJsonObjectFile, writeTextFileAtomic } from "./filePersistence";
+import { resolveCurrentPointerBase } from "./ccSwitchPointer";
 
 type JsonObject = Record<string, unknown>;
 
@@ -426,13 +427,21 @@ function readLiveJsonObject(path: string): JsonObject {
 }
 
 function writeCurrentPointer(id: string) {
-  // Resilient read: readCcSwitchSettings() returns {} on a corrupt/empty/array
-  // settings file instead of throwing like readJsonObjectFile. So a garbled pointer
-  // file self-heals into a valid one carrying the new pointer, rather than throwing
-  // mid-operation and stranding the just-renamed provider.
-  const settings = readCcSwitchSettings();
-  settings.currentProviderClaude = id;
-  writeTextFileAtomic(getCcSwitchSettingsPath(), JSON.stringify(settings, null, 2));
+  // Sibling-preserving write. This file is shared with cc-switch and carries other
+  // apps' pointers (currentProviderCodex / currentProviderGemini) and settings, so we
+  // must merge the new pointer into the *existing* object, never rebuild it from {}.
+  //
+  // resolveCurrentPointerBase keeps every field when the file is a valid object; when
+  // the file is corrupt/partial/wrong-shape it reports `corrupt` so we back the
+  // original up (recoverable, not a silent loss) before healing. A missing/empty file
+  // just starts fresh. Either way the write still lands, so a rename/switch is never
+  // stranded — getCurrentCcSwitchProviderId also falls back to the db is_current flag.
+  const path = getCcSwitchSettingsPath();
+  const raw = existsSync(path) ? readFileSync(path, "utf-8") : null;
+  const { base, corrupt } = resolveCurrentPointerBase(raw);
+  if (corrupt) backupJsonFile(path);
+  base.currentProviderClaude = id;
+  writeTextFileAtomic(path, JSON.stringify(base, null, 2));
 }
 
 export function switchCcSwitchProvider(id: string): SwitchOutcome {
