@@ -2071,6 +2071,13 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string): Pr
   if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.requests;
   const fallbackTime = stat.mtimeMs;
   let sessionId = sessionIdFromPath(filePath);
+  // Pin the project to the session's ORIGIN cwd — the first cwd seen in the file. Claude Code
+  // stamps the LIVE cwd on every row, and it drifts when a session is continued (`claude -c` /
+  // resume) from a subdirectory, so trusting the latest cwd splits one session across bogus
+  // sub-projects (…/android, …/logs/device-*, …/node_modules/…) that were never real project
+  // roots. Setting it once keeps the session under where it began; a session genuinely started in
+  // a subdir keeps that subdir as its origin (and Claude Code files it in its own project dir),
+  // so real separate projects still stand apart.
   let projectPath: string | undefined;
   let pendingUserTimestamp: number | undefined;
   const byDedup = new Map<string, ClaudeTokenRequest>();
@@ -2087,7 +2094,7 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string): Pr
           const userRecord = JSON.parse(line) as Record<string, unknown>;
           pendingUserTimestamp = timestampFromRecord(userRecord, fallbackTime);
           if (typeof userRecord.sessionId === "string") sessionId = userRecord.sessionId;
-          if (typeof userRecord.cwd === "string") projectPath = userRecord.cwd;
+          if (projectPath === undefined && typeof userRecord.cwd === "string") projectPath = userRecord.cwd;
         } catch { /* ignore bad user rows */ }
         continue;
       }
@@ -2103,7 +2110,7 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string): Pr
       if (record.type !== "assistant") continue;
       if (typeof record.sessionId === "string") sessionId = record.sessionId;
       if (typeof record.session_id === "string") sessionId = record.session_id;
-      if (typeof record.cwd === "string") projectPath = record.cwd;
+      if (projectPath === undefined && typeof record.cwd === "string") projectPath = record.cwd;
       const message = record.message && typeof record.message === "object" && !Array.isArray(record.message)
         ? record.message as Record<string, unknown>
         : null;
