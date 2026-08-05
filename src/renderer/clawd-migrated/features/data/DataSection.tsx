@@ -1,15 +1,13 @@
 // @ts-nocheck
 import React, { useEffect, useMemo, useState } from "react";
-import { Activity, Code2, FolderOpen, Gauge, HardDrive, Trash2 } from "lucide-react";
+import { Code2, FolderOpen, Gauge, HardDrive, Trash2 } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { StatsPanel } from "../../components/StatsPanel";
 import { TokenPanel } from "./TokenPanel";
 
-function DataSectionInner({ persistedStats, activityCount, hideSensitiveContent, onClearActivity, onResetStats }: {
+function DataSectionInner({ persistedStats, hideSensitiveContent, onResetStats }: {
   persistedStats: any;
-  activityCount: number;
   hideSensitiveContent: boolean;
-  onClearActivity: () => Promise<void>;
   onResetStats: () => Promise<void>;
 }) {
   const { t } = useI18n();
@@ -21,19 +19,6 @@ function DataSectionInner({ persistedStats, activityCount, hideSensitiveContent,
   useEffect(() => {
     void window.companion.getDataDirectory().then(setDataDirectory).catch(() => setDataDirectory(""));
   }, []);
-
-  async function clearActivity() {
-    if (!window.confirm(t("data.clearActivityConfirm", "确定清除本次运行的活动记录吗？"))) return;
-    setBusyAction("activity");
-    setActionError(null);
-    try {
-      await onClearActivity();
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusyAction(null);
-    }
-  }
 
   async function resetStats() {
     if (!window.confirm(t("data.clearStatsConfirm", "确定要清空所有统计数据吗？此操作不可恢复。"))) return;
@@ -94,11 +79,6 @@ function DataSectionInner({ persistedStats, activityCount, hideSensitiveContent,
           <HardDrive size={18} />
         </header>
         <div className="local-data-list" aria-busy={busyAction !== null}>
-          <div className="local-data-row">
-            <Activity size={17} />
-            <div><strong>{t("data.currentActivity", "本次活动")}</strong><span>{activityCount} {t("common.items", "条")}</span></div>
-            <button type="button" className="local-data-action danger" title={t("data.clearActivity", "清除本次活动")} aria-label={t("data.clearActivity", "清除本次活动")} disabled={busyAction !== null || activityCount === 0} onClick={() => void clearActivity()}><Trash2 size={16} /></button>
-          </div>
           <div className="local-data-row">
             <Gauge size={17} />
             <div><strong>{t("data.usageStats", "使用统计")}</strong><span>{totalStatEvents} {t("common.items", "条")}</span></div>
