@@ -41,3 +41,25 @@ export function resolveCurrentPointerBase(raw: string | null): PointerBase {
     return { base: {}, corrupt: true }; // corrupt or partially-written JSON
   }
 }
+
+export type PointerWritePlan =
+  | { action: "write"; content: string }
+  | { action: "refuse" };
+
+/**
+ * Decide what to do with the shared settings file when setting the Claude pointer.
+ *
+ * - Readable object (or a genuinely missing file → {}): merge the pointer in, keeping
+ *   every existing field, and return the serialized content to write.
+ * - Unreadable (empty/corrupt/partial/non-object): REFUSE. Rebuilding from {} would
+ *   drop sibling pointers (currentProviderCodex / currentProviderGemini) and could
+ *   clobber a concurrent cc-switch write. The caller preserves the file (backup) and
+ *   relies on the db is_current flag, which is authoritative when the pointer is
+ *   unreadable — so the switch/rename still takes effect without destroying data.
+ */
+export function planCurrentPointerWrite(raw: string | null, id: string): PointerWritePlan {
+  const { base, corrupt } = resolveCurrentPointerBase(raw);
+  if (corrupt) return { action: "refuse" };
+  base.currentProviderClaude = id;
+  return { action: "write", content: JSON.stringify(base, null, 2) };
+}

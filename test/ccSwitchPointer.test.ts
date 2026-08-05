@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveCurrentPointerBase } from "../src/main/ccSwitchPointer";
+import { planCurrentPointerWrite, resolveCurrentPointerBase } from "../src/main/ccSwitchPointer";
 
 describe("resolveCurrentPointerBase (cc-switch write path)", () => {
   it("treats a genuinely missing file (null) as a fresh, non-corrupt base", () => {
@@ -43,5 +43,34 @@ describe("resolveCurrentPointerBase (cc-switch write path)", () => {
   it("flags valid JSON that is not an object (array / scalar) as corrupt rather than merging into it", () => {
     expect(resolveCurrentPointerBase('["a","b"]')).toEqual({ base: {}, corrupt: true });
     expect(resolveCurrentPointerBase("42")).toEqual({ base: {}, corrupt: true });
+  });
+});
+
+describe("planCurrentPointerWrite (write vs refuse)", () => {
+  it("creates a fresh file for a genuinely missing settings file", () => {
+    const plan = planCurrentPointerWrite(null, "prov-1");
+    expect(plan.action).toBe("write");
+    expect(JSON.parse(plan.action === "write" ? plan.content : "{}")).toEqual({ currentProviderClaude: "prov-1" });
+  });
+
+  it("merges into a valid object, keeping every sibling field", () => {
+    const raw = JSON.stringify({ currentProviderClaude: "old", currentProviderCodex: "cdx", currentProviderGemini: "gem", theme: "dark" });
+    const plan = planCurrentPointerWrite(raw, "new");
+    expect(plan.action).toBe("write");
+    expect(JSON.parse(plan.action === "write" ? plan.content : "{}")).toEqual({
+      currentProviderClaude: "new",
+      currentProviderCodex: "cdx",
+      currentProviderGemini: "gem",
+      theme: "dark"
+    });
+  });
+
+  it("REFUSES (never rebuilds from {}) when the existing file is empty, partial, corrupt or non-object", () => {
+    // The empty-file race: rebuilding from {} here would drop sibling pointers.
+    expect(planCurrentPointerWrite("", "x").action).toBe("refuse");
+    expect(planCurrentPointerWrite("   \n ", "x").action).toBe("refuse");
+    expect(planCurrentPointerWrite('{"currentProviderClaude":"x","currentProvi', "x").action).toBe("refuse");
+    expect(planCurrentPointerWrite("not json", "x").action).toBe("refuse");
+    expect(planCurrentPointerWrite('["a"]', "x").action).toBe("refuse");
   });
 });

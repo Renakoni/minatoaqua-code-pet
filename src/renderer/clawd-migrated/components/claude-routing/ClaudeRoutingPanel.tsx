@@ -199,6 +199,7 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
       return;
     }
     toast.success(originalId ? t("routing.providerUpdated", "供应商已更新") : t("routing.providerAdded", "供应商已添加"));
+    if (result.warnings && result.warnings.length > 0) toast.warning(result.warnings.join(", "));
     if (result.provider) mergeSavedProvider(result.provider, originalId);
     else void refresh();
     if (originalId) closeEditEditor();
