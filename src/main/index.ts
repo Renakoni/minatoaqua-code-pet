@@ -1864,7 +1864,12 @@ type TokenBreakdown = {
   totalTokens: number;
 };
 
-type ClaudeTokenRequest = TokenBreakdown & {
+// The file-derived request: a pure function of the JSONL (tokens/model/ids/timestamp). This is the
+// ONLY shape that gets cached to disk. Cost is deliberately NOT here — costUsd/priced depend on the
+// pricing table (24h TTL, refreshed independently of the logs), so caching them would let an
+// unchanged file keep a stale price after a rate refresh and mix two price sets in one aggregate.
+// Cost is resolved from the CURRENT table at aggregation time instead (see aggregateClaudeTokenStats).
+type ParsedTokenRequest = TokenBreakdown & {
   id: string;
   sessionId: string;
   filePath: string;
@@ -1873,6 +1878,11 @@ type ClaudeTokenRequest = TokenBreakdown & {
   model: string;
   timestamp: number;
   durationMs?: number;
+};
+
+// A parsed request with its cost resolved against the current pricing table — the shape the
+// renderer's "largest requests" list consumes.
+type ClaudeTokenRequest = ParsedTokenRequest & {
   costUsd: number;
   priced: boolean;
 };
@@ -1902,11 +1912,11 @@ const CLAUDE_TOKEN_STALE_TTL = 7 * 24 * 60 * 60 * 1000;
 const CLAUDE_TOKEN_SCAN_CONCURRENCY = 10;
 let claudeTokenStatsCache: { data: ClaudeTokenStats; timestamp: number } | null = null;
 let pendingClaudeTokenStatsScan: Promise<ClaudeTokenStats> | null = null;
-let claudeTokenFileCache = new Map<string, { mtimeMs: number; size: number; requests: ClaudeTokenRequest[] }>();
-// Bump when ClaudeTokenRequest's shape or scanClaudeTokenFile's parse/dedup logic changes, so a
-// stale on-disk cache is discarded rather than served. (Costs are recomputed only on a re-parse,
-// matching the in-memory cache's existing behaviour — an unchanged file keeps its cached costs.)
-const TOKEN_FILE_CACHE_VERSION = 1;
+let claudeTokenFileCache = new Map<string, { mtimeMs: number; size: number; requests: ParsedTokenRequest[] }>();
+// Bump when ParsedTokenRequest's shape or scanClaudeTokenFile's parse/dedup logic changes, so a
+// stale on-disk cache is discarded rather than served. The cached payload is cost-free (cost is
+// re-derived from the current pricing table every aggregation), so a rate refresh never invalidates it.
+const TOKEN_FILE_CACHE_VERSION = 2;
 let tokenFileCacheLoaded = false;
 // The (path:mtime:size) signature of the file set at the last full scan. When it is unchanged the
 // aggregate is provably identical, so a background refresh can skip the whole re-parse+re-aggregate.
@@ -1961,14 +1971,21 @@ function saveTokenDailyHistory(history: Record<string, TokenDailyTotal>) {
 function applyDurableDailyHistory(stats: ClaudeTokenStats): ClaudeTokenStats {
   const before = loadTokenDailyHistory();
   const merged = mergeTokenDailyHistory(before, stats.dailyTotals);
-  // Only rewrite the file when a day's stored totals actually changed (or a day was added), so an
-  // idle refresh that re-derives identical past days doesn't re-serialize + fsync the whole history.
+  // Only rewrite the file when a day's stored + displayed totals actually changed (or a day was
+  // added), so an idle refresh that re-derives identical past days doesn't re-serialize + fsync the
+  // whole history. costUsd is included: a pricing-table refresh can change a day's cost while its
+  // request/token counts are unchanged, and the heatmap tooltip shows that cost — skipping it would
+  // strand the old price in the persisted history once the live logs rotate away.
+  const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
   let changed = Object.keys(merged).length !== Object.keys(before).length;
   if (!changed) {
     for (const date of Object.keys(merged)) {
-      const next = merged[date];
-      const prev = before[date];
-      if (!prev || (Number(next.requestCount) || 0) !== (Number(prev.requestCount) || 0) || (Number(next.totalTokens) || 0) !== (Number(prev.totalTokens) || 0)) {
+      const next = merged[date] as Record<string, unknown>;
+      const prev = before[date] as Record<string, unknown> | undefined;
+      if (!prev
+        || num(next.requestCount) !== num(prev.requestCount)
+        || num(next.totalTokens) !== num(prev.totalTokens)
+        || num(next.costUsd) !== num(prev.costUsd)) {
         changed = true;
         break;
       }
@@ -2124,7 +2141,7 @@ async function collectClaudeJsonlFilesRecursive(projectsDir: string): Promise<To
   return files;
 }
 
-async function scanClaudeTokenFile(filePath: string, encodedProject: string, mtimeMs: number, size: number): Promise<ClaudeTokenRequest[]> {
+async function scanClaudeTokenFile(filePath: string, encodedProject: string, mtimeMs: number, size: number): Promise<ParsedTokenRequest[]> {
   const cached = claudeTokenFileCache.get(filePath);
   if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached.requests;
   const fallbackTime = mtimeMs;
@@ -2138,8 +2155,8 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string, mti
   // so real separate projects still stand apart.
   let projectPath: string | undefined;
   let pendingUserTimestamp: number | undefined;
-  const byDedup = new Map<string, ClaudeTokenRequest>();
-  const requests: ClaudeTokenRequest[] = [];
+  const byDedup = new Map<string, ParsedTokenRequest>();
+  const requests: ParsedTokenRequest[] = [];
   const stream = createReadStream(filePath, { encoding: "utf8" });
   const reader = createInterface({ input: stream, crlfDelay: Infinity });
 
@@ -2187,16 +2204,11 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string, mti
         existing.cacheReadTokens = Math.max(existing.cacheReadTokens, usage.cacheReadTokens);
         existing.cacheCreationTokens = Math.max(existing.cacheCreationTokens, usage.cacheCreationTokens);
         existing.totalTokens = existing.inputTokens + existing.outputTokens + existing.cacheReadTokens + existing.cacheCreationTokens;
-        const cost = pricingMemo.cost(dynamicPricingRates, existing.model, existing);
-        existing.costUsd = cost.costUsd;
-        existing.priced = cost.priced;
         existing.timestamp = Math.max(existing.timestamp, timestamp);
         continue;
       }
-      const cost = pricingMemo.cost(dynamicPricingRates, model, usage);
-      const request: ClaudeTokenRequest = {
+      const request: ParsedTokenRequest = {
         ...usage,
-        ...cost,
         id: dedupKey,
         sessionId,
         filePath,
@@ -2224,7 +2236,7 @@ async function scanClaudeTokenStatsFresh(): Promise<ClaudeTokenStats> {
   // Warm the per-file parse cache from disk once so a cold start reuses every unchanged file's
   // parsed requests instead of re-streaming the whole ~/.claude/projects tree.
   if (!tokenFileCacheLoaded) {
-    for (const [filePath, entry] of loadScanCache<ClaudeTokenRequest[]>(tokenFileCachePath(), TOKEN_FILE_CACHE_VERSION)) {
+    for (const [filePath, entry] of loadScanCache<ParsedTokenRequest[]>(tokenFileCachePath(), TOKEN_FILE_CACHE_VERSION)) {
       claudeTokenFileCache.set(filePath, { mtimeMs: entry.mtimeMs, size: entry.size, requests: entry.payload });
     }
     tokenFileCacheLoaded = true;
@@ -2246,15 +2258,22 @@ async function scanClaudeTokenStatsFresh(): Promise<ClaudeTokenStats> {
   const result = applyDurableDailyHistory(aggregateClaudeTokenStats(requests, Date.now()));
   lastTokenScanSignature = signature;
   // Persist the refreshed cache (only files that still exist) for the next cold start.
-  saveScanCache<ClaudeTokenRequest[]>(
+  saveScanCache<ParsedTokenRequest[]>(
     tokenFileCachePath(),
     TOKEN_FILE_CACHE_VERSION,
-    [...claudeTokenFileCache.entries()].map(([filePath, entry]) => [filePath, { mtimeMs: entry.mtimeMs, size: entry.size, payload: entry.requests }] as [string, CachedScan<ClaudeTokenRequest[]>])
+    [...claudeTokenFileCache.entries()].map(([filePath, entry]) => [filePath, { mtimeMs: entry.mtimeMs, size: entry.size, payload: entry.requests }] as [string, CachedScan<ParsedTokenRequest[]>])
   );
   return result;
 }
 
-function aggregateClaudeTokenStats(requests: ClaudeTokenRequest[], scannedAt: number): ClaudeTokenStats {
+function aggregateClaudeTokenStats(parsed: ParsedTokenRequest[], scannedAt: number): ClaudeTokenStats {
+  // Resolve every request's cost against the CURRENT pricing table here — never from the cache — so
+  // a cached (unchanged) file and a freshly parsed one always agree on price, and the totals match a
+  // full rescan even after the 24h rate refresh. This reuses the request set we already iterate.
+  const requests: ClaudeTokenRequest[] = parsed.map(request => {
+    const cost = pricingMemo.cost(dynamicPricingRates, request.model, request);
+    return { ...request, costUsd: cost.costUsd, priced: cost.priced };
+  });
   const dailyMap = new Map<string, TokenBreakdown & { date: string; model: string; costUsd: number; sessionIds: Set<string>; requestCount: number; messageCount: number }>();
   const dailyTotalsMap = new Map<string, TokenBreakdown & { date: string; costUsd: number; sessionIds: Set<string>; requestCount: number; messageCount: number }>();
   const modelMap = new Map<string, TokenBreakdown & { model: string; costUsd: number; requestCount: number; sessionIds: Set<string>; messageCount: number; priced: boolean }>();
