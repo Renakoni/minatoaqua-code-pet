@@ -47,9 +47,6 @@ export const DEFAULT_COMPANION_SETTINGS: Record<string, any> = {
     { eventType: "notification", enabled: true, playSound: false }
   ],
   customPlugins: [],
-  pomodoroEnabled: false,
-  pomodoroWorkMinutes: 25,
-  pomodoroBreakMinutes: 5,
   sound: {
     enabled: true,
     volume: 0.6,

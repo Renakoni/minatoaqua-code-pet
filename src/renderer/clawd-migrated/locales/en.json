@@ -545,7 +545,6 @@
     "theme": "Interface theme",
     "startup": "Startup & updates",
     "sound": "Notifications & sound",
-    "pomodoro": "Pomodoro",
     "time": "Timing & prompts",
     "multiSession": "Multi-session mode",
     "idleAnimation": "Idle animation",
@@ -660,13 +659,6 @@
     "eventSessionStartMessage": "Clawd connected to Claude Code.",
     "eventDoneTitle": "Completed",
     "eventDoneMessage": "Claude Code has finished this response."
-  },
-  "pomodoro": {
-    "enable": "Show Pomodoro",
-    "workMinutes": "Focus duration",
-    "breakMinutes": "Break duration",
-    "focus": "Focus",
-    "break": "Break"
   },
   "routing": {
     "title": "Claude Code Routing",
