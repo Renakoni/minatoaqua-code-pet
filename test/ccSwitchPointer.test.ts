@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planCurrentPointerWrite, planPointerRename, resolveCurrentPointerBase } from "../src/main/ccSwitchPointer";
+import { commitPointerPlan, planCurrentPointerWrite, planPointerRename, resolveCurrentPointerBase } from "../src/main/ccSwitchPointer";
 
 describe("resolveCurrentPointerBase (cc-switch write path)", () => {
   it("treats a genuinely missing file (null) as a fresh, non-corrupt base", () => {
@@ -109,5 +109,69 @@ describe("planPointerRename (external-switch aware)", () => {
 
   it("skips a no-op (not actually a rename)", () => {
     expect(planPointerRename(JSON.stringify({ currentProviderClaude: A }), A, A, true).action).toBe("skip");
+  });
+});
+
+describe("commitPointerPlan (optimistic concurrency)", () => {
+  const A = JSON.stringify({ currentProviderClaude: "A", currentProviderCodex: "cdx" });
+  const B = JSON.stringify({ currentProviderClaude: "B" });
+
+  // Scripted I/O: `reads` are returned in order (repeating the last), writes/backups/pauses counted.
+  function scriptedIo(reads: (string | null)[]) {
+    let i = 0;
+    const writes: string[] = [];
+    const counts = { backups: 0, pauses: 0 };
+    return {
+      writes,
+      counts,
+      io: {
+        read: () => reads[Math.min(i++, reads.length - 1)],
+        write: (content: string) => { writes.push(content); },
+        backup: () => { counts.backups++; return "/backup/path"; },
+        pause: () => { counts.pauses++; }
+      }
+    };
+  }
+
+  it("writes when the file is unchanged between the plan and the commit (preserving siblings)", () => {
+    const h = scriptedIo([A, A]);
+    const res = commitPointerPlan(raw => planCurrentPointerWrite(raw, "B"), h.io);
+    expect(res.written).toBe(true);
+    expect(h.writes).toHaveLength(1);
+    expect(JSON.parse(h.writes[0])).toEqual({ currentProviderClaude: "B", currentProviderCodex: "cdx" });
+  });
+
+  it("re-plans and does NOT clobber when an external switch lands between the plan and the write", () => {
+    // read #1 = A (plan: migrate A→A2); re-read = B (cc-switch switched under us) → changed →
+    // loop; read #2 = B → planPointerRename now sees another provider → skip. Nothing is written.
+    const h = scriptedIo([A, B, B]);
+    const res = commitPointerPlan(raw => planPointerRename(raw, "A", "A2", true), h.io);
+    expect(res.written).toBe(false);
+    expect(res.refused).toBe(false);
+    expect(h.writes).toHaveLength(0);
+  });
+
+  it("retries an unreadable file, then backs up and reports refused", () => {
+    const h = scriptedIo([""]);
+    const res = commitPointerPlan(raw => planCurrentPointerWrite(raw, "B"), h.io, 3);
+    expect(res).toEqual({ written: false, refused: true, backupPath: "/backup/path" });
+    expect(h.writes).toHaveLength(0);
+    expect(h.counts.pauses).toBe(3);
+  });
+
+  it("recovers when a transiently unreadable file becomes readable on a retry", () => {
+    const h = scriptedIo(["", A, A]);
+    const res = commitPointerPlan(raw => planCurrentPointerWrite(raw, "B"), h.io);
+    expect(res.written).toBe(true);
+    expect(h.writes).toHaveLength(1);
+    expect(h.counts.pauses).toBe(1);
+  });
+
+  it("returns skip without reading twice or backing up for a no-op rename", () => {
+    const h = scriptedIo([A]);
+    const res = commitPointerPlan(raw => planPointerRename(raw, "A", "A", true), h.io);
+    expect(res).toEqual({ written: false, refused: false, backupPath: null });
+    expect(h.writes).toHaveLength(0);
+    expect(h.counts.backups).toBe(0);
   });
 });

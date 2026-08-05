@@ -252,7 +252,10 @@ export function ClaudeRoutingPanel({ hideSensitive = false }: { settings?: unkno
   const handleSwitch = useCallback(async (provider: ClaudeProvider) => {
     const result = await companion.switchClaudeProvider(provider.id);
     if (!result.ok) {
-      toast.error(result.error ?? t("routing.applyFailed", "切换失败"));
+      const message = result.error === "cc_switch_settings_pointer_unwritable"
+        ? t("routing.switchAbortedUnreadable", "无法写入 cc-switch 设置文件，已取消切换以避免当前项与实际配置不一致。请检查或删除该文件后重试。")
+        : (result.error ?? t("routing.applyFailed", "切换失败"));
+      toast.error(message);
       return;
     }
     toast.success(formatI18n(t("routing.switchedTo", "已切换到 {name}，已写入 Claude Code 全局配置"), { name: provider.name }));

@@ -27,7 +27,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { backupJsonFile, readJsonObjectFile, writeTextFileAtomic } from "./filePersistence";
-import { planCurrentPointerWrite, planPointerRename } from "./ccSwitchPointer";
+import { commitPointerPlan, planCurrentPointerWrite, planPointerRename } from "./ccSwitchPointer";
 
 type JsonObject = Record<string, unknown>;
 
@@ -464,7 +464,7 @@ function sleepSync(ms: number): void {
   }
 }
 
-const POINTER_READ_RETRIES = 3;
+const POINTER_MAX_ATTEMPTS = 4;
 const POINTER_READ_RETRY_MS = 40;
 
 // Read the shared cc-switch settings file. Missing → null (a genuine fresh start). A
@@ -479,46 +479,28 @@ function readPointerFileRaw(path: string): string | null {
   }
 }
 
-// This file is shared with cc-switch and carries other apps' pointers
-// (currentProviderCodex / currentProviderGemini) and settings, so every write merges into
-// the *existing* object and NEVER rebuilds it from {}. An empty/partial read is usually a
-// brief window while cc-switch rewrites the file, so we retry first; if it is STILL
-// unreadable we refuse (back up + skip), because the db is_current flag is authoritative
-// when the pointer is unreadable, so the switch/rename still takes effect.
-function writeCurrentPointer(id: string): PointerWriteResult {
+// Commit a plan to the shared cc-switch settings file with optimistic concurrency — the
+// re-read-before-write and retry/refuse logic lives in the pure commitPointerPlan (tested);
+// here we just wire the real filesystem I/O.
+function commitPointerWrite(makePlan: (raw: string | null) => { action: "write"; content: string } | { action: "skip" } | { action: "refuse" }): PointerWriteResult {
   const path = getCcSwitchSettingsPath();
-  let plan = planCurrentPointerWrite(readPointerFileRaw(path), id);
-  for (let attempt = 0; attempt < POINTER_READ_RETRIES && plan.action === "refuse"; attempt++) {
-    sleepSync(POINTER_READ_RETRY_MS);
-    plan = planCurrentPointerWrite(readPointerFileRaw(path), id);
-  }
-  if (plan.action === "refuse") {
-    return { written: false, refused: true, backupPath: backupJsonFile(path) };
-  }
-  writeTextFileAtomic(path, plan.content);
-  return { written: true, refused: false, backupPath: null };
+  return commitPointerPlan(makePlan, {
+    read: () => readPointerFileRaw(path),
+    write: content => writeTextFileAtomic(path, content),
+    backup: () => backupJsonFile(path),
+    pause: () => sleepSync(POINTER_READ_RETRY_MS)
+  }, POINTER_MAX_ATTEMPTS);
 }
 
-// Migrate the device pointer after a rename, re-reading the LIVE file so an external
-// switch that moved the current provider in the meantime is respected, not clobbered.
-// `wasCurrentBefore` (previousId was the EFFECTIVE current — file pointer, else db
-// is_current — before the rename) is only the fallback for an unreadable pointer. See
-// planPointerRename for the full decision.
+function writeCurrentPointer(id: string): PointerWriteResult {
+  return commitPointerWrite(raw => planCurrentPointerWrite(raw, id));
+}
+
+// Migrate the device pointer after a rename. `wasCurrentBefore` (previousId was the
+// EFFECTIVE current — file pointer, else db is_current — before the rename) is only the
+// fallback for an unreadable pointer. See planPointerRename for the full decision.
 function renameCurrentPointer(previousId: string, newId: string, wasCurrentBefore: boolean): PointerWriteResult {
-  const path = getCcSwitchSettingsPath();
-  let plan = planPointerRename(readPointerFileRaw(path), previousId, newId, wasCurrentBefore);
-  for (let attempt = 0; attempt < POINTER_READ_RETRIES && plan.action === "refuse"; attempt++) {
-    sleepSync(POINTER_READ_RETRY_MS);
-    plan = planPointerRename(readPointerFileRaw(path), previousId, newId, wasCurrentBefore);
-  }
-  if (plan.action === "skip") {
-    return { written: false, refused: false, backupPath: null };
-  }
-  if (plan.action === "refuse") {
-    return { written: false, refused: true, backupPath: backupJsonFile(path) };
-  }
-  writeTextFileAtomic(path, plan.content);
-  return { written: true, refused: false, backupPath: null };
+  return commitPointerWrite(raw => planPointerRename(raw, previousId, newId, wasCurrentBefore));
 }
 
 export function switchCcSwitchProvider(id: string): SwitchOutcome {
@@ -531,6 +513,19 @@ export function switchCcSwitchProvider(id: string): SwitchOutcome {
   const snippet = getCommonConfigSnippet();
   const currentId = getCurrentCcSwitchProviderId(providers);
   const outgoing = currentId && currentId !== id ? providers.find(provider => provider.id === currentId) : undefined;
+
+  // Commit the shared device pointer FIRST, as a gate. If it can't be written — the settings
+  // file is unreadable, or under constant external contention — abort BEFORE touching the
+  // live config. Otherwise ~/.claude/settings.json would hold `id`'s config while the pointer
+  // still names the old provider, and because the file pointer outranks db is_current, the
+  // NEXT switch would backfill id's live config into the old provider and corrupt it. Nothing
+  // is mutated yet, so aborting here leaves a fully consistent state (the switch just didn't
+  // happen), rather than reporting a stable success on top of an inconsistent one.
+  const pointer = writeCurrentPointer(id);
+  if (!pointer.written) {
+    warnings.push(`cc_switch_settings_unreadable:${pointer.backupPath ?? "no_backup"}`);
+    return { ok: false, warnings, error: "cc_switch_settings_pointer_unwritable" };
+  }
 
   // 1. Backfill the outgoing provider from the live file (SSOT round-trip).
   if (outgoing) {
@@ -566,20 +561,14 @@ export function switchCcSwitchProvider(id: string): SwitchOutcome {
     return { ok: false, warnings, error: error instanceof Error ? error.message : String(error) };
   }
 
-  // 3. Update both current-provider trackers.
+  // 3. Point the db is_current flag at the incoming provider (the shared device pointer was
+  // already committed to `id` by the gate above).
   try {
     withDb(false, db => {
       db.prepare("UPDATE providers SET is_current = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE app_type = ?").run(id, APP_TYPE);
     });
-    const pointer = writeCurrentPointer(id);
-    if (pointer.refused) {
-      // The settings file was unreadable and left intact (not overwritten) to protect
-      // sibling pointers; surface it so the user knows the device pointer wasn't updated
-      // (the db is_current flag still switched, so the change took effect).
-      warnings.push(`cc_switch_settings_unreadable:${pointer.backupPath ?? "no_backup"}`);
-    }
   } catch (error) {
-    warnings.push(`current_pointer_update_failed:${error instanceof Error ? error.message : String(error)}`);
+    warnings.push(`db_current_update_failed:${error instanceof Error ? error.message : String(error)}`);
   }
 
   return { ok: true, path: livePath, backupPath, warnings };

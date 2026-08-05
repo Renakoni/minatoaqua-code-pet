@@ -101,3 +101,55 @@ export function planPointerRename(raw: string | null, previousId: string, newId:
   }
   return { action: "skip" };
 }
+
+export interface PointerCommitResult {
+  /** True when the content was actually written. */
+  written: boolean;
+  /** True when the file was unreadable and left intact — the caller should warn. */
+  refused: boolean;
+  /** A backup of an unreadable file we refused to overwrite, if any. */
+  backupPath: string | null;
+}
+
+export interface PointerCommitIo {
+  /** Read the shared file: null when missing, "" on a transient read error. */
+  read: () => string | null;
+  write: (content: string) => void;
+  backup: () => string | null;
+  /** Brief pause before re-reading an unreadable file. */
+  pause: () => void;
+}
+
+/**
+ * Commit a plan to the shared cc-switch settings file with optimistic concurrency.
+ *
+ * Read → decide → and, crucially, RE-READ right before writing: only write when the file
+ * is still exactly what the plan was built against. If cc-switch rewrote it in between (an
+ * external switch, or new Codex/Gemini pointers), re-read and re-plan against the new
+ * content instead of clobbering it. A refuse (unreadable file) pauses and retries a few
+ * times; a persistently unreadable file is backed up and reported as refused. This isn't
+ * lock-tight — the tiny re-read→write window remains — but it closes the wide
+ * read→build→write window a plain write leaves open.
+ */
+export function commitPointerPlan(
+  makePlan: (raw: string | null) => { action: "write"; content: string } | { action: "skip" } | { action: "refuse" },
+  io: PointerCommitIo,
+  maxAttempts = 4
+): PointerCommitResult {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const raw = io.read();
+    const plan = makePlan(raw);
+    if (plan.action === "skip") return { written: false, refused: false, backupPath: null };
+    if (plan.action === "refuse") { io.pause(); continue; }
+    if (io.read() === raw) {
+      io.write(plan.content);
+      return { written: true, refused: false, backupPath: null };
+    }
+    // The file changed under us — loop, re-read, and re-plan against the new content.
+  }
+  // Exhausted: back up + report refused if still unreadable; otherwise leave it untouched
+  // (a decided skip, or constant external contention — never clobber).
+  return makePlan(io.read()).action === "refuse"
+    ? { written: false, refused: true, backupPath: io.backup() }
+    : { written: false, refused: false, backupPath: null };
+}

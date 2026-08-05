@@ -683,6 +683,7 @@
     "orderFailed": "Failed to save order",
     "newProvider": "New provider",
     "applyFailed": "Switch failed",
+    "switchAbortedUnreadable": "Couldn't write cc-switch's settings file, so the switch was cancelled to avoid the current provider disagreeing with the live config. Check or delete that file and try again.",
     "switchedTo": "Switched to {name} — updated Claude Code's global config",
     "saveFailed": "Save failed",
     "providerUpdated": "Provider updated",

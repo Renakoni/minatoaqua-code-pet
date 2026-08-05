@@ -683,6 +683,7 @@
     "orderFailed": "排序保存失败",
     "newProvider": "新供应商",
     "applyFailed": "切换失败",
+    "switchAbortedUnreadable": "无法写入 cc-switch 设置文件，已取消切换以避免当前项与实际配置不一致。请检查或删除该文件后重试。",
     "switchedTo": "已切换到 {name}，已写入 Claude Code 全局配置",
     "saveFailed": "保存失败",
     "providerUpdated": "供应商已更新",
