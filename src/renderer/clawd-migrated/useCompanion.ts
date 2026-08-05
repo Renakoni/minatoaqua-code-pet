@@ -175,30 +175,10 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
         }
       }
 
-      for (const [id, session] of sessionsRef.current) {
-        if (id !== mainSessionIdRef.current && session.isActive && Date.now() - session.lastEventTime > 60_000 && !exitingSessionsRef.current.has(id)) {
-          sessionsRef.current.set(id, { ...session, isActive: false });
-          sessionsChanged = true;
-          updateExitingSessions(prev => new Set(prev).add(id));
-          const exitId = id;
-          scheduleTransientTimer(() => {
-            const revived = sessionsRef.current.get(exitId);
-            if (revived?.isActive) return;
-            updateExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
-            sessionsRef.current.delete(exitId);
-            setSessions(Array.from(sessionsRef.current.values()));
-          }, 700);
-        }
-      }
-      let silentCleanup = false;
-      for (const [id, session] of sessionsRef.current) {
-        if (Date.now() - session.lastEventTime > 300_000) {
-          sessionsRef.current.delete(id);
-          updateExitingSessions(prev => { const next = new Set(prev); next.delete(id); return next; });
-          silentCleanup = true;
-        }
-      }
-      if (silentCleanup) sessionsChanged = true;
+      // The idle (60s) and cleanup (300s) sweeps over the WHOLE session map are time-threshold based,
+      // so they run on a low-frequency timer (see the sessionSweep interval below) rather than on
+      // every event — a tool burst no longer re-scans + reallocates the map on the UI thread per
+      // event. Only this event's own session is updated synchronously above.
       if (sessionsChanged) setSessions(Array.from(sessionsRef.current.values()));
 
       const now = Date.now();
@@ -279,6 +259,36 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
         setCurrentEvent(current => current?.id === event.id ? null : current);
       }, timeout);
     });
+    // Idle/expiry are time facts, not per-event facts — sweep the session map on a low-frequency
+    // timer so bursts stay off the per-event path. Deactivate a non-main session idle >60s, drop one
+    // untouched >300s. Runs in this effect's scope so it shares the exact refs the event handler uses.
+    const sessionSweep = window.setInterval(() => {
+      const now = Date.now();
+      let changed = false;
+      for (const [id, session] of sessionsRef.current) {
+        if (id !== mainSessionIdRef.current && session.isActive && now - session.lastEventTime > 60_000 && !exitingSessionsRef.current.has(id)) {
+          sessionsRef.current.set(id, { ...session, isActive: false });
+          changed = true;
+          updateExitingSessions(prev => new Set(prev).add(id));
+          const exitId = id;
+          scheduleTransientTimer(() => {
+            const revived = sessionsRef.current.get(exitId);
+            if (revived?.isActive) return;
+            updateExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
+            sessionsRef.current.delete(exitId);
+            setSessions(Array.from(sessionsRef.current.values()));
+          }, 700);
+        }
+      }
+      for (const [id, session] of sessionsRef.current) {
+        if (now - session.lastEventTime > 300_000) {
+          sessionsRef.current.delete(id);
+          updateExitingSessions(prev => { const next = new Set(prev); next.delete(id); return next; });
+          changed = true;
+        }
+      }
+      if (changed) setSessions(Array.from(sessionsRef.current.values()));
+    }, 7_000);
     const offPermissionRequest = window.companion.onPermissionRequest(request => {
       setActivePermissions(prev => [...prev, request]);
       setPetState("waiting_permission");
@@ -292,6 +302,7 @@ export function useCompanion(options: { keepEventList?: boolean } = {}) {
       offSettings();
       offConnection();
       offEvent();
+      window.clearInterval(sessionSweep);
       offPermissionRequest();
       offPermissionResolved();
       ribbonTimers.current.forEach(id => window.clearTimeout(id));
