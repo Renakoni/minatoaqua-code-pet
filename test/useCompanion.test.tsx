@@ -74,3 +74,33 @@ describe("useCompanion lifecycle", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe("useCompanion burst state resolution", () => {
+  it("follows the terminal done in a burst, not a trailing info notification", () => {
+    vi.useFakeTimers();
+    const companion = installCompanion(async () => defaultSettings);
+    const view = renderHook(() => useCompanion());
+
+    // Put >100ms between mount and the first event so it shows immediately (not batched).
+    act(() => vi.advanceTimersByTime(200));
+
+    // 1. A lone tool_start puts the pet into the "using tool" state.
+    act(() => companion.emitEvent({
+      id: "ts-1", source: "claude-code", event: "tool_start", tool: "Read", title: "", message: "", timestamp: 1
+    }));
+    expect(view.result.current.petState).toBe("tool_read");
+
+    // 2. done + an info notification arrive together and coalesce into one throttle flush.
+    act(() => {
+      companion.emitEvent({ id: "done-1", source: "claude-code", event: "done", title: "", message: "", timestamp: 2 });
+      companion.emitEvent({ id: "info-1", source: "claude-code", event: "notification", notificationKind: "info", title: "", message: "", timestamp: 3 });
+    });
+    act(() => vi.advanceTimersByTime(100));
+
+    // State follows the terminal `done`; the trailing info no longer strands the pet on
+    // the tool state. (Before the fix, pet state stayed "tool_read".)
+    expect(view.result.current.petState).toBe("done");
+    // The bubble still shows the latest surfacing event — the info notification.
+    expect(view.result.current.currentEvent?.id).toBe("info-1");
+  });
+});
