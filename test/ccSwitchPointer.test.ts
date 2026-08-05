@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planCurrentPointerWrite, resolveCurrentPointerBase } from "../src/main/ccSwitchPointer";
+import { planCurrentPointerWrite, resolveCurrentPointerBase, shouldUpdatePointerAfterRename } from "../src/main/ccSwitchPointer";
 
 describe("resolveCurrentPointerBase (cc-switch write path)", () => {
   it("treats a genuinely missing file (null) as a fresh, non-corrupt base", () => {
@@ -72,5 +72,27 @@ describe("planCurrentPointerWrite (write vs refuse)", () => {
     expect(planCurrentPointerWrite('{"currentProviderClaude":"x","currentProvi', "x").action).toBe("refuse");
     expect(planCurrentPointerWrite("not json", "x").action).toBe("refuse");
     expect(planCurrentPointerWrite('["a"]', "x").action).toBe("refuse");
+  });
+});
+
+describe("shouldUpdatePointerAfterRename", () => {
+  it("updates the pointer when the renamed provider was the current one", () => {
+    expect(shouldUpdatePointerAfterRename("old", "new", "old")).toBe(true);
+  });
+
+  it("skips when the renamed provider was not current (so an unreadable file isn't touched needlessly)", () => {
+    expect(shouldUpdatePointerAfterRename("old", "new", "other")).toBe(false);
+    expect(shouldUpdatePointerAfterRename("old", "new", "")).toBe(false);
+  });
+
+  it("skips when it isn't actually a rename", () => {
+    expect(shouldUpdatePointerAfterRename("same", "same", "same")).toBe(false);
+  });
+
+  it("keys off the current id (SSOT), so an unreadable settings file still triggers the update when db is_current matched", () => {
+    // currentBefore is getCurrentCcSwitchProviderId(), which falls back to db is_current
+    // when the settings pointer is unreadable — so a rename of the current provider is
+    // detected even though the old settings-pointer guard would have read {} and missed it.
+    expect(shouldUpdatePointerAfterRename("old", "new", "old")).toBe(true);
   });
 });

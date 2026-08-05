@@ -63,3 +63,17 @@ export function planCurrentPointerWrite(raw: string | null, id: string): Pointer
   base.currentProviderClaude = id;
   return { action: "write", content: JSON.stringify(base, null, 2) };
 }
+
+/**
+ * Whether renaming `previousId` -> `newId` should move the device pointer to `newId`.
+ *
+ * True only for an actual rename where the renamed provider was the effective current
+ * one. `currentProviderId` must be the SSOT current id (device pointer, else db
+ * is_current) captured BEFORE the rename — deriving "was it current?" from the settings
+ * file *after* the rename misses the case where that file was unreadable from the start
+ * (it reads back as {} and never matches previousId), which would silently skip the
+ * pointer update, backup and warning.
+ */
+export function shouldUpdatePointerAfterRename(previousId: string, newId: string, currentProviderId: string): boolean {
+  return newId !== previousId && currentProviderId === previousId;
+}

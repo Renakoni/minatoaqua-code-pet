@@ -27,7 +27,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { backupJsonFile, readJsonObjectFile, writeTextFileAtomic } from "./filePersistence";
-import { planCurrentPointerWrite } from "./ccSwitchPointer";
+import { planCurrentPointerWrite, shouldUpdatePointerAfterRename } from "./ccSwitchPointer";
 
 type JsonObject = Record<string, unknown>;
 
@@ -342,26 +342,32 @@ export function addCcSwitchProvider(provider: CcSwitchProvider): CcSwitchProvide
 export function updateCcSwitchProvider(provider: CcSwitchProvider, originalId?: string): string[] {
   const previousId = originalId?.trim() || provider.id;
   const warnings: string[] = [];
+  const renaming = previousId !== provider.id;
+  // Capture whether the provider is the effective current one (device pointer, else db
+  // is_current) BEFORE the rename. Deciding this from the settings file *after* the
+  // rename would miss an already-unreadable settings.json — it reads back as {} and
+  // never matches previousId, silently skipping the pointer update/backup/warning.
+  let currentBefore = "";
+  if (renaming) {
+    try { currentBefore = getCurrentCcSwitchProviderId(); } catch { /* db read failed; the rename below will surface it */ }
+  }
   withDb(false, db => {
     const result = db.prepare(PROVIDER_UPDATE_SQL).run(provider.id, ...providerWriteParams(provider), previousId, APP_TYPE) as { changes?: number };
     if (!result || Number(result.changes ?? 0) === 0) {
       throw new Error(`Provider ${previousId} not found in cc-switch database`);
     }
   });
-  if (previousId !== provider.id) {
-    // The DB row is already renamed; the pointer update is best-effort and must not
-    // escape here — a thrown pointer write over a completed rename would surface as a
-    // failure while the rename actually succeeded. getCurrentCcSwitchProviderId falls
-    // back to the db is_current flag (which the rename preserved on the new id), so a
-    // failed pointer write is recoverable. Return warnings so the save result can
-    // surface them to the UI (PRODUCT.md: read failures must be visible and recoverable).
+  if (shouldUpdatePointerAfterRename(previousId, provider.id, currentBefore)) {
+    // The renamed provider was current, so the device pointer must move to the new id.
+    // This is best-effort and must not escape (the rename already succeeded, and db
+    // is_current — preserved on the new id — is the authoritative fallback).
+    // writeCurrentPointer retries a brief unreadable window and, if still unreadable,
+    // backs the file up and refuses; surface any warning so it reaches the UI
+    // (PRODUCT.md: read failures must be visible and recoverable).
     try {
-      const settings = readCcSwitchSettings();
-      if (settings.currentProviderClaude === previousId) {
-        const pointer = writeCurrentPointer(provider.id);
-        if (!pointer.written) {
-          warnings.push(`cc_switch_settings_unreadable:${pointer.backupPath ?? "no_backup"}`);
-        }
+      const pointer = writeCurrentPointer(provider.id);
+      if (!pointer.written) {
+        warnings.push(`cc_switch_settings_unreadable:${pointer.backupPath ?? "no_backup"}`);
       }
     } catch (error) {
       warnings.push(`current_pointer_update_failed:${error instanceof Error ? error.message : String(error)}`);
