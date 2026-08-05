@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import { resolveCurrentPointerBase } from "../src/main/ccSwitchPointer";
 
 describe("resolveCurrentPointerBase (cc-switch write path)", () => {
-  it("treats a missing or empty file as a fresh, non-corrupt base", () => {
+  it("treats a genuinely missing file (null) as a fresh, non-corrupt base", () => {
     expect(resolveCurrentPointerBase(null)).toEqual({ base: {}, corrupt: false });
-    expect(resolveCurrentPointerBase("")).toEqual({ base: {}, corrupt: false });
-    expect(resolveCurrentPointerBase("   \n  ")).toEqual({ base: {}, corrupt: false });
+  });
+
+  it("treats an existing but empty/whitespace file as an anomalous (corrupt) read, not a fresh start", () => {
+    // cc-switch never leaves settings.json empty; an empty read is a mid-write truncation
+    // race, so it must go through the backup/warn path rather than silently reset config.
+    expect(resolveCurrentPointerBase("")).toEqual({ base: {}, corrupt: true });
+    expect(resolveCurrentPointerBase("   \n  ")).toEqual({ base: {}, corrupt: true });
   });
 
   it("preserves every existing field so writing the Claude pointer keeps sibling apps' pointers", () => {

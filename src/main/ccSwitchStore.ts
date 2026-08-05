@@ -355,8 +355,17 @@ export function updateCcSwitchProvider(provider: CcSwitchProvider, originalId?: 
     // failed pointer write is recoverable.
     try {
       const settings = readCcSwitchSettings();
-      if (settings.currentProviderClaude === previousId) writeCurrentPointer(provider.id);
-    } catch { /* best-effort pointer; db is_current is the authoritative fallback */ }
+      if (settings.currentProviderClaude === previousId) {
+        const recovery = writeCurrentPointer(provider.id);
+        if (recovery.recovered) {
+          console.warn(`[ccswitch] rebuilt an unreadable settings.json while updating the pointer after a rename; original backed up to ${recovery.backupPath ?? "(nothing to back up)"}`);
+        }
+      }
+    } catch (error) {
+      // Best-effort pointer; db is_current is the authoritative fallback. Log rather
+      // than swallow so a persistent failure is visible.
+      console.warn(`[ccswitch] pointer update after rename failed (db is_current is authoritative): ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 
@@ -426,22 +435,32 @@ function readLiveJsonObject(path: string): JsonObject {
   }
 }
 
-function writeCurrentPointer(id: string) {
+interface PointerWriteResult {
+  /** True when the existing settings file was unreadable and had to be rebuilt. */
+  recovered: boolean;
+  /** Where the pre-heal original was preserved, so the recovery is visible/recoverable. */
+  backupPath: string | null;
+}
+
+function writeCurrentPointer(id: string): PointerWriteResult {
   // Sibling-preserving write. This file is shared with cc-switch and carries other
   // apps' pointers (currentProviderCodex / currentProviderGemini) and settings, so we
   // must merge the new pointer into the *existing* object, never rebuild it from {}.
   //
   // resolveCurrentPointerBase keeps every field when the file is a valid object; when
-  // the file is corrupt/partial/wrong-shape it reports `corrupt` so we back the
-  // original up (recoverable, not a silent loss) before healing. A missing/empty file
-  // just starts fresh. Either way the write still lands, so a rename/switch is never
-  // stranded — getCurrentCcSwitchProviderId also falls back to the db is_current flag.
+  // the file is unreadable (corrupt/partial/wrong-shape, or present-but-empty) it
+  // reports `corrupt`, so we back the original up before healing and report the recovery
+  // to the caller (PRODUCT.md: read failures must be visible and recoverable). Only a
+  // genuinely absent file starts fresh. Either way the write still lands, so a
+  // rename/switch is never stranded — getCurrentCcSwitchProviderId also falls back to
+  // the db is_current flag.
   const path = getCcSwitchSettingsPath();
   const raw = existsSync(path) ? readFileSync(path, "utf-8") : null;
   const { base, corrupt } = resolveCurrentPointerBase(raw);
-  if (corrupt) backupJsonFile(path);
+  const backupPath = corrupt ? backupJsonFile(path) : null;
   base.currentProviderClaude = id;
   writeTextFileAtomic(path, JSON.stringify(base, null, 2));
+  return { recovered: corrupt, backupPath };
 }
 
 export function switchCcSwitchProvider(id: string): SwitchOutcome {
@@ -494,7 +513,12 @@ export function switchCcSwitchProvider(id: string): SwitchOutcome {
     withDb(false, db => {
       db.prepare("UPDATE providers SET is_current = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE app_type = ?").run(id, APP_TYPE);
     });
-    writeCurrentPointer(id);
+    const recovery = writeCurrentPointer(id);
+    if (recovery.recovered) {
+      // The settings file was unreadable and rebuilt; surface it (with the backup path)
+      // so the recovery is visible, not silent.
+      warnings.push(`cc_switch_settings_recovered:${recovery.backupPath ?? "no_backup"}`);
+    }
   } catch (error) {
     warnings.push(`current_pointer_update_failed:${error instanceof Error ? error.message : String(error)}`);
   }
