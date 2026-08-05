@@ -80,10 +80,17 @@ describe("NotificationRulesPanel accessibility", () => {
       </I18nProvider>
     );
 
-    // The per-rule sound toggles render with label="" (the event name is shown in the
-    // row), so without an aria-label they were unnamed "switch, on/off" controls.
+    // The visibly-labelled toggles are named from their label via aria-labelledby...
+    expect(screen.getByRole("switch", { name: "Windows notification" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Enable sound" })).toBeTruthy();
+    // ...and the per-rule toggles (label="") are named by the explicit ariaLabel.
     expect(screen.getByRole("switch", { name: "Done" })).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Error" })).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Permission request" })).toBeTruthy();
+
+    // No switch should be left unnamed.
+    for (const sw of screen.getAllByRole("switch")) {
+      expect(sw.getAttribute("aria-label") || sw.getAttribute("aria-labelledby")).toBeTruthy();
+    }
   });
 });
