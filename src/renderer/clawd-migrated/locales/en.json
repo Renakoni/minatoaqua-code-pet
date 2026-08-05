@@ -195,6 +195,8 @@
   "stats": {
     "errors": "Errors",
     "totalRuntime": "Total runtime",
+    "rangeMetricsTitle": "Metrics range",
+    "rangeMetricsHint": "Applies to the metrics below — not the total runtime",
     "activeDays": "Active days",
     "dailyAvg": "Daily avg",
     "toolRanking": "Tool usage ranking",
