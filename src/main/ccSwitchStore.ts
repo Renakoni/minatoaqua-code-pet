@@ -343,14 +343,17 @@ export function updateCcSwitchProvider(provider: CcSwitchProvider, originalId?: 
   const previousId = originalId?.trim() || provider.id;
   const warnings: string[] = [];
   const renaming = previousId !== provider.id;
-  // Whether the renamed provider holds the db is_current flag BEFORE the rename. Used
-  // ONLY as a fallback when the live settings pointer can't be read after the rename
-  // (an already-unreadable file). The live pointer, re-read post-rename, is otherwise
-  // authoritative — so an external switch (e.g. cc-switch moving the current provider
-  // meanwhile) is respected instead of being clobbered by a stale pre-rename snapshot.
-  let wasDbCurrent = false;
+  // Whether the renamed provider is the EFFECTIVE current one BEFORE the rename — the
+  // device pointer wins, else db is_current, the same priority getCurrentCcSwitchProviderId
+  // enforces. Used ONLY as a fallback when the live settings pointer can't be read after
+  // the rename; the live pointer, re-read post-rename, is otherwise authoritative (so an
+  // external switch is respected, not clobbered). Capturing the db flag alone would miss
+  // the case where the *file* pointer names previousId while db is_current does not, and a
+  // transient unreadable read would then silently skip the retry/backup/warning and let
+  // the effective current flip away.
+  let wasCurrentBefore = false;
   if (renaming) {
-    try { wasDbCurrent = listCcSwitchProviders().some(p => p.id === previousId && p.isCurrent); } catch { /* db read failed; the rename below will surface it */ }
+    try { wasCurrentBefore = getCurrentCcSwitchProviderId() === previousId; } catch { /* db read failed; the rename below will surface it */ }
   }
   withDb(false, db => {
     const result = db.prepare(PROVIDER_UPDATE_SQL).run(provider.id, ...providerWriteParams(provider), previousId, APP_TYPE) as { changes?: number };
@@ -365,7 +368,7 @@ export function updateCcSwitchProvider(provider: CcSwitchProvider, originalId?: 
     // old id (or is unreadable/absent with the db saying it was current), and surfaces a
     // warning if the file is unreadable (PRODUCT.md: read failures must be visible).
     try {
-      const pointer = renameCurrentPointer(previousId, provider.id, wasDbCurrent);
+      const pointer = renameCurrentPointer(previousId, provider.id, wasCurrentBefore);
       if (pointer.refused) {
         warnings.push(`cc_switch_settings_unreadable:${pointer.backupPath ?? "no_backup"}`);
       }
@@ -498,14 +501,15 @@ function writeCurrentPointer(id: string): PointerWriteResult {
 
 // Migrate the device pointer after a rename, re-reading the LIVE file so an external
 // switch that moved the current provider in the meantime is respected, not clobbered.
-// `wasDbCurrent` (previousId held is_current before the rename) is only the fallback for
-// an unreadable pointer. See planPointerRename for the full decision.
-function renameCurrentPointer(previousId: string, newId: string, wasDbCurrent: boolean): PointerWriteResult {
+// `wasCurrentBefore` (previousId was the EFFECTIVE current — file pointer, else db
+// is_current — before the rename) is only the fallback for an unreadable pointer. See
+// planPointerRename for the full decision.
+function renameCurrentPointer(previousId: string, newId: string, wasCurrentBefore: boolean): PointerWriteResult {
   const path = getCcSwitchSettingsPath();
-  let plan = planPointerRename(readPointerFileRaw(path), previousId, newId, wasDbCurrent);
+  let plan = planPointerRename(readPointerFileRaw(path), previousId, newId, wasCurrentBefore);
   for (let attempt = 0; attempt < POINTER_READ_RETRIES && plan.action === "refuse"; attempt++) {
     sleepSync(POINTER_READ_RETRY_MS);
-    plan = planPointerRename(readPointerFileRaw(path), previousId, newId, wasDbCurrent);
+    plan = planPointerRename(readPointerFileRaw(path), previousId, newId, wasCurrentBefore);
   }
   if (plan.action === "skip") {
     return { written: false, refused: false, backupPath: null };

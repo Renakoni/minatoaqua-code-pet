@@ -77,22 +77,25 @@ export type PointerRenamePlan =
  * respected instead of clobbered:
  *   - pointer === previousId: migrate it to newId.
  *   - pointer names another provider: skip; that switch is newer, don't overwrite it.
- *   - pointer absent, but the db said previousId was current: migrate (write newId).
- *   - file unreadable: refuse (caller backs up + warns) only when the db said previousId
- *     was current; otherwise skip and leave the file untouched.
+ *   - pointer absent, but previousId was the current provider: migrate (write newId).
+ *   - file unreadable: refuse (caller backs up + warns) only when previousId was the
+ *     current provider; otherwise skip and leave the file untouched.
  *
- * `wasDbCurrent` is whether previousId held the db is_current flag BEFORE the rename —
- * a fallback used only when the live pointer can't be read. The live pointer, when
- * readable, is authoritative (it reflects the newest switch).
+ * `wasCurrentBefore` is whether previousId was the EFFECTIVE current provider BEFORE the
+ * rename (device pointer wins, else db is_current) — a fallback used only when the live
+ * pointer can't be read. It must NOT be a db-only flag: the file pointer can name
+ * previousId while db is_current names another provider, and a db-only flag would then
+ * skip an unreadable read instead of retrying/warning, silently dropping the pointer. The
+ * live pointer, when readable, is authoritative (it reflects the newest switch).
  */
-export function planPointerRename(raw: string | null, previousId: string, newId: string, wasDbCurrent: boolean): PointerRenamePlan {
+export function planPointerRename(raw: string | null, previousId: string, newId: string, wasCurrentBefore: boolean): PointerRenamePlan {
   if (newId === previousId) return { action: "skip" };
   const { base, corrupt } = resolveCurrentPointerBase(raw);
-  if (corrupt) return wasDbCurrent ? { action: "refuse" } : { action: "skip" };
+  if (corrupt) return wasCurrentBefore ? { action: "refuse" } : { action: "skip" };
   const pointer = base.currentProviderClaude;
   const pointsToOther = typeof pointer === "string" && pointer !== "" && pointer !== previousId;
   if (pointsToOther) return { action: "skip" }; // a newer external switch — never clobber it
-  if (pointer === previousId || wasDbCurrent) {
+  if (pointer === previousId || wasCurrentBefore) {
     base.currentProviderClaude = newId;
     return { action: "write", content: JSON.stringify(base, null, 2) };
   }

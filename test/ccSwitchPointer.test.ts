@@ -91,12 +91,17 @@ describe("planPointerRename (external-switch aware)", () => {
     expect(planPointerRename(JSON.stringify({ currentProviderClaude: B }), A, A2, true).action).toBe("skip");
   });
 
-  it("uses the db fallback when the pointer is absent: migrate iff the provider was db-current", () => {
+  it("falls back to wasCurrentBefore when the pointer is absent: migrate iff it was the current provider", () => {
+    // wasCurrentBefore is the EFFECTIVE current (file pointer wins, else db is_current),
+    // captured pre-rename — not a db-only flag.
     expect(planPointerRename(JSON.stringify({ theme: "dark" }), A, A2, true).action).toBe("write");
     expect(planPointerRename(JSON.stringify({ theme: "dark" }), A, A2, false).action).toBe("skip");
   });
 
-  it("refuses (so the caller backs up + warns) only when unreadable AND the provider was db-current", () => {
+  it("refuses (so the caller retries then backs up + warns) only when unreadable AND it was the current provider", () => {
+    // The file-pointer-is-current-but-db-is-not case relies on this: with the correct
+    // effective-current capture the flag is true, so a transient unreadable read refuses
+    // (and retries) rather than silently skipping.
     expect(planPointerRename("", A, A2, true).action).toBe("refuse");
     expect(planPointerRename("garbage{", A, A2, true).action).toBe("refuse");
     expect(planPointerRename("", A, A2, false).action).toBe("skip"); // not current → leave the unreadable file alone
