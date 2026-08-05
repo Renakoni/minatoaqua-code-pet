@@ -27,7 +27,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { backupJsonFile, readJsonObjectFile, writeTextFileAtomic } from "./filePersistence";
-import { commitPointerPlan, currentPointerFromRaw, planCurrentPointerWrite, planPointerRename } from "./ccSwitchPointer";
+import { commitPointerPlan, planCurrentPointerWrite, planPointerRename, resolveBackfillProviderId } from "./ccSwitchPointer";
 
 type JsonObject = Record<string, unknown>;
 
@@ -513,6 +513,12 @@ export function switchCcSwitchProvider(id: string): SwitchOutcome {
 
   const livePath = getClaudeSettingsPath();
   const snippet = getCommonConfigSnippet();
+  // Resolve the effective current provider (device pointer wins, else db is_current) BEFORE the
+  // gate rewrites the pointer to `id`. This is the fallback backfill target when the committed
+  // pointer can't name one — e.g. the settings file is missing (a corrupt-pointer recovery
+  // deletes it) or has no Claude pointer, yet db is_current still names a provider whose live
+  // edits must not be lost.
+  const effectiveCurrentBeforeGate = getCurrentCcSwitchProviderId(providers);
   // Commit the shared device pointer FIRST, as a gate. If it can't be written — the settings
   // file is unreadable/unwritable, or under constant external contention — abort BEFORE
   // touching anything else, and return a localized cancellation rather than a stable success on
@@ -529,10 +535,17 @@ export function switchCcSwitchProvider(id: string): SwitchOutcome {
   // The provider that owns the current live config is whoever the pointer named JUST BEFORE we
   // replaced it — commitPointerPlan may have re-planned against a concurrent external switch, so
   // this can differ from the pre-gate current. Backfill into THAT provider, never a stale
-  // snapshot (which would corrupt an unrelated provider's config). Capture its live config now,
-  // before the live file is overwritten below.
-  const outgoingId = currentPointerFromRaw(pointer.committedRaw ?? null);
-  const outgoing = outgoingId && outgoingId !== id ? providers.find(provider => provider.id === outgoingId) : undefined;
+  // snapshot (which would corrupt an unrelated provider's config); but when the committed pointer
+  // can't name an existing provider, fall back to the pre-gate effective current so a db-current
+  // provider's live edits aren't silently dropped. Capture its live config now, before the live
+  // file is overwritten below.
+  const outgoingId = resolveBackfillProviderId(
+    pointer.committedRaw ?? null,
+    effectiveCurrentBeforeGate,
+    providerId => providers.some(provider => provider.id === providerId),
+    id
+  );
+  const outgoing = outgoingId ? providers.find(provider => provider.id === outgoingId) : undefined;
   const outgoingLive = outgoing ? readLiveJsonObject(livePath) : null;
 
   // Replace the live file with the incoming provider's effective settings RIGHT AWAY, so the

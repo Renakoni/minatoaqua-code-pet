@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commitPointerPlan, currentPointerFromRaw, planCurrentPointerWrite, planPointerRename, resolveCurrentPointerBase } from "../src/main/ccSwitchPointer";
+import { commitPointerPlan, currentPointerFromRaw, planCurrentPointerWrite, planPointerRename, resolveBackfillProviderId, resolveCurrentPointerBase } from "../src/main/ccSwitchPointer";
 
 describe("resolveCurrentPointerBase (cc-switch write path)", () => {
   it("treats a genuinely missing file (null) as a fresh, non-corrupt base", () => {
@@ -205,5 +205,49 @@ describe("commitPointerPlan (optimistic concurrency)", () => {
       pause: () => {}
     }, 2);
     expect(res).toEqual({ written: false, refused: true, backupPath: null });
+  });
+});
+
+describe("resolveBackfillProviderId (which provider's live config to preserve)", () => {
+  // The switch overwrites ~/.claude/settings.json with the incoming provider; whichever provider
+  // OWNED that live config must first be backfilled or its manual edits are lost on switch-back.
+  const exists = (ids: string[]) => (id: string) => ids.includes(id);
+  const providers = exists(["A", "B", "C"]);
+
+  it("prefers the committed pointer when it names an existing provider (re-planned past a switch)", () => {
+    // committedRaw = C means cc-switch switched to C and we committed B over C: C owns the live
+    // config now, not the pre-gate A. Backfill C, never the stale pre-gate snapshot.
+    const committed = JSON.stringify({ currentProviderClaude: "C" });
+    expect(resolveBackfillProviderId(committed, "A", providers, "B")).toBe("C");
+  });
+
+  it("falls back to the pre-gate effective current when the settings file was missing", () => {
+    // The regression: a corrupt-pointer recovery deletes ~/.cc-switch/settings.json, so the next
+    // switch commits over a missing file (committedRaw = null). db is_current still names A — its
+    // live edits must be backfilled, not silently dropped.
+    expect(resolveBackfillProviderId(null, "A", providers, "B")).toBe("A");
+  });
+
+  it("falls back to the effective current when the committed file carries no Claude pointer", () => {
+    // Only Codex/Gemini pointers present — no currentProviderClaude — but db is_current = A.
+    const committed = JSON.stringify({ currentProviderCodex: "cdx" });
+    expect(resolveBackfillProviderId(committed, "A", providers, "B")).toBe("A");
+  });
+
+  it("falls back to the effective current when the committed pointer names a since-deleted provider", () => {
+    // The pointer still names X, but X no longer exists; back the (existing) effective current A.
+    const committed = JSON.stringify({ currentProviderClaude: "X" });
+    expect(resolveBackfillProviderId(committed, "A", providers, "B")).toBe("A");
+  });
+
+  it("returns '' when the resolved provider is the incoming one (nothing to backfill)", () => {
+    // First switch ever: db is_current already = B (the target). No outgoing provider to save.
+    expect(resolveBackfillProviderId(null, "B", providers, "B")).toBe("");
+  });
+
+  it("returns '' when nothing valid resolves (no committed pointer, no effective current)", () => {
+    expect(resolveBackfillProviderId(null, "", providers, "B")).toBe("");
+    // A stale effective-current id that no longer exists must not become a backfill target.
+    expect(resolveBackfillProviderId(null, "gone", providers, "B")).toBe("");
   });
 });

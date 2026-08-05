@@ -121,6 +121,34 @@ export function currentPointerFromRaw(raw: string | null): string {
   return !corrupt && typeof base.currentProviderClaude === "string" ? base.currentProviderClaude : "";
 }
 
+/**
+ * Which provider owns the live config a switch is about to overwrite — i.e. the one whose
+ * settings must be backfilled before we replace them.
+ *
+ * Prefer the pointer we actually committed over (`committedRaw`): commitPointerPlan may have
+ * re-planned against a concurrent external switch, so the committed pointer — not the pre-gate
+ * snapshot — is what owned the live config. BUT only trust it when it still names an existing
+ * provider. When the committed file was missing, carried no Claude pointer, or named a
+ * since-deleted provider, fall back to `effectiveCurrentBeforeGate` — the effective current
+ * resolved before the gate (device pointer wins, else db is_current). Skipping that fallback
+ * (as an earlier revision did) silently drops the db-current provider's live edits when the
+ * settings pointer is absent — a real path, since a corrupt-pointer recovery deletes that file.
+ *
+ * Returns "" when there is nothing valid to backfill (resolved provider is the incoming one, is
+ * empty, or does not exist).
+ */
+export function resolveBackfillProviderId(
+  committedRaw: string | null,
+  effectiveCurrentBeforeGate: string,
+  providerExists: (id: string) => boolean,
+  incomingId: string
+): string {
+  const committed = currentPointerFromRaw(committedRaw);
+  const resolved = committed && providerExists(committed) ? committed : effectiveCurrentBeforeGate;
+  if (!resolved || resolved === incomingId || !providerExists(resolved)) return "";
+  return resolved;
+}
+
 export interface PointerCommitIo {
   /** Read the shared file: null when missing, "" on a transient read error. */
   read: () => string | null;
