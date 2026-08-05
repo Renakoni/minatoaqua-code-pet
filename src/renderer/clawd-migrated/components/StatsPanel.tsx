@@ -192,6 +192,13 @@ export function StatsPanel({ stats }: { stats: AppStats }) {
             <strong>{formatDuration(stats.totalRuntime ?? 0)}</strong>
             <small>{days > 0 ? `${formatCount(days, numberLocale)} ${t("stats.activeDays", "活跃天数")} · ${t("stats.dailyAvg", "日均调用")} ${formatCount(avgDaily, numberLocale)}` : t("stats.noData", "无数据")}</small>
           </div>
+        </header>
+
+        <header className="stats-range-head">
+          <div>
+            <h3>{t("stats.rangeMetricsTitle", "统计范围")}</h3>
+            <span>{t("stats.rangeMetricsHint", "仅影响下方指标，不影响累计运行")}</span>
+          </div>
           <div className="stats-range-switch" role="tablist" aria-label={t("stats.timeRange", "时间范围")}>
             {rangeOptions.map(option => (
               <button

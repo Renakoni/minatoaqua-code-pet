@@ -300,6 +300,11 @@
   white-space: nowrap;
 }
 
+.stats-activity-board > .stats-range-head {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--workbench-line);
+}
+
 .stats-range-switch {
   flex: 0 0 auto;
   display: grid;
