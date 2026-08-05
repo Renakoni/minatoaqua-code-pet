@@ -1849,6 +1849,10 @@ type ClaudeTokenStats = {
   daily: Array<TokenBreakdown & { date: string; model: string; costUsd: number; sessionCount: number; requestCount: number; messageCount: number }>;
   modelTotals: Array<TokenBreakdown & { model: string; costUsd: number; requestCount: number; sessionCount: number; messageCount: number; cacheHitRatio: number; priced: boolean }>;
   dailyTotals: Array<TokenBreakdown & { date: string; costUsd: number; sessionCount: number; requestCount: number; messageCount: number }>;
+  // Durable long-term per-day totals for the heatmap only (survives log rotation), added
+  // by applyDurableDailyHistory after aggregation. The live dailyTotals above still back
+  // the today/30-day/breakdown numbers.
+  heatmapDailyTotals?: Array<TokenBreakdown & { date: string; costUsd: number; sessionCount: number; requestCount: number; messageCount: number }>;
   projectTotals: Array<TokenBreakdown & { projectPath: string; projectName: string; costUsd: number; requestCount: number; sessionCount: number; lastActivity: number; models: string[]; cacheHitRatio: number }>;
   recentRequests: ClaudeTokenRequest[];
   totalTokens: number;
@@ -1871,6 +1875,7 @@ let claudeTokenFileCache = new Map<string, { mtimeMs: number; size: number; requ
 // away old session logs, which a live-only scan cannot (see ./tokenHistory).
 type TokenDailyTotal = ClaudeTokenStats["dailyTotals"][number];
 let tokenDailyHistory: Record<string, TokenDailyTotal> | null = null;
+let tokenDailyHistoryUnreadable = false; // existing history file failed to read — never overwrite it
 
 function tokenDailyHistoryPath() {
   return join(app.getPath("userData"), "token-daily-history.json");
@@ -1878,29 +1883,40 @@ function tokenDailyHistoryPath() {
 
 function loadTokenDailyHistory(): Record<string, TokenDailyTotal> {
   if (tokenDailyHistory) return tokenDailyHistory;
-  try {
-    if (existsSync(tokenDailyHistoryPath())) {
+  if (existsSync(tokenDailyHistoryPath())) {
+    try {
       tokenDailyHistory = normalizeTokenDailyHistory(JSON.parse(readFileSync(tokenDailyHistoryPath(), "utf8"))) as unknown as Record<string, TokenDailyTotal>;
       return tokenDailyHistory;
+    } catch {
+      // The file exists but is corrupt / unreadable. Do NOT treat it as empty and let the
+      // next save overwrite it — that would permanently drop rotated-away days that only
+      // live here. Serve {} for this session (heatmap falls back to live) and refuse to
+      // save over the original (the file is app-owned, so the failure is not a transient
+      // cross-process lock; preserving it lets the user recover or delete it).
+      tokenDailyHistoryUnreadable = true;
     }
-  } catch { /* ignore corrupt history — it self-heals from the next scan */ }
+  }
   tokenDailyHistory = {};
   return tokenDailyHistory;
 }
 
 function saveTokenDailyHistory(history: Record<string, TokenDailyTotal>) {
   tokenDailyHistory = history;
+  if (tokenDailyHistoryUnreadable) return; // never clobber an existing-but-unreadable file
   try {
     writeTextFileAtomic(tokenDailyHistoryPath(), JSON.stringify({ version: 1, days: history }, null, 2));
   } catch { /* best effort — durability is a nice-to-have, not a hard requirement */ }
 }
 
-// Fold this scan's per-day totals into the persisted history (higher requestCount/day wins)
-// and serve the heatmap from the merged, durable set instead of live logs alone.
+// Fold this scan's per-day totals into the persisted history and expose it as a SEPARATE
+// heatmapDailyTotals field. dailyTotals (and the live totals derived from it — today,
+// last-30-days, input/output/cache) stay from this scan so they remain internally
+// consistent with totalTokens/totalRequests/totalCostUsd; only the long-term heatmap
+// reads the durable set.
 function applyDurableDailyHistory(stats: ClaudeTokenStats): ClaudeTokenStats {
   const merged = mergeTokenDailyHistory(loadTokenDailyHistory(), stats.dailyTotals);
   saveTokenDailyHistory(merged);
-  return { ...stats, dailyTotals: historyToSortedArray(merged) };
+  return { ...stats, heatmapDailyTotals: historyToSortedArray(merged) };
 }
 
 function emptyClaudeTokenStats(scannedAt = Date.now()): ClaudeTokenStats {
@@ -1909,6 +1925,7 @@ function emptyClaudeTokenStats(scannedAt = Date.now()): ClaudeTokenStats {
     daily: [],
     modelTotals: [],
     dailyTotals: [],
+    heatmapDailyTotals: [],
     projectTotals: [],
     recentRequests: [],
     totalTokens: 0,

@@ -5,16 +5,23 @@ type Entry = { date: string; requestCount: number; totalTokens: number };
 const e = (date: string, requestCount: number, totalTokens = requestCount * 10): Entry => ({ date, requestCount, totalTokens });
 
 describe("mergeTokenDailyHistory", () => {
-  it("keeps the fresh entry when it has at least as many requests (today growing / same complete day)", () => {
-    const merged = mergeTokenDailyHistory({ "2026-07-10": e("2026-07-10", 3) }, [e("2026-07-10", 8)]);
-    expect(merged["2026-07-10"].requestCount).toBe(8);
-    // Equal count → fresh wins (harmless: re-scanning a complete day yields the same value).
-    expect(mergeTokenDailyHistory({ d: e("d", 5) }, [e("d", 5, 999)]).d.totalTokens).toBe(999);
+  it("overwrites when the fresh scan is a superset — more (or equal) requests AND tokens (today growing)", () => {
+    const merged = mergeTokenDailyHistory({ "2026-07-10": e("2026-07-10", 3, 30) }, [e("2026-07-10", 8, 80)]);
+    expect(merged["2026-07-10"]).toEqual(e("2026-07-10", 8, 80));
+    // Equal on both → fresh wins (harmless: re-scanning a complete day yields the same value).
+    expect(mergeTokenDailyHistory({ d: e("d", 5, 50) }, [e("d", 5, 999)]).d.totalTokens).toBe(999);
   });
 
   it("keeps the persisted entry when a fresh scan under-counts a day whose logs were rotated away", () => {
     const merged = mergeTokenDailyHistory({ "2026-06-24": e("2026-06-24", 40, 4000) }, [e("2026-06-24", 0, 0)]);
     expect(merged["2026-06-24"]).toEqual(e("2026-06-24", 40, 4000));
+  });
+
+  it("keeps the fuller record when fresh has MORE requests but FEWER tokens (requestCount alone is not proof)", () => {
+    // Log rotation dropped 2 high-token requests and added 3 small ones: 6 > 5 requests but
+    // 2,300 < 10,000 tokens — must not overwrite the fuller stored record.
+    const merged = mergeTokenDailyHistory({ "2026-07-10": e("2026-07-10", 5, 10000) }, [e("2026-07-10", 6, 2300)]);
+    expect(merged["2026-07-10"]).toEqual(e("2026-07-10", 5, 10000));
   });
 
   it("adds new days and retains persisted-only days a fresh scan no longer sees", () => {

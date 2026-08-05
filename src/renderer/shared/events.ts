@@ -434,6 +434,8 @@ export interface TokenStats {
   daily: DailyTokenEntry[];
   modelTotals: ModelTokenTotal[];
   dailyTotals: (TokenCostBreakdown & { date: string; sessionCount: number; requestCount: number; messageCount: number })[];
+  /** Durable long-term per-day totals for the heatmap only (survives log rotation). */
+  heatmapDailyTotals?: (TokenCostBreakdown & { date: string; sessionCount: number; requestCount: number; messageCount: number })[];
   projectTotals: ProjectTokenTotal[];
   recentRequests: RequestTokenRecord[];
   totalTokens: number;

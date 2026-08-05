@@ -259,7 +259,9 @@ export function TokenPanel({ hideSensitiveContent = false }: { hideSensitiveCont
   const modelRows = showAllModels ? stats.modelTotals ?? [] : (stats.modelTotals ?? []).slice(0, 8);
   const projectRows = showAllProjects ? stats.projectTotals ?? [] : (stats.projectTotals ?? []).slice(0, 8);
   const highRequestRows = (stats.recentRequests ?? []).slice(0, 10);
-  const heatmap = buildTokenHeatmap(stats.dailyTotals ?? [], zh);
+  // The heatmap uses the durable long-term history (survives log rotation); everything
+  // else stays on the live dailyTotals so the totals/breakdowns remain consistent.
+  const heatmap = buildTokenHeatmap(stats.heatmapDailyTotals ?? stats.dailyTotals ?? [], zh);
   const trendSummary = last30Entries.length > 0
     ? `${last30Entries.length} ${zh ? "天" : "days"} · ${fmtTok(last30)}`
     : t("stats.noData", "无数据");
