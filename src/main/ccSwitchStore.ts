@@ -474,7 +474,16 @@ function writeCurrentPointer(id: string): PointerWriteResult {
   // write; the db is_current flag is authoritative when the pointer is unreadable, so
   // the switch/rename still takes effect (see getCurrentCcSwitchProviderId).
   const path = getCcSwitchSettingsPath();
-  const readRaw = () => (existsSync(path) ? readFileSync(path, "utf-8") : null);
+  const readRaw = (): string | null => {
+    if (!existsSync(path)) return null; // genuinely missing → create fresh
+    try {
+      return readFileSync(path, "utf-8");
+    } catch {
+      // A transient read error (e.g. a Windows sharing lock while cc-switch rewrites the
+      // file) is treated as unreadable so the retry waits it out, then refuses safely.
+      return "";
+    }
+  };
   let plan = planCurrentPointerWrite(readRaw(), id);
   for (let attempt = 0; attempt < POINTER_READ_RETRIES && plan.action === "refuse"; attempt++) {
     sleepSync(POINTER_READ_RETRY_MS);
