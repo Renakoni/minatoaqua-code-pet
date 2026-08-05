@@ -68,7 +68,7 @@ import { EVENT_SERVER_DEV_ORIGIN, isAcceptedEventServerRequest } from "./eventSe
 import { visitJsonlTail } from "./jsonlTail";
 import { historyToSortedArray, mergeTokenDailyHistory, normalizeTokenDailyHistory } from "./tokenHistory";
 import { mergeRuntimeStats, type RuntimeStatsShape } from "./runtimeStatsMerge";
-import { noteDailySession } from "./runtimeSessions";
+import { recordSessionSighting } from "./runtimeSessions";
 import type { CompanionInitialState } from "../renderer/shared/events";
 
 type DailyRuntimeStats = {
@@ -3092,10 +3092,9 @@ function recordRuntimeEvent(event: CompanionEvent, claudeSessionId?: string) {
   // Count a session the first time ANY of its events lands today — keyed on the Claude
   // session id, not the once-per-session SessionStart hook — so a session already running
   // when the pet launched (and two concurrent sessions) are both counted. The day's count
-  // is set to the distinct-id total, self-correcting over the legacy SessionStart tally.
-  if (noteDailySession((stats.dailySessionIds[day] ??= []), claudeSessionId)) {
-    stats.dailyStats[day].sessions = stats.dailySessionIds[day].length;
-  }
+  // never drops below what it already held (see recordSessionSighting), so the upgrade day's
+  // earlier tally survives even though its ended sessions can't re-emit.
+  recordSessionSighting(stats.dailyStats[day], (stats.dailySessionIds[day] ??= []), claudeSessionId);
   if (event.event === "error") stats.dailyStats[day].errors = (stats.dailyStats[day].errors ?? 0) + 1;
   if (event.event === "permission_wait") stats.dailyStats[day].permissionRequests = (stats.dailyStats[day].permissionRequests ?? 0) + 1;
   if (!stats.firstStartTime || stats.firstStartTime > event.timestamp) stats.firstStartTime = event.timestamp;

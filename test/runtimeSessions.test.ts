@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_DAILY_SESSION_IDS, noteDailySession } from "../src/main/runtimeSessions";
+import { MAX_DAILY_SESSION_IDS, noteDailySession, recordSessionSighting } from "../src/main/runtimeSessions";
 
 describe("noteDailySession (distinct-session-per-day counting)", () => {
   it("counts a brand-new session id and records it", () => {
@@ -33,5 +33,41 @@ describe("noteDailySession (distinct-session-per-day counting)", () => {
     const seen = Array.from({ length: MAX_DAILY_SESSION_IDS }, (_, index) => `s${index}`);
     expect(noteDailySession(seen, "one-more")).toBe(false);
     expect(seen.length).toBe(MAX_DAILY_SESSION_IDS);
+  });
+});
+
+describe("recordSessionSighting (day-row update, upgrade-safe)", () => {
+  it("counts up from a fresh day (row starts at 0 → exact distinct count)", () => {
+    const row = { sessions: 0 };
+    const ledger: string[] = [];
+    recordSessionSighting(row, ledger, "A");
+    recordSessionSighting(row, ledger, "B");
+    expect(row.sessions).toBe(2);
+    expect(ledger).toEqual(["A", "B"]);
+  });
+
+  it("never drops an already-recorded count when the id ledger is absent — the upgrade path", () => {
+    // Upgrade state: today already had 3 sessions (A,B,C) from the old SessionStart tally, but
+    // dailySessionIds was normalized to an empty ledger. Only A is still running. A's next event
+    // must NOT collapse the day's count from 3 to 1; B/C already ended and can't re-emit.
+    const row = { sessions: 3 };
+    const ledger: string[] = [];
+    recordSessionSighting(row, ledger, "A");
+    expect(row.sessions).toBe(3); // max(3, 1) — not overwritten to 1
+  });
+
+  it("still grows past the preserved tally once new distinct ids exceed it", () => {
+    const row = { sessions: 3 };
+    const ledger: string[] = [];
+    for (const id of ["A", "B", "C", "D"]) recordSessionSighting(row, ledger, id);
+    expect(row.sessions).toBe(4); // max(3, 4)
+  });
+
+  it("does not move the count on a repeat sighting of a known id", () => {
+    const row = { sessions: 2 };
+    const ledger = ["A", "B"];
+    recordSessionSighting(row, ledger, "A");
+    expect(row.sessions).toBe(2);
+    expect(ledger).toEqual(["A", "B"]);
   });
 });

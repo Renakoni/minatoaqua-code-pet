@@ -25,3 +25,17 @@ export function noteDailySession(seen: string[], sessionId: string | null | unde
   seen.push(sessionId);
   return true;
 }
+
+/**
+ * Fold a session sighting into a day's row: record the id in `ledger` and refresh
+ * `dayRow.sessions`. The count is the MAX of what the day already held and the distinct-id
+ * total — never a plain overwrite. On the upgrade to id-counting the ledger starts empty while
+ * `dayRow.sessions` may already carry the day's earlier tally (from the old SessionStart count),
+ * and sessions that ended before the upgrade won't re-emit an event to be re-counted; taking the
+ * max lets the day only ever grow as new distinct ids arrive instead of collapsing to just the
+ * still-running ones. On a fresh day the row starts at 0, so max degrades to the exact count.
+ */
+export function recordSessionSighting(dayRow: { sessions: number }, ledger: string[], sessionId: string | null | undefined): void {
+  if (!noteDailySession(ledger, sessionId)) return;
+  dayRow.sessions = Math.max(dayRow.sessions ?? 0, ledger.length);
+}
