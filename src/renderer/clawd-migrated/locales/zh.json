@@ -196,7 +196,6 @@
     "errors": "错误次数",
     "totalRuntime": "累计运行",
     "rangeMetricsTitle": "统计范围",
-    "rangeMetricsHint": "仅影响下方指标，不影响累计运行",
     "activeDays": "活跃天数",
     "dailyAvg": "日均调用",
     "toolRanking": "工具使用排行",

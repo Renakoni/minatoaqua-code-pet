@@ -2259,7 +2259,10 @@ function aggregateClaudeTokenStats(requests: ClaudeTokenRequest[], scannedAt: nu
     modelTotals,
     dailyTotals,
     projectTotals,
-    recentRequests: requests.sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 30),
+    // "高消耗请求" ranks by spend: cost desc, tiebreaking on total tokens so unpriced
+    // requests (costUsd 0) still land in a stable size order at the bottom rather than
+    // scrambling the cost column (which reads as random when sorted by tokens instead).
+    recentRequests: requests.slice().sort((a, b) => (b.costUsd - a.costUsd) || (b.totalTokens - a.totalTokens)).slice(0, 30),
     totalTokens: total.totalTokens,
     totalCostUsd,
     totalSessions: sessionMap.size,
