@@ -76,6 +76,29 @@ function formatI18n(template: string, values: Record<string, string | number>) {
   return Object.entries(values).reduce((text, [key, value]) => text.split(`{${key}}`).join(String(value)), template);
 }
 
+// Turn a structured "<key>:<detail>" provider warning (emitted by the cc-switch store)
+// into a localized, user-facing message. Unknown keys fall back to the raw string, so a
+// warning is never hidden.
+function formatProviderWarning(warning: string, t: (key: string, fallback: string) => string): string {
+  const sep = warning.indexOf(":");
+  const key = sep === -1 ? warning : warning.slice(0, sep);
+  const detail = sep === -1 ? "" : warning.slice(sep + 1);
+  switch (key) {
+    case "cc_switch_settings_unreadable":
+      return detail && detail !== "no_backup"
+        ? formatI18n(t("routing.warnings.settingsUnreadableBackup", "cc-switch 设置文件无法读取，未更新当前项指针（数据库记录仍正确）。已备份到 {detail}"), { detail })
+        : t("routing.warnings.settingsUnreadable", "cc-switch 设置文件无法读取，未更新当前项指针（数据库记录仍正确）");
+    case "current_pointer_update_failed":
+      return formatI18n(t("routing.warnings.pointerUpdateFailed", "更新当前项指针失败（改动已通过数据库生效）：{detail}"), { detail });
+    case "backfill_failed":
+      return formatI18n(t("routing.warnings.backfillFailed", "回填上一个供应商的实时配置失败（{detail}）"), { detail });
+    case "common_config_strip_failed":
+      return formatI18n(t("routing.warnings.commonConfigStripFailed", "移除公共配置片段失败（{detail}）"), { detail });
+    default:
+      return warning;
+  }
+}
+
 function createEmptyProvider(sortIndex: number, name: string): ClaudeProvider {
   return {
     id: "",
@@ -199,7 +222,7 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
       return;
     }
     toast.success(originalId ? t("routing.providerUpdated", "供应商已更新") : t("routing.providerAdded", "供应商已添加"));
-    if (result.warnings && result.warnings.length > 0) toast.warning(result.warnings.join(", "));
+    if (result.warnings && result.warnings.length > 0) toast.warning(result.warnings.map(w => formatProviderWarning(w, t)).join(" · "));
     if (result.provider) mergeSavedProvider(result.provider, originalId);
     else void refresh();
     if (originalId) closeEditEditor();
@@ -230,7 +253,7 @@ export function ClaudeRoutingPanel(_props: { settings?: unknown; updateSettings?
     }
     toast.success(formatI18n(t("routing.switchedTo", "已切换到 {name}，已写入 Claude Code 全局配置"), { name: provider.name }));
     if (result.warnings && result.warnings.length > 0) {
-      toast.warning(result.warnings.join(", "));
+      toast.warning(result.warnings.map(w => formatProviderWarning(w, t)).join(" · "));
     }
     void refresh();
   }, [companion, refresh, t]);

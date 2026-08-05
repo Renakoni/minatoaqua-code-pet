@@ -670,6 +670,13 @@
   },
   "routing": {
     "title": "Claude Code Routing",
+    "warnings": {
+      "settingsUnreadable": "cc-switch's settings file was unreadable, so the current-provider pointer wasn't updated (the database record is still correct)",
+      "settingsUnreadableBackup": "cc-switch's settings file was unreadable, so the current-provider pointer wasn't updated (the database record is still correct). Backup saved to {detail}",
+      "pointerUpdateFailed": "Couldn't update the current-provider pointer (the change still took effect via the database): {detail}",
+      "backfillFailed": "Couldn't back up the previous provider's live config ({detail})",
+      "commonConfigStripFailed": "Couldn't remove the shared common-config snippet ({detail})"
+    },
     "providerCount": "{count} providers",
     "providerCountCurrent": "{count} providers · Current {name}",
     "orderUpdated": "Order updated",

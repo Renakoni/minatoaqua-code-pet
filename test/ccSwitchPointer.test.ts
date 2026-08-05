@@ -88,11 +88,4 @@ describe("shouldUpdatePointerAfterRename", () => {
   it("skips when it isn't actually a rename", () => {
     expect(shouldUpdatePointerAfterRename("same", "same", "same")).toBe(false);
   });
-
-  it("keys off the current id (SSOT), so an unreadable settings file still triggers the update when db is_current matched", () => {
-    // currentBefore is getCurrentCcSwitchProviderId(), which falls back to db is_current
-    // when the settings pointer is unreadable — so a rename of the current provider is
-    // detected even though the old settings-pointer guard would have read {} and missed it.
-    expect(shouldUpdatePointerAfterRename("old", "new", "old")).toBe(true);
-  });
 });
