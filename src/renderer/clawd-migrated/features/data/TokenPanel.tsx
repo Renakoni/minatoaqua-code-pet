@@ -38,28 +38,33 @@ function TokenOverviewBlock({
   primaryValue,
   primaryMeta,
   periodMetrics,
-  breakdownMetrics
+  breakdownMetrics,
+  loading = false
 }: {
   primaryLabel: string;
   primaryValue: string;
   primaryMeta: string;
   periodMetrics: TokenOverviewMetric[];
   breakdownMetrics: TokenOverviewMetric[];
+  loading?: boolean;
 }) {
+  // While the first scan runs we show a shimmer WHERE each number will be rather than a fabricated
+  // "$0 / 0 tokens" — the static labels stay, so the layout is identical when the values resolve.
+  const val = (value: string, size = "") => (loading ? <span className={`token-skeleton ${size}`} /> : value);
   return (
     <section className="token-overview-block">
       <div className="token-overview-main">
         <span>{primaryLabel}</span>
-        <strong>{primaryValue}</strong>
-        <small>{primaryMeta}</small>
+        <strong>{val(primaryValue, "wide")}</strong>
+        <small>{val(primaryMeta)}</small>
       </div>
 
       <div className="token-overview-metrics">
         {periodMetrics.map(metric => (
           <div className="token-overview-metric" key={metric.label}>
             <span>{metric.label}</span>
-            <b>{metric.value}</b>
-            {metric.meta ? <small>{metric.meta}</small> : null}
+            <b>{val(metric.value)}</b>
+            {loading || metric.meta ? <small>{val(metric.meta ?? "", "narrow")}</small> : null}
           </div>
         ))}
       </div>
@@ -68,7 +73,7 @@ function TokenOverviewBlock({
         {breakdownMetrics.map(metric => (
           <span key={metric.label}>
             <small>{metric.label}</small>
-            <b>{metric.value}</b>
+            <b>{val(metric.value, "narrow")}</b>
           </span>
         ))}
       </div>
@@ -216,26 +221,27 @@ export function TokenPanel({ hideSensitiveContent = false }: { hideSensitiveCont
   if (error && !stats) return <div className="note" style={{ color: "var(--coral)" }}>{t("stats.scanFailed", "加载失败")}: {error}</div>;
   if (!stats) {
     return (
-      <div className="token-panel token-panel-rich token-panel-loading">
+      <div key="token-loading" className="token-panel token-panel-rich token-panel-loading">
         <div className="token-header">
           <div>
             <p className="note">{t("stats.scanning", "扫描中…")} {t("stats.scanningClaudeUsage", "Reading Claude Code usage from ~/.claude/projects")}</p>
           </div>
         </div>
         <TokenOverviewBlock
+          loading
           primaryLabel={t("stats.totalSpend", "Total spend")}
-          primaryValue="$0"
-          primaryMeta={`0 ${t("stats.tokens", "Tokens")} · 0 ${t("stats.requests", "Requests")}`}
+          primaryValue=""
+          primaryMeta=""
           periodMetrics={[
-            { label: t("stats.tokenToday", "Today"), value: "0", meta: "$0" },
-            { label: t("stats.token30d", "30 days"), value: "0", meta: "$0" },
-            { label: t("stats.cacheHit", "Cache hit"), value: "0%" }
+            { label: t("stats.tokenToday", "Today"), value: "", meta: "" },
+            { label: t("stats.token30d", "30 days"), value: "", meta: "" },
+            { label: t("stats.cacheHit", "Cache hit"), value: "" }
           ]}
           breakdownMetrics={[
-            { label: t("stats.inputTokens", "input"), value: "0" },
-            { label: t("stats.outputTokens", "output"), value: "0" },
-            { label: t("stats.cacheRead", "cache read"), value: "0" },
-            { label: t("stats.cacheWrite", "cache write"), value: "0" }
+            { label: t("stats.inputTokens", "input"), value: "" },
+            { label: t("stats.outputTokens", "output"), value: "" },
+            { label: t("stats.cacheRead", "cache read"), value: "" },
+            { label: t("stats.cacheWrite", "cache write"), value: "" }
           ]}
         />
         <p className="note">{t("stats.cacheSnapshotHint", "After the first scan, a snapshot is kept so this page can show the last result immediately.")}</p>
@@ -276,7 +282,7 @@ export function TokenPanel({ hideSensitiveContent = false }: { hideSensitiveCont
   const scanNote = `${loading ? `${t("stats.scanning", "扫描中…")} · ` : ""}${scanSummary}${error ? ` · ${t("stats.scanFailed", "加载失败")}: ${error}` : ""}`;
 
   return (
-    <div className="token-panel token-panel-rich">
+    <div key="token-loaded" className="token-panel token-panel-rich">
       <div className="token-header">
         <div>
           <p className="note">{scanNote}</p>
@@ -370,7 +376,7 @@ export function TokenPanel({ hideSensitiveContent = false }: { hideSensitiveCont
             <div className="token-table-header"><span>{t("stats.model", "模型")}</span><span>{t("stats.tokens", "Tokens")}</span><span>{t("stats.cost", "Cost")}</span><span>{t("stats.req", "Req")}</span><span>Cache</span></div>
             {modelRows.map((m: any) => (
               <div key={m.model} className="token-table-row">
-                <span className="token-model-name">{m.model}</span>
+                <span className="token-model-name" title={m.model}>{m.model}</span>
                 <span>{fmtTok(m.totalTokens)}</span>
                 <span>{m.priced ? fmtUsd(m.costUsd) : "—"}</span>
                 <span>{m.requestCount}</span>
@@ -387,10 +393,10 @@ export function TokenPanel({ hideSensitiveContent = false }: { hideSensitiveCont
           <div className="token-project-list">
             {projectRows.map((p: any, index: number) => (
               <article key={p.projectPath} className="token-project-row">
-                <div><strong>{hideSensitiveContent ? `${t("stats.project", "项目")} ${index + 1}` : p.projectName}</strong><p>{hideSensitiveContent ? t("privacy.detailsHidden", "详情已隐藏") : p.projectPath}</p></div>
+                <div><strong title={hideSensitiveContent ? undefined : p.projectName}>{hideSensitiveContent ? `${t("stats.project", "项目")} ${index + 1}` : p.projectName}</strong><p title={hideSensitiveContent ? undefined : p.projectPath}>{hideSensitiveContent ? t("privacy.detailsHidden", "详情已隐藏") : p.projectPath}</p></div>
                 <span>{fmtTok(p.totalTokens)}</span>
                 <span>{fmtUsd(p.costUsd)}</span>
-                <time>{p.lastActivity ? new Date(p.lastActivity).toLocaleDateString() : "—"}</time>
+                <time>{p.lastActivity ? new Date(p.lastActivity).toLocaleDateString(zh ? "zh-CN" : "en-US") : "—"}</time>
               </article>
             ))}
             {(stats.projectTotals ?? []).length > 8 && <button className="ghost-btn token-more-btn" onClick={() => setShowAllProjects(v => !v)}>{showAllProjects ? t("stats.collapse", "收起") : `${t("stats.showMore", "查看更多")} (${stats.projectTotals.length - 8})`}</button>}
@@ -404,8 +410,8 @@ export function TokenPanel({ hideSensitiveContent = false }: { hideSensitiveCont
             <div className="token-table-header"><span>{t("stats.timeProject", "Time / Project")}</span><span>{t("stats.model", "Model")}</span><span>{t("stats.tokens", "Tokens")}</span><span>{t("stats.cost", "Cost")}</span></div>
             {highRequestRows.map((r: any) => (
               <div key={r.id} className="token-table-row">
-                <span><b>{new Date(r.timestamp).toLocaleString()}</b><small>{hideSensitiveContent ? t("privacy.detailsHidden", "详情已隐藏") : r.projectName}</small></span>
-                <span className="token-model-name">{r.model}</span>
+                <span><b>{new Date(r.timestamp).toLocaleString(zh ? "zh-CN" : "en-US")}</b><small title={hideSensitiveContent ? undefined : r.projectName}>{hideSensitiveContent ? t("privacy.detailsHidden", "详情已隐藏") : r.projectName}</small></span>
+                <span className="token-model-name" title={r.model}>{r.model}</span>
                 <span>{fmtTok(r.totalTokens)}</span>
                 <span>{r.priced ? fmtUsd(r.costUsd) : "—"}</span>
               </div>

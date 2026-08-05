@@ -747,6 +747,43 @@
   align-content: start;
 }
 
+/* First-scan skeleton: a shimmer bar shown WHERE a number will land, so the loading state never
+   fabricates a "$0 / 0 tokens" dashboard that reads as real data. Sized in-line so geometry (and
+   thus layout) is identical to the resolved values. */
+.token-skeleton {
+  display: inline-block;
+  width: var(--skeleton-w, 3.2em);
+  height: 0.72em;
+  border-radius: 5px;
+  vertical-align: middle;
+  background: linear-gradient(100deg, var(--workbench-line) 30%, var(--workbench-subtle) 50%, var(--workbench-line) 70%);
+  background-size: 220% 100%;
+  animation: token-skeleton-pulse 1.15s var(--ease-soft) infinite;
+}
+.token-skeleton.wide { --skeleton-w: 5.4em; }
+.token-skeleton.narrow { --skeleton-w: 2.2em; }
+
+@keyframes token-skeleton-pulse {
+  from { background-position: 180% 0; }
+  to { background-position: -80% 0; }
+}
+
+/* Soften the first appearance of resolved data (skeleton/cache -> real values). Keyed to the root's
+   key change so it fires on the loading->loaded swap, not on every background refresh. */
+.token-panel-rich:not(.token-panel-loading) {
+  animation: token-fade-in 180ms var(--ease-soft) both;
+}
+
+@keyframes token-fade-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .token-skeleton { animation: none; }
+  .token-panel-rich:not(.token-panel-loading) { animation: none; }
+}
+
 .token-header {
   align-items: center;
   padding-bottom: 2px;
@@ -1172,7 +1209,7 @@
 }
 
 .token-daily-bar-row > div span {
-  background: var(--mint);
+  background: linear-gradient(90deg, var(--mint), var(--honey));
 }
 
 .token-more-btn {

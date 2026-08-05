@@ -4,24 +4,26 @@ import { Code2, FolderOpen, Gauge, HardDrive, Trash2 } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { StatsPanel } from "../../components/StatsPanel";
 import { TokenPanel } from "./TokenPanel";
+import { ConfirmDialog } from "../../components/claude-routing/ConfirmDialog";
 
 function DataSectionInner({ persistedStats, hideSensitiveContent, onResetStats }: {
   persistedStats: any;
   hideSensitiveContent: boolean;
   onResetStats: () => Promise<void>;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const zh = locale === "zh";
   const [dataDirectory, setDataDirectory] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmingReset, setConfirmingReset] = useState(false);
   const totalStatEvents = useMemo(() => Object.values(persistedStats?.eventTypeCounts ?? {}).reduce((sum: number, count) => sum + Number(count || 0), 0), [persistedStats]);
 
   useEffect(() => {
     void window.companion.getDataDirectory().then(setDataDirectory).catch(() => setDataDirectory(""));
   }, []);
 
-  async function resetStats() {
-    if (!window.confirm(t("data.clearStatsConfirm", "确定要清空所有统计数据吗？此操作不可恢复。"))) return;
+  async function performReset() {
     setBusyAction("stats");
     setActionError(null);
     try {
@@ -82,7 +84,7 @@ function DataSectionInner({ persistedStats, hideSensitiveContent, onResetStats }
           <div className="local-data-row">
             <Gauge size={17} />
             <div><strong>{t("data.usageStats", "使用统计")}</strong><span>{totalStatEvents} {t("common.items", "条")}</span></div>
-            <button type="button" className="local-data-action danger" title={t("data.clearStats", "清空统计数据")} aria-label={t("data.clearStats", "清空统计数据")} disabled={busyAction !== null || totalStatEvents === 0} onClick={() => void resetStats()}><Trash2 size={16} /></button>
+            <button type="button" className="local-data-action danger" title={t("data.clearStats", "清空统计数据")} aria-label={t("data.clearStats", "清空统计数据")} disabled={busyAction !== null || totalStatEvents === 0} onClick={() => setConfirmingReset(true)}><Trash2 size={16} /></button>
           </div>
           <div className="local-data-row">
             <FolderOpen size={17} />
@@ -92,6 +94,19 @@ function DataSectionInner({ persistedStats, hideSensitiveContent, onResetStats }
         </div>
         {actionError ? <p className="local-data-error" role="status">{actionError}</p> : null}
       </section>
+
+      {confirmingReset ? (
+        <ConfirmDialog
+          title={t("data.clearStats", "清空统计数据")}
+          cancelLabel={zh ? "取消" : "Cancel"}
+          confirmLabel={zh ? "清空" : "Clear"}
+          danger
+          onCancel={() => setConfirmingReset(false)}
+          onConfirm={() => { setConfirmingReset(false); void performReset(); }}
+        >
+          <p>{t("data.clearStatsNote", "永久删除所有累计统计数据，此操作不可恢复。")}</p>
+        </ConfirmDialog>
+      ) : null}
     </section>
   );
 }
