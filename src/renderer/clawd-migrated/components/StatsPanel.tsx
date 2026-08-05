@@ -112,20 +112,26 @@ export function StatsPanel({ stats }: { stats: AppStats }) {
   const [range, setRange] = useState<StatsRange>("7d");
   const [toolsExpanded, setToolsExpanded] = useState(false);
 
-  const allToolUsage = stats.toolUsage ?? {};
-  const totalToolCalls = sumRecord(allToolUsage);
-  const totalEvents = sumRecord(stats.eventTypeCounts);
-  const days = Object.keys(stats.dailyStats ?? {}).length;
-  const activeDays = activeDayKeys(stats);
+  // These aggregates feed the rangeData memo below. Recomputing them into fresh
+  // objects/arrays on every render (the parent re-renders StatsPanel on the 5s stats
+  // tick and on unrelated state changes) hands rangeData new dependency identities
+  // each time, so it recomputes every render despite being memoized. Key them to
+  // `stats` so they — and rangeData — stay stable until the data actually changes.
+  // avgDaily is a trivial derived value used only for display, so it stays inline.
+  const allToolUsage = useMemo(() => stats.toolUsage ?? {}, [stats]);
+  const totalToolCalls = useMemo(() => sumRecord(allToolUsage), [allToolUsage]);
+  const totalEvents = useMemo(() => sumRecord(stats.eventTypeCounts), [stats]);
+  const days = useMemo(() => Object.keys(stats.dailyStats ?? {}).length, [stats]);
+  const activeDays = useMemo(() => activeDayKeys(stats), [stats]);
   const avgDaily = days > 0 ? Math.round(totalToolCalls / days) : 0;
-  const allMetrics = {
+  const allMetrics = useMemo(() => ({
     events: totalEvents,
     toolCalls: totalToolCalls,
     sessions: stats.totalSessions ?? 0,
     errors: stats.errorCount ?? 0,
     permissionRequests: stats.permissionRequests ?? 0,
     activeDays: days
-  };
+  }), [stats, totalEvents, totalToolCalls, days]);
   const rangeOptions: Array<{ value: StatsRange; label: string }> = [
     { value: "today", label: t("stats.rangeToday", "今日") },
     { value: "7d", label: t("stats.range7d", "近 7 日") },
