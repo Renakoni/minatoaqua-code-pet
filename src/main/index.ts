@@ -66,6 +66,7 @@ import { setClaudeProfileResourceEnabled } from "./claudeProfileRuntime";
 import { backupJsonFile, writeTextFileAtomic } from "./filePersistence";
 import { EVENT_SERVER_DEV_ORIGIN, isAcceptedEventServerRequest } from "./eventServerSecurity";
 import { visitJsonlTail } from "./jsonlTail";
+import { historyToSortedArray, mergeTokenDailyHistory, normalizeTokenDailyHistory } from "./tokenHistory";
 import type { CompanionInitialState } from "../renderer/shared/events";
 
 type DailyRuntimeStats = {
@@ -1866,6 +1867,42 @@ let claudeTokenStatsCache: { data: ClaudeTokenStats; timestamp: number } | null 
 let pendingClaudeTokenStatsScan: Promise<ClaudeTokenStats> | null = null;
 let claudeTokenFileCache = new Map<string, { mtimeMs: number; size: number; requests: ClaudeTokenRequest[] }>();
 
+// Durable per-day request/token history for the heatmap: it survives Claude Code rotating
+// away old session logs, which a live-only scan cannot (see ./tokenHistory).
+type TokenDailyTotal = ClaudeTokenStats["dailyTotals"][number];
+let tokenDailyHistory: Record<string, TokenDailyTotal> | null = null;
+
+function tokenDailyHistoryPath() {
+  return join(app.getPath("userData"), "token-daily-history.json");
+}
+
+function loadTokenDailyHistory(): Record<string, TokenDailyTotal> {
+  if (tokenDailyHistory) return tokenDailyHistory;
+  try {
+    if (existsSync(tokenDailyHistoryPath())) {
+      tokenDailyHistory = normalizeTokenDailyHistory(JSON.parse(readFileSync(tokenDailyHistoryPath(), "utf8"))) as unknown as Record<string, TokenDailyTotal>;
+      return tokenDailyHistory;
+    }
+  } catch { /* ignore corrupt history — it self-heals from the next scan */ }
+  tokenDailyHistory = {};
+  return tokenDailyHistory;
+}
+
+function saveTokenDailyHistory(history: Record<string, TokenDailyTotal>) {
+  tokenDailyHistory = history;
+  try {
+    writeTextFileAtomic(tokenDailyHistoryPath(), JSON.stringify({ version: 1, days: history }, null, 2));
+  } catch { /* best effort — durability is a nice-to-have, not a hard requirement */ }
+}
+
+// Fold this scan's per-day totals into the persisted history (higher requestCount/day wins)
+// and serve the heatmap from the merged, durable set instead of live logs alone.
+function applyDurableDailyHistory(stats: ClaudeTokenStats): ClaudeTokenStats {
+  const merged = mergeTokenDailyHistory(loadTokenDailyHistory(), stats.dailyTotals);
+  saveTokenDailyHistory(merged);
+  return { ...stats, dailyTotals: historyToSortedArray(merged) };
+}
+
 function emptyClaudeTokenStats(scannedAt = Date.now()): ClaudeTokenStats {
   return {
     sessions: [],
@@ -2100,7 +2137,7 @@ async function scanClaudeTokenStatsFresh(): Promise<ClaudeTokenStats> {
   }
   const batchResults = await mapInBatches(files, CLAUDE_TOKEN_SCAN_CONCURRENCY, file => scanClaudeTokenFile(file.filePath, file.encodedProject).catch(() => []));
   const requests = batchResults.flat();
-  return aggregateClaudeTokenStats(requests, Date.now());
+  return applyDurableDailyHistory(aggregateClaudeTokenStats(requests, Date.now()));
 }
 
 function aggregateClaudeTokenStats(requests: ClaudeTokenRequest[], scannedAt: number): ClaudeTokenStats {
