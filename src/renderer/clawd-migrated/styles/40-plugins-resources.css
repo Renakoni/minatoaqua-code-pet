@@ -377,9 +377,6 @@
   }
 }
 
-.plugin-widget { pointer-events: auto; }
-.edit-zone-plugin-widget { border-style: dashed; }
-
 /* Unified Claude Profiles */
 .claude-profiles-page {
   display: flex;

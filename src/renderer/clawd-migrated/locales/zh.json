@@ -545,7 +545,6 @@
     "theme": "界面主题",
     "startup": "启动与更新",
     "sound": "通知和音效",
-    "pomodoro": "番茄钟",
     "time": "时间与提示",
     "multiSession": "多会话模式",
     "idleAnimation": "待机动画",
@@ -660,13 +659,6 @@
     "eventSessionStartMessage": "Clawd 已连接到 Claude Code。",
     "eventDoneTitle": "处理完成",
     "eventDoneMessage": "Claude Code 这一轮回复已经结束。"
-  },
-  "pomodoro": {
-    "enable": "显示番茄钟",
-    "workMinutes": "专注时长",
-    "breakMinutes": "休息时长",
-    "focus": "专注中",
-    "break": "休息中"
   },
   "routing": {
     "title": "Claude Code 路由",
