@@ -71,3 +71,19 @@ describe("NotificationRulesPanel concurrent edits", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe("NotificationRulesPanel accessibility", () => {
+  it("names each per-event sound switch so screen readers can tell them apart", () => {
+    render(
+      <I18nProvider initialLocale="en">
+        <NotificationRulesPanel settings={structuredClone(defaultSettings)} updateSettings={vi.fn()} />
+      </I18nProvider>
+    );
+
+    // The per-rule sound toggles render with label="" (the event name is shown in the
+    // row), so without an aria-label they were unnamed "switch, on/off" controls.
+    expect(screen.getByRole("switch", { name: "Done" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Error" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Permission request" })).toBeTruthy();
+  });
+});
