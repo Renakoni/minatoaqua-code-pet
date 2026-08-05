@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planCurrentPointerWrite, resolveCurrentPointerBase, shouldUpdatePointerAfterRename } from "../src/main/ccSwitchPointer";
+import { planCurrentPointerWrite, planPointerRename, resolveCurrentPointerBase } from "../src/main/ccSwitchPointer";
 
 describe("resolveCurrentPointerBase (cc-switch write path)", () => {
   it("treats a genuinely missing file (null) as a fresh, non-corrupt base", () => {
@@ -75,17 +75,34 @@ describe("planCurrentPointerWrite (write vs refuse)", () => {
   });
 });
 
-describe("shouldUpdatePointerAfterRename", () => {
-  it("updates the pointer when the renamed provider was the current one", () => {
-    expect(shouldUpdatePointerAfterRename("old", "new", "old")).toBe(true);
+describe("planPointerRename (external-switch aware)", () => {
+  const A = "prov-A";
+  const A2 = "prov-A2";
+  const B = "prov-B";
+
+  it("migrates the pointer when the live pointer still names the renamed provider (keeps siblings)", () => {
+    const plan = planPointerRename(JSON.stringify({ currentProviderClaude: A, currentProviderCodex: "cdx" }), A, A2, true);
+    expect(plan.action).toBe("write");
+    expect(JSON.parse(plan.action === "write" ? plan.content : "{}")).toEqual({ currentProviderClaude: A2, currentProviderCodex: "cdx" });
   });
 
-  it("skips when the renamed provider was not current (so an unreadable file isn't touched needlessly)", () => {
-    expect(shouldUpdatePointerAfterRename("old", "new", "other")).toBe(false);
-    expect(shouldUpdatePointerAfterRename("old", "new", "")).toBe(false);
+  it("skips when the live pointer already names another provider — a newer external switch is never clobbered", () => {
+    // Even though the db said A was current before the rename, the live pointer is B now.
+    expect(planPointerRename(JSON.stringify({ currentProviderClaude: B }), A, A2, true).action).toBe("skip");
   });
 
-  it("skips when it isn't actually a rename", () => {
-    expect(shouldUpdatePointerAfterRename("same", "same", "same")).toBe(false);
+  it("uses the db fallback when the pointer is absent: migrate iff the provider was db-current", () => {
+    expect(planPointerRename(JSON.stringify({ theme: "dark" }), A, A2, true).action).toBe("write");
+    expect(planPointerRename(JSON.stringify({ theme: "dark" }), A, A2, false).action).toBe("skip");
+  });
+
+  it("refuses (so the caller backs up + warns) only when unreadable AND the provider was db-current", () => {
+    expect(planPointerRename("", A, A2, true).action).toBe("refuse");
+    expect(planPointerRename("garbage{", A, A2, true).action).toBe("refuse");
+    expect(planPointerRename("", A, A2, false).action).toBe("skip"); // not current → leave the unreadable file alone
+  });
+
+  it("skips a no-op (not actually a rename)", () => {
+    expect(planPointerRename(JSON.stringify({ currentProviderClaude: A }), A, A, true).action).toBe("skip");
   });
 });

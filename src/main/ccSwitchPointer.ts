@@ -64,16 +64,37 @@ export function planCurrentPointerWrite(raw: string | null, id: string): Pointer
   return { action: "write", content: JSON.stringify(base, null, 2) };
 }
 
+export type PointerRenamePlan =
+  | { action: "write"; content: string }
+  | { action: "skip" }
+  | { action: "refuse" };
+
 /**
- * Whether renaming `previousId` -> `newId` should move the device pointer to `newId`.
+ * Decide how to migrate the device pointer after renaming `previousId` -> `newId`.
  *
- * True only for an actual rename where the renamed provider was the effective current
- * one. `currentProviderId` must be the SSOT current id (device pointer, else db
- * is_current) captured BEFORE the rename — deriving "was it current?" from the settings
- * file *after* the rename misses the case where that file was unreadable from the start
- * (it reads back as {} and never matches previousId), which would silently skip the
- * pointer update, backup and warning.
+ * Reads the LIVE settings content (post-rename) so an external switch — e.g. cc-switch
+ * itself moving the current provider between our db snapshot and this write — is
+ * respected instead of clobbered:
+ *   - pointer === previousId: migrate it to newId.
+ *   - pointer names another provider: skip; that switch is newer, don't overwrite it.
+ *   - pointer absent, but the db said previousId was current: migrate (write newId).
+ *   - file unreadable: refuse (caller backs up + warns) only when the db said previousId
+ *     was current; otherwise skip and leave the file untouched.
+ *
+ * `wasDbCurrent` is whether previousId held the db is_current flag BEFORE the rename —
+ * a fallback used only when the live pointer can't be read. The live pointer, when
+ * readable, is authoritative (it reflects the newest switch).
  */
-export function shouldUpdatePointerAfterRename(previousId: string, newId: string, currentProviderId: string): boolean {
-  return newId !== previousId && currentProviderId === previousId;
+export function planPointerRename(raw: string | null, previousId: string, newId: string, wasDbCurrent: boolean): PointerRenamePlan {
+  if (newId === previousId) return { action: "skip" };
+  const { base, corrupt } = resolveCurrentPointerBase(raw);
+  if (corrupt) return wasDbCurrent ? { action: "refuse" } : { action: "skip" };
+  const pointer = base.currentProviderClaude;
+  const pointsToOther = typeof pointer === "string" && pointer !== "" && pointer !== previousId;
+  if (pointsToOther) return { action: "skip" }; // a newer external switch — never clobber it
+  if (pointer === previousId || wasDbCurrent) {
+    base.currentProviderClaude = newId;
+    return { action: "write", content: JSON.stringify(base, null, 2) };
+  }
+  return { action: "skip" };
 }
