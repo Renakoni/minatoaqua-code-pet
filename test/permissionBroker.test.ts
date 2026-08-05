@@ -320,3 +320,28 @@ describe("callback isolation", () => {
     expect(onSettled).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("settled-entry eviction", () => {
+  it("evicts a settled request after the grace period so it stops retaining memory", async () => {
+    const broker = makeBroker();
+    const { id } = createRequest(broker);
+    broker.respond({ id, decision: "allow" });
+
+    // Within the grace window the cached decision is still readable.
+    await expect(broker.wait(id, 1)).resolves.toMatchObject({ status: "approved", decision: "allow" });
+
+    // After the grace period the entry is gone — a later poll reports not_found.
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(broker.wait(id, 1)).resolves.toEqual({ status: "error", reason: "not_found" });
+  });
+
+  it("evicts an auto-expired request after the grace period too", async () => {
+    const broker = makeBroker();
+    const { id } = createRequest(broker, 1_000);
+    await vi.advanceTimersByTimeAsync(1_000); // request auto-expires
+
+    await expect(broker.wait(id, 1)).resolves.toEqual({ status: "expired", reason: "Timeout" });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(broker.wait(id, 1)).resolves.toEqual({ status: "error", reason: "not_found" });
+  });
+});
