@@ -7,6 +7,9 @@ export interface PetEvent {
   id: string;
   event: PetEventType;
   hook?: string;
+  /** The Claude Code session id the hook fired from, forwarded on every event so the
+   *  app can count distinct sessions without relying on the once-per-session SessionStart. */
+  sessionId?: string;
   notificationKind?: NotificationKind;
   title?: string;
   message?: string;
@@ -36,6 +39,7 @@ export function isPetEvent(value: unknown): value is PetEvent {
   if (typeof event.event !== "string" || !eventTypes.has(event.event as PetEventType)) return false;
   if (typeof event.timestamp !== "number" || !Number.isFinite(event.timestamp)) return false;
   if (!optionalString(event.hook, 100)) return false;
+  if (!optionalString(event.sessionId, 128)) return false;
   if (event.notificationKind !== undefined && (typeof event.notificationKind !== "string" || !notificationKinds.has(event.notificationKind as NotificationKind))) return false;
   if (!optionalString(event.title, 500)) return false;
   if (!optionalString(event.message, 2000)) return false;

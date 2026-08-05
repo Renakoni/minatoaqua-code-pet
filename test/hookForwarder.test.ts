@@ -3,10 +3,31 @@ import { createRequire } from "node:module";
 
 // hook-forwarder.js is a CommonJS hook script; require it for its pure helpers.
 const require = createRequire(import.meta.url);
-const { mapHookToPetEvent, classifyNotification } = require("../scripts/hook-forwarder.js") as {
+const { mapHookToPetEvent, classifyNotification, pickSessionId } = require("../scripts/hook-forwarder.js") as {
   mapHookToPetEvent: (hook: string, payload: Record<string, unknown>) => { event: string; notificationKind?: "idle" | "attention" | "info"; title?: string; message?: string; tool?: string; detail?: string };
   classifyNotification: (payload: Record<string, unknown>) => "idle" | "attention" | "info";
+  pickSessionId: (payload: Record<string, unknown>) => string | undefined;
 };
+
+describe("pickSessionId (forward the Claude session id on every event)", () => {
+  it("reads Claude Code's snake_case session_id", () => {
+    expect(pickSessionId({ session_id: "abc-123" })).toBe("abc-123");
+  });
+
+  it("accepts a camelCase sessionId fallback", () => {
+    expect(pickSessionId({ sessionId: "def-456" })).toBe("def-456");
+  });
+
+  it("returns undefined when no id is present, so internal events don't inflate the session count", () => {
+    expect(pickSessionId({})).toBeUndefined();
+    expect(pickSessionId({ session_id: "" })).toBeUndefined();
+    expect(pickSessionId({ session_id: 42 })).toBeUndefined();
+  });
+
+  it("caps an over-long id to the PetEvent validation limit (128)", () => {
+    expect(pickSessionId({ session_id: "x".repeat(200) })).toHaveLength(128);
+  });
+});
 
 describe("classifyNotification", () => {
   it("classifies an idle-prompt message as idle", () => {
