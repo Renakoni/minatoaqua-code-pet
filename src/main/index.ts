@@ -270,6 +270,21 @@ function systemDoubleClickMetrics(): DoubleClickMetrics {
   return cachedDoubleClickMetrics;
 }
 
+// Windows implements skipTaskbar as a one-shot ITaskbarList::DeleteTab, and the
+// shell can silently re-add the tab later — most commonly when explorer.exe
+// restarts and re-registers every top-level window. Electron never re-asserts
+// the flag, so a resurrected tab would sit in the taskbar until the app quits.
+// Re-asserting on the events ordinary interaction inevitably fires keeps the
+// window self-healing; repeat calls are cheap no-ops.
+function keepOutOfTaskbar(window: BrowserWindow) {
+  const reassert = () => {
+    if (!window.isDestroyed()) window.setSkipTaskbar(true);
+  };
+  window.on("show", reassert);
+  window.on("focus", reassert);
+  window.on("restore", reassert);
+}
+
 function createPetWindow() {
   if (!isPetEnabled()) return;
   if (petWindow && !petWindow.isDestroyed()) return;
@@ -295,6 +310,7 @@ function createPetWindow() {
   });
 
   petWindow.setBackgroundColor("#00000000");
+  keepOutOfTaskbar(petWindow);
   applyPetAlwaysOnTopSetting();
   loadRenderer(petWindow);
 
@@ -615,6 +631,7 @@ function createTrayMenuWindow() {
     }
   });
 
+  keepOutOfTaskbar(trayMenuWindow);
   loadRenderer(trayMenuWindow, "traymenu");
   // Any (re)load invalidates the renderer's subscription until it hands
   // shakes again.
