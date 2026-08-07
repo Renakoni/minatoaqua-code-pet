@@ -35,7 +35,10 @@ win:
   target:
     - target: nsis
       arch: [x64]
-  # icon: build/icon.ico   # drop a 256x256 .ico here later; omitted for now → default Electron icon
+  # The exe/installer/Start-menu icon (separate from the runtime tray icon).
+  # A 256x256 square PNG derived from kuaclock.png (letterboxed to square with
+  # transparency); electron-builder converts it into a multi-size .ico.
+  icon: build/icon.png
 
 nsis:
   oneClick: false                        # show a small install wizard instead of silent install

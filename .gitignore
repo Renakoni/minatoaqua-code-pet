@@ -6,7 +6,11 @@ dist/
 dist-electron/
 out/
 release/
-build/
+# build/ doubles as electron-builder's buildResources dir; ignore its contents
+# (not the dir itself — an excluded dir can't have children re-included) so the
+# app icon that gets baked into the exe stays tracked.
+build/*
+!build/icon.png
 
 # Tool caches
 .vite/
