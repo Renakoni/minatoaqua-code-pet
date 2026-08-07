@@ -1,5 +1,11 @@
 /* === Settings Workbench Refinement === */
-.settings-page {
+/* The --settings-* tokens (and the inherited text defaults) are scoped to the
+   settings page AND the pet-import overlay: the import dialog portals to
+   <body> (see PetImportDialog), so it no longer inherits from .settings-page
+   and must re-establish the token scope itself — the same pattern
+   .ccs-confirm-backdrop uses in 160-theme-alignment.css. */
+.settings-page,
+.pet-import-overlay {
   --settings-ink: oklch(22% 0.01 75);
   --settings-muted: oklch(50% 0.011 75);
   --settings-faint: oklch(62% 0.01 75);
@@ -12,14 +18,18 @@
   --settings-accent-soft: oklch(82% 0.105 82 / 0.18);
   --settings-success: oklch(64% 0.09 154);
   --settings-danger: oklch(62% 0.11 32);
-  max-width: 1180px;
-  gap: 12px;
   color: var(--settings-ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   letter-spacing: 0;
 }
 
-[data-theme=dark] .settings-page {
+.settings-page {
+  max-width: 1180px;
+  gap: 12px;
+}
+
+[data-theme=dark] .settings-page,
+[data-theme=dark] .pet-import-overlay {
   --settings-ink: oklch(91% 0.012 78);
   --settings-muted: oklch(64% 0.01 78);
   --settings-faint: oklch(50% 0.009 78);
