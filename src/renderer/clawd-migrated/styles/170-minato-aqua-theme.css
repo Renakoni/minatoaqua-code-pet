@@ -306,6 +306,7 @@
 /* ---------- page variable systems ---------- */
 
 [data-theme="pet"][data-pet-theme="minato-aqua"] .settings-page,
+[data-theme="pet"][data-pet-theme="minato-aqua"] .pet-import-overlay,
 [data-theme="pet"][data-pet-theme="minato-aqua"] .overview-workbench,
 [data-theme="pet"][data-pet-theme="minato-aqua"] .data-workbench {
   --settings-ink: var(--aqua-ink);
