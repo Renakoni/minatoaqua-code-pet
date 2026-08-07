@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { SpritesheetSprite } from "../../../components/SpritesheetSprite";
@@ -184,7 +185,12 @@ export function PetImportDialog({ zipPath, galleryUrl, creator, onClose, onInsta
     : needsOverwrite ? t("petImport.overwriteConfirm", "已安装同名宠物，覆盖安装？")
     : "";
 
-  return (
+  // Portaled to <body> like every other modal (ConfirmDialog, ProviderEditPanel,
+  // IconPicker): the overlay is position:fixed, and any transformed ancestor
+  // would become its containing block — the settings group-card lifts 1px on
+  // hover (80-settings-animations.css), which re-anchored the "fixed" overlay
+  // from the viewport to the card and made the dialog jump on mouse-enter.
+  return createPortal(
     <div className="pet-import-overlay" role="dialog" aria-modal="true" aria-label={t("petImport.dialogTitle", "导入宠物")}>
       <div className="pet-import-dialog" ref={dialogRef} tabIndex={-1} onKeyDown={handleKeyDown}>
         <header className="pet-import-head">
@@ -256,6 +262,7 @@ export function PetImportDialog({ zipPath, galleryUrl, creator, onClose, onInsta
           ) : null}
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
