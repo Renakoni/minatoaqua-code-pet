@@ -86,11 +86,14 @@ export function ConnectionManagement({
       {/* This is the most complete connection view, so when a hook config/command
           problem is Repair-fixable it must offer Repair right where the "needs
           repair" row appears — a user reading the full diagnostics here shouldn't
-          have to leave for the Overview to fix it. Repair is gated on canRepair
-          exactly like the Overview: hidden when healthy, or when the forwarder is
-          missing (Repair can't fix that — that case shows guidance instead). The
+          have to leave for the Overview to fix it. Repair is gated exactly like
+          the Overview: only in workbench mode AND canRepair. The mode gate
+          matters — canRepair alone is also true in `error` (unreadable settings
+          evaluate as empty config, but repairHooks() reads that same file and
+          fails) and in `notConfigured` (a fresh setup should go through Install,
+          not Repair). Healthy and forwarder-missing states show no button. The
           destructive Remove with its two-step confirmation always stays. */}
-      <HooksManager actionsOnly showRepair={facts.canRepair} status={hookStatus} onOperationComplete={onOperationComplete} />
+      <HooksManager actionsOnly showRepair={facts.mode === "workbench" && facts.canRepair} status={hookStatus} onOperationComplete={onOperationComplete} />
 
       {/* Same parent-owned outcome as the Overview, derived at render time so it
           stays reactive to the current locale and hide setting. */}
