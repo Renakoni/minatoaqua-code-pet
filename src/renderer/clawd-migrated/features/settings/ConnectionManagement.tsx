@@ -83,8 +83,17 @@ export function ConnectionManagement({
         </div>
       )}
 
-      {/* Remove-only manager: the danger zone with its two-step confirmation. */}
-      <HooksManager actionsOnly showRepair={false} status={hookStatus} onOperationComplete={onOperationComplete} />
+      {/* This is the most complete connection view, so when a hook config/command
+          problem is Repair-fixable it must offer Repair right where the "needs
+          repair" row appears — a user reading the full diagnostics here shouldn't
+          have to leave for the Overview to fix it. Repair is gated exactly like
+          the Overview: only in workbench mode AND canRepair. The mode gate
+          matters — canRepair alone is also true in `error` (unreadable settings
+          evaluate as empty config, but repairHooks() reads that same file and
+          fails) and in `notConfigured` (a fresh setup should go through Install,
+          not Repair). Healthy and forwarder-missing states show no button. The
+          destructive Remove with its two-step confirmation always stays. */}
+      <HooksManager actionsOnly showRepair={facts.mode === "workbench" && facts.canRepair} status={hookStatus} onOperationComplete={onOperationComplete} />
 
       {/* Same parent-owned outcome as the Overview, derived at render time so it
           stays reactive to the current locale and hide setting. */}
