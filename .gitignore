@@ -11,6 +11,7 @@ release/
 # app icon that gets baked into the exe stays tracked.
 build/*
 !build/icon.png
+!build/installer.nsh
 
 # Tool caches
 .vite/

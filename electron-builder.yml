@@ -45,6 +45,7 @@ nsis:
   perMachine: false                      # install per-user → no admin/UAC prompt
   allowToChangeInstallationDirectory: true
   artifactName: CharaDesk-Setup-${version}.${ext}   # → CharaDesk-Setup-0.1.0.exe
+  include: build/installer.nsh           # Browse auto-append: picking E:\ shows E:\Chara Desk
 
 # Unsigned alpha: no `win.certificateFile` / signing. Windows SmartScreen will warn on first
 # run ("Windows protected your PC" → More info → Run anyway). Sign before broad distribution.
