@@ -2,6 +2,8 @@
   "name": "chara-desk",
   "productName": "Chara Desk",
   "version": "0.1.0",
+  "description": "Chara Desk — a desktop pet companion for Claude Code.",
+  "author": "Chara Desk",
   "private": true,
   "main": "dist-electron/main/index.js",
   "scripts": {
@@ -11,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.preload.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "build": "npm run build:electron && vite build",
     "start": "electron .",
+    "dist:win": "npm run build && electron-builder --win --publish never",
     "test": "vitest run",
     "hook:forward": "node scripts/hook-forwarder.js",
     "hook:doctor": "node scripts/hook-doctor.js"
@@ -23,7 +26,6 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@vitejs/plugin-react": "^4.4.1",
     "codemirror": "^6.0.2",
-    "electron": "^39.8.10",
     "electron-updater": "^6.8.9",
     "fflate": "^0.8.3",
     "lucide-react": "^0.479.0",
@@ -39,6 +41,8 @@
     "@types/react-dom": "^19.1.2",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
+    "electron": "^39.8.10",
+    "electron-builder": "^26.15.3",
     "jsdom": "^26.1.0",
     "typescript": "^5.8.3",
     "vite": "^6.3.2",
