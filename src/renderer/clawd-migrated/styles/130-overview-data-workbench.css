@@ -1691,47 +1691,120 @@
   gap: 8px;
 }
 
-/* Native select restyled to the workbench language: borderless-adjacent ghost control with a
-   custom chevron (the native arrow is hidden via appearance:none). The popup itself is
-   OS-drawn; color-scheme keeps it dark under the dark theme. */
-.usage-scope-select {
+/* Custom scope dropdown — a native <select>'s popup is OS-drawn (gray/white system list),
+   so the whole control is self-drawn in the workbench language, mirroring the profile
+   switcher's trigger + listbox pattern. */
+.usage-scope-dropdown {
   position: relative;
-  display: inline-flex;
-  align-items: center;
+  min-width: 0;
 }
 
-.usage-scope-select select {
-  max-width: 190px;
+.usage-scope-trigger {
+  min-width: 150px;
+  max-width: 220px;
   min-height: 30px;
-  padding: 0 26px 0 10px;
-  overflow: hidden;
-  appearance: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 13px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px 0 11px;
   border: 1px solid var(--workbench-line);
   border-radius: 8px;
   background: transparent;
   color: var(--ink);
   font-size: 12px;
   font-weight: 680;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   cursor: pointer;
   transition: border-color 160ms ease, background-color 160ms ease;
 }
 
-.usage-scope-select select:hover {
+.usage-scope-trigger > span {
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-scope-trigger > svg {
+  color: var(--workbench-muted);
+}
+
+.usage-scope-trigger:hover,
+.usage-scope-trigger[aria-expanded="true"] {
   border-color: var(--workbench-muted);
   background: var(--workbench-subtle);
 }
 
-.usage-scope-select > svg {
+.usage-scope-options {
   position: absolute;
-  right: 9px;
-  pointer-events: none;
-  color: var(--workbench-muted);
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 210px;
+  max-width: 300px;
+  max-height: 288px;
+  display: grid;
+  gap: 2px;
+  padding: 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  border: 1px solid var(--workbench-line);
+  border-radius: 9px;
+  background: var(--workbench-surface);
+  box-shadow: 0 14px 30px oklch(12% 0.012 75 / 0.28);
+  backdrop-filter: blur(14px);
 }
 
-[data-theme=dark] .usage-scope-select select {
-  color-scheme: dark;
+.usage-scope-options::-webkit-scrollbar {
+  display: none;
+}
+
+.usage-scope-options > button {
+  width: 100%;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--workbench-muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.usage-scope-options > button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-scope-options > button:hover,
+.usage-scope-options > button:focus-visible {
+  color: var(--ink);
+  background: var(--workbench-subtle);
+  outline: 0;
+}
+
+.usage-scope-options > button.current {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.usage-scope-options > button svg {
+  justify-self: end;
+  color: var(--mint);
+}
+
+.recent-edits-footer {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
 }
 
 /* token-more-btn is styled as a table-footer row; standalone under these panels it reads as a

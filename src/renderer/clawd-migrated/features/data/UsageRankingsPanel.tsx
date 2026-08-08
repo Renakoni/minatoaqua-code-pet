@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useEffect, useMemo, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { useI18n } from "../../useI18n";
 
 const COLLAPSED_ROWS = 8;
@@ -36,6 +36,7 @@ export function UsageRankingsPanel({ hideSensitiveContent = false }: { hideSensi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [scopeKey, setScopeKey] = useState("all");
+  const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   const load = async (force = false) => {
@@ -71,15 +72,57 @@ export function UsageRankingsPanel({ hideSensitiveContent = false }: { hideSensi
         <p className="note">{error ? `${zh ? "加载失败" : "Failed to load"}: ${error}` : summary}</p>
         <div className="usage-rankings-controls">
           {!hideSensitiveContent && (snapshot?.projects?.length ?? 0) > 0 ? (
-            <label className="usage-scope-select">
-              <select value={scopeKey} onChange={event => setScopeKey(event.target.value)} aria-label={zh ? "统计范围" : "Ranking scope"}>
-                <option value="all">{zh ? "全部项目" : "All projects"}</option>
-                {snapshot.projects.map(project => (
-                  <option key={project.projectKey} value={project.projectKey}>{project.projectName}</option>
-                ))}
-              </select>
-              <ChevronDown size={13} />
-            </label>
+            // Custom dropdown (same pattern as the profile switcher): a native <select>'s popup
+            // is OS-drawn and can't be themed — it rendered as a gray/white system list that
+            // clashed with the workbench.
+            <div
+              className="usage-scope-dropdown"
+              onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setScopeMenuOpen(false); }}
+              onKeyDown={event => {
+                if (event.key === "Escape") { setScopeMenuOpen(false); return; }
+                if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+                const options = [...event.currentTarget.querySelectorAll("[role=option]")];
+                if (options.length === 0) return;
+                event.preventDefault();
+                const index = options.indexOf(document.activeElement);
+                const next = event.key === "ArrowDown"
+                  ? options[Math.min(options.length - 1, index + 1)]
+                  : options[Math.max(0, index - 1)];
+                next?.focus();
+              }}
+            >
+              <button
+                type="button"
+                className="usage-scope-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={scopeMenuOpen}
+                aria-label={zh ? "统计范围" : "Ranking scope"}
+                onClick={() => setScopeMenuOpen(open => !open)}
+              >
+                <span>{scopeKey === "all" ? (zh ? "全部项目" : "All projects") : (snapshot.projects.find(project => project.projectKey === scopeKey)?.projectName ?? scopeKey)}</span>
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+              {scopeMenuOpen ? (
+                <div className="usage-scope-options" role="listbox" aria-label={zh ? "统计范围" : "Ranking scope"}>
+                  {[{ projectKey: "all", projectName: zh ? "全部项目" : "All projects" }, ...snapshot.projects].map(option => {
+                    const current = option.projectKey === scopeKey;
+                    return (
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={current}
+                        key={option.projectKey}
+                        className={current ? "current" : undefined}
+                        onClick={() => { setScopeKey(option.projectKey); setScopeMenuOpen(false); }}
+                      >
+                        <span>{option.projectName}</span>
+                        {current ? <Check size={13} aria-hidden="true" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
           ) : null}
           <button className="ghost-btn" onClick={() => void load(true)} disabled={loading}>{loading ? (zh ? "扫描中…" : "Scanning…") : t("common.refresh", "刷新")}</button>
         </div>
