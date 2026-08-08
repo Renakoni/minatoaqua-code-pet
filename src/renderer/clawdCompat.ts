@@ -78,6 +78,7 @@ type CompanionApi = {
   getAppVersion: () => Promise<string>;
   getTokenStats: (force?: boolean) => Promise<TokenStats>;
   getRecentEdits: (force?: boolean) => Promise<unknown>;
+  getUsageRankings: (force?: boolean) => Promise<unknown>;
   previewSound: (name: "done" | "error" | "permission") => Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
   getDefaultSoundPaths: () => Promise<Record<string, string | null>>;
   previewSoundFile: (path: string) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
@@ -470,6 +471,7 @@ export function installClawdCompat() {
     getAppVersion: async () => "0.0.0-dev",
     getTokenStats: async () => ({ sessions: [], daily: [], modelTotals: [], dailyTotals: [], projectTotals: [], recentRequests: [], totalTokens: 0, totalCostUsd: 0, totalSessions: 0, totalRequests: 0, cacheHitRatio: 0, lastScannedAt: Date.now(), scanning: false }),
     getRecentEdits: async () => ({ edits: [], totalEdits: 0, totalFiles: 0, lastScannedAt: Date.now() }),
+    getUsageRankings: async () => ({ global: { tools: [], skills: [], agents: [], totalToolUses: 0 }, projects: [], lastScannedAt: Date.now() }),
     previewSound: async () => ({ ok: false, error: "Sound preview is only available in the desktop app." }),
     getDefaultSoundPaths: async () => ({ done: null, error: null, permission: null }),
     previewSoundFile: async () => ({ ok: false, error: "Sound preview is only available in the desktop app." }),

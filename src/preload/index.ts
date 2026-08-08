@@ -103,6 +103,7 @@ contextBridge.exposeInMainWorld("companion", {
   getAppVersion: () => ipcRenderer.invoke("companion:get-app-version"),
   getTokenStats: (force?: boolean) => ipcRenderer.invoke("companion:get-token-stats", force),
   getRecentEdits: (force?: boolean) => ipcRenderer.invoke("companion:get-recent-edits", force),
+  getUsageRankings: (force?: boolean) => ipcRenderer.invoke("companion:get-usage-rankings", force),
   previewSound: (name: unknown) => ipcRenderer.invoke("companion:preview-sound", name),
   getDefaultSoundPaths: () => ipcRenderer.invoke("companion:get-default-sound-paths"),
   previewSoundFile: (path: string) => ipcRenderer.invoke("companion:preview-sound-file", path),

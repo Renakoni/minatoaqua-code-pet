@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Play, RefreshCw, Search, Terminal, TriangleAlert } from "lucide-react";
+import { FolderOpen, Hash, Play, RefreshCw, Search, Terminal, TriangleAlert } from "lucide-react";
 import type { ClaudeSessionDetail, ClaudeSessionIndexItem, ClaudeSessionSnapshot } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import { useVirtualRows } from "../plugins/useVirtualRows";
@@ -56,6 +56,27 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false, focusS
     const wasActive = wasActiveRef.current;
     wasActiveRef.current = active;
     if (active && !wasActive) void refresh(false, true);
+  }, [active, refresh]);
+
+  // Live refresh: a session_start / done hook event means the transcript set changed on disk
+  // (main ages its snapshot cache on the same events). Debounced so a burst of Stop events
+  // triggers one rescan; only wired while the tab is visible — a hidden tab picks the change
+  // up through the refresh-on-activation above.
+  useEffect(() => {
+    if (!active || typeof window.companion.onEvent !== "function") return undefined;
+    let timer: number | null = null;
+    const off = window.companion.onEvent(event => {
+      if (event.event !== "session_start" && event.event !== "done") return;
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = null;
+        void refresh(false, true);
+      }, 1500);
+    });
+    return () => {
+      off();
+      if (timer) window.clearTimeout(timer);
+    };
   }, [active, refresh]);
 
   // Jump-in from the data tab: select the requested transcript and clear any filter that
@@ -134,6 +155,22 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false, focusS
     const timer = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  // The resume command mirrors what the Resume button launches, with a cd prefix so a paste
+  // into any terminal lands in the session's original working directory first.
+  function resumeCommandFor(session: ClaudeSessionIndexItem) {
+    const base = `claude --resume ${session.sessionId}`;
+    return session.projectPath ? `cd "${session.projectPath}" && ${base}` : base;
+  }
+
+  async function copyToClipboard(text: string, doneMessage: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setToast(doneMessage);
+    } catch {
+      setToast(zh ? "复制失败" : "Copy failed");
+    }
+  }
 
   async function resumeSession(session: ClaudeSessionIndexItem) {
     const command = `claude --resume ${session.sessionId}`;
@@ -215,6 +252,24 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false, focusS
                   <h2>{hideSensitiveContent ? `${zh ? "会话" : "Session"} ${selected.sessionId.slice(0, 8)}` : selected.title}</h2>
                 </div>
                 <div className="session-viewer-actions">
+                  <button
+                    className="session-icon-button"
+                    title={zh ? "复制恢复命令" : "Copy resume command"}
+                    aria-label={zh ? "复制恢复命令" : "Copy resume command"}
+                    onClick={() => void copyToClipboard(resumeCommandFor(selected), zh ? "已复制恢复命令" : "Resume command copied")}
+                  ><Terminal size={14} /></button>
+                  <button
+                    className="session-icon-button"
+                    title={zh ? "复制会话 ID" : "Copy session ID"}
+                    aria-label={zh ? "复制会话 ID" : "Copy session ID"}
+                    onClick={() => void copyToClipboard(selected.sessionId, zh ? "已复制会话 ID" : "Session ID copied")}
+                  ><Hash size={14} /></button>
+                  <button
+                    className="session-icon-button"
+                    title={zh ? "在资源管理器中显示日志" : "Show transcript in Explorer"}
+                    aria-label={zh ? "在资源管理器中显示日志" : "Show transcript in Explorer"}
+                    onClick={() => void window.companion.openClaudeResource(selected.filePath)}
+                  ><FolderOpen size={14} /></button>
                   <button className="session-resume-button" onClick={() => void resumeSession(selected)}><Play size={14} />{zh ? "恢复" : "Resume"}</button>
                 </div>
               </header>

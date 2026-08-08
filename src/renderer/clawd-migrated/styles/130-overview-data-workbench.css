@@ -1665,6 +1665,125 @@
   }
 }
 
+/* ---- Usage rankings (data tab) ---- */
+
+.usage-rankings-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.usage-rankings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.usage-rankings-head .note {
+  margin: 0;
+}
+
+.usage-rankings-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.usage-rankings-controls select {
+  max-width: 180px;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 1px solid var(--workbench-line);
+  border-radius: 7px;
+  background: var(--workbench-subtle);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.usage-rank-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.usage-rank-column {
+  overflow: hidden;
+  border: 1px solid var(--workbench-line);
+  border-radius: 8px;
+  background: var(--workbench-subtle);
+}
+
+.usage-rank-column > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--workbench-line);
+}
+
+.usage-rank-column > header span {
+  color: var(--workbench-muted);
+  font-size: 11px;
+}
+
+.usage-rank-column > .note {
+  padding: 10px 11px;
+}
+
+.usage-rank-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.usage-rank-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px 44px;
+  gap: 8px;
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 11px;
+  border-bottom: 1px solid var(--workbench-line);
+  font-size: 12px;
+}
+
+.usage-rank-row:last-child {
+  border-bottom: 0;
+}
+
+.usage-rank-name {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-rank-bar {
+  overflow: hidden;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--workbench-line);
+}
+
+.usage-rank-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--mint);
+}
+
+.usage-rank-row b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+@media (max-width: 1100px) {
+  .usage-rank-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---- Recent edits (data tab) ---- */
 
 .recent-edits-panel {
