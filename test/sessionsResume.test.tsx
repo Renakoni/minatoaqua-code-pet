@@ -40,7 +40,7 @@ describe("SessionsPage resume", () => {
     const { writeText } = installCompanion({ ok: false, command: "claude --resume abc123def456", error: notOnPath });
     render(<SessionsPage />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /恢复/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "恢复" }));
 
     // The install/restart guidance reaches the UI instead of a useless copied command.
     await waitFor(() => expect(screen.getByText(/isn't on PATH/)).toBeTruthy());
@@ -51,7 +51,7 @@ describe("SessionsPage resume", () => {
     const { writeText } = installCompanion({ ok: false, command: "claude --resume abc123def456", error: "spawn cmd.exe ENOENT", copyable: true });
     render(<SessionsPage />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /恢复/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "恢复" }));
 
     await waitFor(() => expect(screen.getByText(/ENOENT/)).toBeTruthy());
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("claude --resume abc123def456"));

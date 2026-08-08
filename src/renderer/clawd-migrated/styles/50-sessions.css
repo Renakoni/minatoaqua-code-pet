@@ -166,6 +166,7 @@
 .session-viewer-actions { display: flex; gap: 8px; flex-wrap: nowrap; justify-content: flex-end; }
 .session-viewer-actions button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; border: 1px solid oklch(33% 0.012 75); border-radius: 8px; color: oklch(76% 0.012 78); background: oklch(21% 0.006 75); font-size: 12px; font-weight: 720; line-height: 1; white-space: nowrap; transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease; }
 .session-viewer-actions button:hover:not(:disabled) { color: oklch(92% 0.012 78); border-color: oklch(42% 0.014 75); background: oklch(24% 0.007 75); }
+.session-viewer-actions .session-icon-button { flex: 0 0 34px; width: 34px; padding: 0; }
 .session-viewer-actions .session-resume-button { flex: 0 0 72px; width: 72px; color: oklch(18% 0.006 75); border-color: oklch(76% 0.09 82); background: oklch(77% 0.105 82); }
 .session-viewer-actions .session-resume-button:hover:not(:disabled) { color: oklch(16% 0.006 75); border-color: oklch(82% 0.1 82); background: oklch(82% 0.11 82); }
 .session-viewer-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: hidden; border: 1px solid oklch(27% 0.006 75); border-radius: 8px; background: oklch(18.5% 0.006 75); }

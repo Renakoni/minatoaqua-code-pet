@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Play, RefreshCw, Search, Terminal, TriangleAlert } from "lucide-react";
+import { FolderOpen, Hash, Play, RefreshCw, Search, Terminal, TriangleAlert } from "lucide-react";
 import type { ClaudeSessionDetail, ClaudeSessionIndexItem, ClaudeSessionSnapshot } from "../../../shared/events";
 import { useI18n } from "../../useI18n";
 import { useVirtualRows } from "../plugins/useVirtualRows";
@@ -33,6 +33,8 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false, focusS
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const wasActiveRef = useRef(active);
+  const activeRef = useRef(active);
+  useEffect(() => { activeRef.current = active; }, [active]);
 
   const refresh = useCallback(async (force = false, preserveContent = false) => {
     if (!preserveContent) setLoading(true);
@@ -57,6 +59,23 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false, focusS
     wasActiveRef.current = active;
     if (active && !wasActive) void refresh(false, true);
   }, [active, refresh]);
+
+  // Live refresh: main runs a debounced forced rescan on SessionStart / Stop hook events and
+  // pushes every fresh scan result over this channel. Subscribing (even while hidden) is what
+  // makes a new session appear within seconds — pulling via getClaudeSessions would only get
+  // the stale snapshot that stale-while-revalidate serves.
+  useEffect(() => {
+    if (typeof window.companion.onSessionsUpdated !== "function") return undefined;
+    return window.companion.onSessionsUpdated(next => {
+      const safe = (next as ClaudeSessionSnapshot | null) ?? emptySnapshot;
+      setSnapshot(safe);
+      setSelectedPath(current => current ?? safe.sessions?.[0]?.filePath ?? null);
+      // Detail refetch parses up to 16MB of transcript in main. The page stays mounted for
+      // the app's whole lifetime, and pushes arrive after every Claude turn — so only refetch
+      // while the tab is actually visible; activation's refresh() bumps the revision anyway.
+      if (activeRef.current) setDetailRevision(current => current + 1);
+    });
+  }, []);
 
   // Jump-in from the data tab: select the requested transcript and clear any filter that
   // could hide it. The scroll is parked in pendingFocusRef because the snapshot may still be
@@ -134,6 +153,25 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false, focusS
     const timer = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  // The resume command mirrors what the Resume button launches, with a cd prefix so a paste
+  // lands in the session's original working directory first. Joined with ";" not "&&":
+  // Windows PowerShell 5.1 (the shell the Resume button itself opens, and the Windows
+  // Terminal default) rejects "&&", while ";" works in both PS 5.1 and PowerShell 7 — and
+  // PowerShell's cd changes drives without the /d that cmd's cd would need.
+  function resumeCommandFor(session: ClaudeSessionIndexItem) {
+    const base = `claude --resume ${session.sessionId}`;
+    return session.projectPath ? `cd "${session.projectPath}"; ${base}` : base;
+  }
+
+  async function copyToClipboard(text: string, doneMessage: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setToast(doneMessage);
+    } catch {
+      setToast(zh ? "复制失败" : "Copy failed");
+    }
+  }
 
   async function resumeSession(session: ClaudeSessionIndexItem) {
     const command = `claude --resume ${session.sessionId}`;
@@ -215,6 +253,24 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false, focusS
                   <h2>{hideSensitiveContent ? `${zh ? "会话" : "Session"} ${selected.sessionId.slice(0, 8)}` : selected.title}</h2>
                 </div>
                 <div className="session-viewer-actions">
+                  <button
+                    className="session-icon-button"
+                    title={zh ? "复制恢复命令" : "Copy resume command"}
+                    aria-label={zh ? "复制恢复命令" : "Copy resume command"}
+                    onClick={() => void copyToClipboard(resumeCommandFor(selected), zh ? "已复制恢复命令" : "Resume command copied")}
+                  ><Terminal size={14} /></button>
+                  <button
+                    className="session-icon-button"
+                    title={zh ? "复制会话 ID" : "Copy session ID"}
+                    aria-label={zh ? "复制会话 ID" : "Copy session ID"}
+                    onClick={() => void copyToClipboard(selected.sessionId, zh ? "已复制会话 ID" : "Session ID copied")}
+                  ><Hash size={14} /></button>
+                  <button
+                    className="session-icon-button"
+                    title={zh ? "在资源管理器中显示日志" : "Show transcript in Explorer"}
+                    aria-label={zh ? "在资源管理器中显示日志" : "Show transcript in Explorer"}
+                    onClick={() => void window.companion.openClaudeResource(selected.filePath)}
+                  ><FolderOpen size={14} /></button>
                   <button className="session-resume-button" onClick={() => void resumeSession(selected)}><Play size={14} />{zh ? "恢复" : "Resume"}</button>
                 </div>
               </header>

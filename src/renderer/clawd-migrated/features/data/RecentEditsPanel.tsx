@@ -82,7 +82,6 @@ export function RecentEditsPanel({ hideSensitiveContent = false, onOpenSession }
                   {edit.removedLines > 0 ? <b className="del">−{edit.removedLines}</b> : null}
                   {edit.addedLines === 0 && edit.removedLines === 0 ? <b className="none">—</b> : null}
                 </span>
-                <span className="recent-edit-project" title={hideSensitiveContent ? undefined : edit.projectName}>{hideSensitiveContent ? (zh ? "已隐藏" : "Hidden") : edit.projectName}</span>
                 <time>{formatWhen(edit.timestamp, zh)}</time>
                 <button
                   type="button"
@@ -99,10 +98,15 @@ export function RecentEditsPanel({ hideSensitiveContent = false, onOpenSession }
         </div>
       ) : null}
 
-      {edits.length > visibleCount ? (
-        <button className="ghost-btn token-more-btn" onClick={() => setVisibleCount(count => count + 20)}>{t("stats.showMore", "查看更多")} ({edits.length - visibleCount})</button>
-      ) : visibleCount > PAGE_SIZE && edits.length > PAGE_SIZE ? (
-        <button className="ghost-btn token-more-btn" onClick={() => setVisibleCount(PAGE_SIZE)}>{t("stats.collapse", "收起")}</button>
+      {edits.length > visibleCount || (visibleCount > PAGE_SIZE && edits.length > PAGE_SIZE) ? (
+        <div className="recent-edits-footer">
+          {edits.length > visibleCount ? (
+            <button className="ghost-btn token-more-btn" onClick={() => setVisibleCount(count => count + 20)}>{t("stats.showMore", "查看更多")} ({edits.length - visibleCount})</button>
+          ) : null}
+          {visibleCount > PAGE_SIZE && edits.length > PAGE_SIZE ? (
+            <button className="ghost-btn token-more-btn" onClick={() => setVisibleCount(PAGE_SIZE)}>{t("stats.collapse", "收起")}</button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
