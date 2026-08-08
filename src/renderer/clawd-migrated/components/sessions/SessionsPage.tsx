@@ -13,7 +13,13 @@ const emptySnapshot: ClaudeSessionSnapshot = {
 
 const SESSION_ROW_HEIGHT = 97;
 
-function SessionsPageInner({ active = true, hideSensitiveContent = false }: { active?: boolean; hideSensitiveContent?: boolean }) {
+function SessionsPageInner({ active = true, hideSensitiveContent = false, focusSessionPath = null, onFocusSessionHandled }: {
+  active?: boolean;
+  hideSensitiveContent?: boolean;
+  /** Transcript path to select on arrival (jump-in from the data tab's recent-edits list). */
+  focusSessionPath?: string | null;
+  onFocusSessionHandled?: () => void;
+}) {
   const { locale } = useI18n();
   const zh = locale === "zh";
   const [snapshot, setSnapshot] = useState<ClaudeSessionSnapshot>(emptySnapshot);
@@ -51,6 +57,30 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false }: { ac
     wasActiveRef.current = active;
     if (active && !wasActive) void refresh(false, true);
   }, [active, refresh]);
+
+  // Jump-in from the data tab: select the requested transcript and clear any filter that
+  // could hide it. The scroll is parked in pendingFocusRef because the snapshot may still be
+  // loading when the jump lands — the effect below retries whenever the session list changes
+  // and only consumes the pending path once the target row actually exists in it.
+  const pendingFocusRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusSessionPath) return;
+    pendingFocusRef.current = focusSessionPath;
+    setQuery("");
+    setSelectedPath(focusSessionPath);
+    onFocusSessionHandled?.();
+  }, [focusSessionPath]);
+
+  useEffect(() => {
+    const target = pendingFocusRef.current;
+    if (!target) return;
+    const index = snapshot.sessions.findIndex(session => session.filePath === target);
+    if (index < 0) return; // not scanned in yet (or beyond the scan cap) — keep waiting
+    pendingFocusRef.current = null;
+    requestAnimationFrame(() => {
+      virtual.viewportRef.current?.scrollTo({ top: Math.max(0, (index - 1) * SESSION_ROW_HEIGHT), behavior: "auto" });
+    });
+  }, [snapshot.sessions, focusSessionPath]);
 
   const filteredSessions = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -161,7 +191,7 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false }: { ac
                     key={session.filePath}
                     className={`session-viewer-row ${selected?.filePath === session.filePath ? "active" : ""}`}
                     style={{ height: SESSION_ROW_HEIGHT, transform: `translateY(${index * SESSION_ROW_HEIGHT}px)` }}
-                    onClick={() => setSelectedPath(session.filePath)}
+                    onClick={() => { pendingFocusRef.current = null; setSelectedPath(session.filePath); }}
                   >
                     <strong>{hideSensitiveContent ? `${zh ? "会话" : "Session"} ${session.sessionId.slice(0, 8)}` : compactTitle(session.title)}</strong>
                     <p className="session-viewer-project-path">{hideSensitiveContent ? (zh ? "详情已隐藏" : "Details hidden") : session.projectPath || session.projectName}</p>

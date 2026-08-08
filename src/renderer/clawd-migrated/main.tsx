@@ -796,6 +796,9 @@ function SettingsApp() {
   const [copied, setCopied] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState("general");
   const [activeSettingsSubsection, setActiveSettingsSubsection] = useState("general");
+  // Transcript path the sessions tab should select next — set by the data tab's recent-edits
+  // jump, consumed (and cleared) by SessionsPage once applied.
+  const [sessionFocusPath, setSessionFocusPath] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const [appVersion, setAppVersion] = useState("...");
   const sectionContentRef = useRef<HTMLDivElement | null>(null);
@@ -912,6 +915,17 @@ function SettingsApp() {
     setActiveSection(section);
     resetSectionScroll();
   }
+
+  // "查看所属会话" from the data tab's recent-edits list: remember the transcript to select,
+  // then switch to the sessions tab. Routed through a ref so the callback identity stays
+  // stable and the memoized DataSection doesn't re-render on every panel render.
+  const openSessionInViewerRef = useRef<(sessionFilePath: string) => void>(() => {});
+  openSessionInViewerRef.current = (sessionFilePath: string) => {
+    setSessionFocusPath(sessionFilePath);
+    jumpTo("sessions");
+  };
+  const handleOpenSessionFromData = useCallback((sessionFilePath: string) => openSessionInViewerRef.current(sessionFilePath), []);
+  const handleSessionFocusHandled = useCallback(() => setSessionFocusPath(null), []);
 
   useEffect(() => {
     return window.companion.onOpenSection(section => jumpTo(section));
@@ -1055,7 +1069,7 @@ function SettingsApp() {
 
         {(activeSection === "sessions" || backgroundSectionsMounted) && (
           <div style={{ display: activeSection === "sessions" ? "contents" : "none" }} aria-hidden={activeSection !== "sessions"}>
-            <SessionsPage active={activeSection === "sessions"} hideSensitiveContent={settings.hideSensitiveContent} />
+            <SessionsPage active={activeSection === "sessions"} hideSensitiveContent={settings.hideSensitiveContent} focusSessionPath={sessionFocusPath} onFocusSessionHandled={handleSessionFocusHandled} />
           </div>
         )}
 
@@ -1077,6 +1091,7 @@ function SettingsApp() {
               persistedStats={persistedStats}
               hideSensitiveContent={settings.hideSensitiveContent}
               onResetStats={handleResetStats}
+              onOpenSession={handleOpenSessionFromData}
             />
           </div>
         )}

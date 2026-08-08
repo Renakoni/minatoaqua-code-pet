@@ -1664,3 +1664,130 @@
     min-width: 0;
   }
 }
+
+/* ---- Recent edits (data tab) ---- */
+
+.recent-edits-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.recent-edits-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recent-edits-head .note {
+  margin: 0;
+}
+
+.recent-edits-list {
+  overflow: hidden;
+  border: 1px solid var(--workbench-line);
+  border-radius: 8px;
+  background: var(--workbench-subtle);
+}
+
+.recent-edit-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 44px 88px 110px 76px 26px;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--workbench-line);
+  font-size: 12px;
+}
+
+.recent-edit-row:last-child {
+  border-bottom: 0;
+}
+
+.recent-edit-icon {
+  color: var(--workbench-muted);
+}
+
+.recent-edit-icon.create,
+.recent-edit-op.create,
+.recent-edit-lines .add {
+  color: var(--mint);
+}
+
+.recent-edit-file {
+  min-width: 0;
+}
+
+.recent-edit-file strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-edit-file p {
+  margin: 1px 0 0;
+  overflow: hidden;
+  color: var(--workbench-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-edit-op {
+  color: var(--workbench-muted);
+}
+
+.recent-edit-lines {
+  display: inline-flex;
+  gap: 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.recent-edit-lines .del {
+  color: var(--coral);
+}
+
+.recent-edit-lines .none {
+  color: var(--workbench-muted);
+}
+
+.recent-edit-project,
+.recent-edit-row time {
+  overflow: hidden;
+  color: var(--workbench-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-edit-jump {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--workbench-line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--workbench-muted);
+  cursor: pointer;
+}
+
+.recent-edit-jump:hover {
+  border-color: var(--workbench-muted);
+  color: var(--ink);
+}
+
+@media (max-width: 1100px) {
+  .recent-edit-row {
+    grid-template-columns: 16px minmax(0, 1fr) 44px 88px 76px 26px;
+  }
+
+  .recent-edit-project {
+    display: none;
+  }
+}
