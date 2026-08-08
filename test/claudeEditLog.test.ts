@@ -65,6 +65,18 @@ describe("editFromToolUseResult", () => {
     expect(edit).toMatchObject({ op: "create", addedLines: 3, removedLines: 0 });
   });
 
+  it("does not count the file's terminating newline as an extra line", () => {
+    // Real Write results end with an EOF newline — "a\n" is ONE line, not two.
+    const eof = editFromToolUseResult({ type: "create", filePath: "C:/repo/eof.ts", content: "line1\nline2\nline3\n" }, context);
+    expect(eof).toMatchObject({ op: "create", addedLines: 3, removedLines: 0 });
+    const single = editFromToolUseResult({ type: "create", filePath: "C:/repo/one.ts", content: "a\n" }, context);
+    expect(single).toMatchObject({ addedLines: 1 });
+    const bareNewline = editFromToolUseResult({ type: "create", filePath: "C:/repo/nl.ts", content: "\n" }, context);
+    expect(bareNewline).toMatchObject({ addedLines: 1 });
+    const withEofStrings = editFromToolUseResult({ filePath: "C:/repo/e.ts", oldString: "one\ntwo\n", newString: "one\n" }, context);
+    expect(withEofStrings).toMatchObject({ addedLines: 1, removedLines: 2 });
+  });
+
   it("treats a Write overwrite (type update) as an edit", () => {
     const edit = editFromToolUseResult({
       type: "update",

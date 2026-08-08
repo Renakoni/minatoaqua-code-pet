@@ -65,8 +65,12 @@ function countStructuredPatch(patch: unknown): { added: number; removed: number 
   return sawLines ? { added, removed } : null;
 }
 
+// Written files end with a terminating newline; splitting on "\n" would count that terminator
+// as a phantom extra line ("a\n" → 2), so strip exactly one before counting.
 function countLines(text: string): number {
-  return text ? text.split("\n").length : 0;
+  if (!text) return 0;
+  const withoutTerminator = text.endsWith("\n") ? text.slice(0, -1) : text;
+  return withoutTerminator ? withoutTerminator.split("\n").length : 1;
 }
 
 function stringField(value: Record<string, unknown>, ...keys: string[]): string {
