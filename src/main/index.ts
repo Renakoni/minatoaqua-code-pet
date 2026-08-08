@@ -70,6 +70,7 @@ import { historyToSortedArray, mergeTokenDailyHistory, normalizeTokenDailyHistor
 import { mergeRuntimeStats, type RuntimeStatsShape } from "./runtimeStatsMerge";
 import { recordSessionSighting } from "./runtimeSessions";
 import { loadScanCache, saveScanCache, type CachedScan } from "./scanCachePersistence";
+import { aggregateRecentEdits, editFromToolUseResult, emptyRecentEditsSnapshot, type ParsedEditRecord, type RecentEditsSnapshot } from "./claudeEditLog";
 import type { CompanionInitialState } from "../renderer/shared/events";
 
 type DailyRuntimeStats = {
@@ -1929,11 +1930,12 @@ const CLAUDE_TOKEN_STALE_TTL = 7 * 24 * 60 * 60 * 1000;
 const CLAUDE_TOKEN_SCAN_CONCURRENCY = 10;
 let claudeTokenStatsCache: { data: ClaudeTokenStats; timestamp: number } | null = null;
 let pendingClaudeTokenStatsScan: Promise<ClaudeTokenStats> | null = null;
-let claudeTokenFileCache = new Map<string, { mtimeMs: number; size: number; requests: ParsedTokenRequest[] }>();
+let claudeTokenFileCache = new Map<string, { mtimeMs: number; size: number; requests: ParsedTokenRequest[]; edits: ParsedEditRecord[] }>();
 // Bump when ParsedTokenRequest's shape or scanClaudeTokenFile's parse/dedup logic changes, so a
 // stale on-disk cache is discarded rather than served. The cached payload is cost-free (cost is
 // re-derived from the current pricing table every aggregation), so a rate refresh never invalidates it.
-const TOKEN_FILE_CACHE_VERSION = 2;
+// v3: entries also carry the file's extracted edit records (recent-edits timeline).
+const TOKEN_FILE_CACHE_VERSION = 3;
 let tokenFileCacheLoaded = false;
 // The (path:mtime:size) signature of the file set at the last full scan. When it is unchanged the
 // aggregate is provably identical, so a background refresh can skip the whole re-parse+re-aggregate.
@@ -1941,6 +1943,9 @@ let lastTokenScanSignature = "";
 function tokenFileCachePath() {
   return join(app.getPath("userData"), "token-file-cache.ndjson");
 }
+// Aggregated recent-edits timeline, rebuilt by the same full scan that rebuilds the token
+// aggregate — the two are always derived from the same file set and share its freshness.
+let claudeRecentEditsSnapshot: RecentEditsSnapshot = emptyRecentEditsSnapshot();
 
 // Durable per-day request/token history for the heatmap: it survives Claude Code rotating
 // away old session logs, which a live-only scan cannot (see ./tokenHistory).
@@ -2158,9 +2163,9 @@ async function collectClaudeJsonlFilesRecursive(projectsDir: string): Promise<To
   return files;
 }
 
-async function scanClaudeTokenFile(filePath: string, encodedProject: string, mtimeMs: number, size: number): Promise<ParsedTokenRequest[]> {
+async function scanClaudeTokenFile(filePath: string, encodedProject: string, mtimeMs: number, size: number): Promise<{ requests: ParsedTokenRequest[]; edits: ParsedEditRecord[] }> {
   const cached = claudeTokenFileCache.get(filePath);
-  if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached.requests;
+  if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return { requests: cached.requests, edits: cached.edits };
   const fallbackTime = mtimeMs;
   let sessionId = sessionIdFromPath(filePath);
   // Pin the project to the session's ORIGIN cwd — the first cwd seen in the file. Claude Code
@@ -2174,6 +2179,7 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string, mti
   let pendingUserTimestamp: number | undefined;
   const byDedup = new Map<string, ParsedTokenRequest>();
   const requests: ParsedTokenRequest[] = [];
+  const edits: ParsedEditRecord[] = [];
   const stream = createReadStream(filePath, { encoding: "utf8" });
   const reader = createInterface({ input: stream, crlfDelay: Infinity });
 
@@ -2187,6 +2193,19 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string, mti
           pendingUserTimestamp = timestampFromRecord(userRecord, fallbackTime);
           if (typeof userRecord.sessionId === "string") sessionId = userRecord.sessionId;
           if (projectPath === undefined && typeof userRecord.cwd === "string") projectPath = userRecord.cwd;
+          // Applied Edit/Write results ride on these same user rows as `toolUseResult` — the
+          // record is already parsed, so the recent-edits timeline costs no extra IO here.
+          if (userRecord.toolUseResult) {
+            const editRecord = editFromToolUseResult(userRecord.toolUseResult, {
+              id: typeof userRecord.uuid === "string" && userRecord.uuid ? userRecord.uuid : `${filePath}#${edits.length}`,
+              timestamp: pendingUserTimestamp,
+              sessionId,
+              sessionFilePath: filePath,
+              projectPath,
+              projectName: claudeProjectName(projectPath, encodedProject)
+            });
+            if (editRecord) edits.push(editRecord);
+          }
         } catch { /* ignore bad user rows */ }
         continue;
       }
@@ -2243,8 +2262,8 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string, mti
     reader.close();
     stream.destroy();
   }
-  claudeTokenFileCache.set(filePath, { mtimeMs, size, requests });
-  return requests;
+  claudeTokenFileCache.set(filePath, { mtimeMs, size, requests, edits });
+  return { requests, edits };
 }
 
 async function scanClaudeTokenStatsFresh(): Promise<ClaudeTokenStats> {
@@ -2253,8 +2272,8 @@ async function scanClaudeTokenStatsFresh(): Promise<ClaudeTokenStats> {
   // Warm the per-file parse cache from disk once so a cold start reuses every unchanged file's
   // parsed requests instead of re-streaming the whole ~/.claude/projects tree.
   if (!tokenFileCacheLoaded) {
-    for (const [filePath, entry] of loadScanCache<ParsedTokenRequest[]>(tokenFileCachePath(), TOKEN_FILE_CACHE_VERSION)) {
-      claudeTokenFileCache.set(filePath, { mtimeMs: entry.mtimeMs, size: entry.size, requests: entry.payload });
+    for (const [filePath, entry] of loadScanCache<{ requests: ParsedTokenRequest[]; edits: ParsedEditRecord[] }>(tokenFileCachePath(), TOKEN_FILE_CACHE_VERSION)) {
+      claudeTokenFileCache.set(filePath, { mtimeMs: entry.mtimeMs, size: entry.size, requests: entry.payload.requests ?? [], edits: entry.payload.edits ?? [] });
     }
     tokenFileCacheLoaded = true;
   }
@@ -2270,15 +2289,16 @@ async function scanClaudeTokenStatsFresh(): Promise<ClaudeTokenStats> {
   for (const filePath of claudeTokenFileCache.keys()) {
     if (!seenFiles.has(filePath)) claudeTokenFileCache.delete(filePath);
   }
-  const batchResults = await mapInBatches(files, CLAUDE_TOKEN_SCAN_CONCURRENCY, file => scanClaudeTokenFile(file.filePath, file.encodedProject, file.mtimeMs, file.size).catch(() => []));
-  const requests = batchResults.flat();
+  const batchResults = await mapInBatches(files, CLAUDE_TOKEN_SCAN_CONCURRENCY, file => scanClaudeTokenFile(file.filePath, file.encodedProject, file.mtimeMs, file.size).catch(() => ({ requests: [] as ParsedTokenRequest[], edits: [] as ParsedEditRecord[] })));
+  const requests = batchResults.flatMap(batch => batch.requests);
   const result = applyDurableDailyHistory(aggregateClaudeTokenStats(requests, Date.now()));
+  claudeRecentEditsSnapshot = aggregateRecentEdits(batchResults.flatMap(batch => batch.edits), Date.now());
   lastTokenScanSignature = signature;
   // Persist the refreshed cache (only files that still exist) for the next cold start.
-  saveScanCache<ParsedTokenRequest[]>(
+  saveScanCache<{ requests: ParsedTokenRequest[]; edits: ParsedEditRecord[] }>(
     tokenFileCachePath(),
     TOKEN_FILE_CACHE_VERSION,
-    [...claudeTokenFileCache.entries()].map(([filePath, entry]) => [filePath, { mtimeMs: entry.mtimeMs, size: entry.size, payload: entry.requests }] as [string, CachedScan<ParsedTokenRequest[]>])
+    [...claudeTokenFileCache.entries()].map(([filePath, entry]) => [filePath, { mtimeMs: entry.mtimeMs, size: entry.size, payload: { requests: entry.requests, edits: entry.edits } }] as [string, CachedScan<{ requests: ParsedTokenRequest[]; edits: ParsedEditRecord[] }>])
   );
   return result;
 }
@@ -2427,6 +2447,13 @@ async function getClaudeTokenStats(force = false) {
     .catch(() => emptyClaudeTokenStats())
     .finally(() => { pendingClaudeTokenStatsScan = null; });
   return pendingClaudeTokenStatsScan;
+}
+
+// The recent-edits snapshot is a by-product of the token scan, so serving it just means making
+// sure that scan is fresh (same TTL / stale-while-revalidate policy) and returning the aggregate.
+async function getClaudeRecentEdits(force = false): Promise<RecentEditsSnapshot> {
+  await getClaudeTokenStats(force);
+  return claudeRecentEditsSnapshot;
 }
 
 function collectClaudeJsonlFiles(projectsDir: string) {
@@ -3785,6 +3812,7 @@ app.whenReady().then(() => {
   ipcMain.handle("companion:install-update", () => installUpdate());
   ipcMain.handle("companion:get-app-version", () => app.getVersion());
   ipcMain.handle("companion:get-token-stats", (_, force?: boolean) => getClaudeTokenStats(Boolean(force)));
+  ipcMain.handle("companion:get-recent-edits", (_, force?: boolean) => getClaudeRecentEdits(Boolean(force)));
   ipcMain.handle("companion:preview-sound", (_, name: unknown) => isBuiltInSound(name) ? previewSoundDataUrl(name) : { ok: false, error: "Unknown sound type." });
   ipcMain.handle("companion:get-default-sound-paths", () => ({
     done: windowsMediaSoundPath("done"),

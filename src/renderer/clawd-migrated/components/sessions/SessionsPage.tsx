@@ -13,7 +13,13 @@ const emptySnapshot: ClaudeSessionSnapshot = {
 
 const SESSION_ROW_HEIGHT = 97;
 
-function SessionsPageInner({ active = true, hideSensitiveContent = false }: { active?: boolean; hideSensitiveContent?: boolean }) {
+function SessionsPageInner({ active = true, hideSensitiveContent = false, focusSessionPath = null, onFocusSessionHandled }: {
+  active?: boolean;
+  hideSensitiveContent?: boolean;
+  /** Transcript path to select on arrival (jump-in from the data tab's recent-edits list). */
+  focusSessionPath?: string | null;
+  onFocusSessionHandled?: () => void;
+}) {
   const { locale } = useI18n();
   const zh = locale === "zh";
   const [snapshot, setSnapshot] = useState<ClaudeSessionSnapshot>(emptySnapshot);
@@ -51,6 +57,20 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false }: { ac
     wasActiveRef.current = active;
     if (active && !wasActive) void refresh(false, true);
   }, [active, refresh]);
+
+  // Jump-in from the data tab: select the requested transcript, clear any filter that could
+  // hide it, and scroll the virtual list near the row. If the session is missing from the
+  // snapshot (older than the scan cap), selection just falls back to the list default.
+  useEffect(() => {
+    if (!focusSessionPath) return;
+    setQuery("");
+    setSelectedPath(focusSessionPath);
+    requestAnimationFrame(() => {
+      const index = snapshot.sessions.findIndex(session => session.filePath === focusSessionPath);
+      if (index >= 0) virtual.viewportRef.current?.scrollTo({ top: Math.max(0, (index - 1) * SESSION_ROW_HEIGHT), behavior: "auto" });
+    });
+    onFocusSessionHandled?.();
+  }, [focusSessionPath]);
 
   const filteredSessions = useMemo(() => {
     const needle = query.trim().toLowerCase();

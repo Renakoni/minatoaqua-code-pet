@@ -1,15 +1,17 @@
 // @ts-nocheck
 import React, { useEffect, useMemo, useState } from "react";
-import { Code2, FolderOpen, Gauge, HardDrive, Trash2 } from "lucide-react";
+import { Code2, FolderOpen, Gauge, HardDrive, History, Trash2 } from "lucide-react";
 import { useI18n } from "../../useI18n";
 import { StatsPanel } from "../../components/StatsPanel";
 import { TokenPanel } from "./TokenPanel";
+import { RecentEditsPanel } from "./RecentEditsPanel";
 import { ConfirmDialog } from "../../components/claude-routing/ConfirmDialog";
 
-function DataSectionInner({ persistedStats, hideSensitiveContent, onResetStats }: {
+function DataSectionInner({ persistedStats, hideSensitiveContent, onResetStats, onOpenSession }: {
   persistedStats: any;
   hideSensitiveContent: boolean;
   onResetStats: () => Promise<void>;
+  onOpenSession?: (sessionFilePath: string) => void;
 }) {
   const { t, locale } = useI18n();
   const zh = locale === "zh";
@@ -70,6 +72,17 @@ function DataSectionInner({ persistedStats, hideSensitiveContent, onResetStats }
           <Code2 size={18} />
         </header>
         <TokenPanel hideSensitiveContent={hideSensitiveContent} />
+      </section>
+
+      <section className="workbench-section data-edits-section">
+        <header className="workbench-section-head">
+          <div>
+            <span>Claude Code</span>
+            <h2>{t("sections.recentEdits", "最近编辑")}</h2>
+          </div>
+          <History size={18} />
+        </header>
+        <RecentEditsPanel hideSensitiveContent={hideSensitiveContent} onOpenSession={onOpenSession} />
       </section>
 
       <section className="workbench-section data-local-section">
