@@ -33,6 +33,8 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false, focusS
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const wasActiveRef = useRef(active);
+  const activeRef = useRef(active);
+  useEffect(() => { activeRef.current = active; }, [active]);
 
   const refresh = useCallback(async (force = false, preserveContent = false) => {
     if (!preserveContent) setLoading(true);
@@ -68,7 +70,10 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false, focusS
       const safe = (next as ClaudeSessionSnapshot | null) ?? emptySnapshot;
       setSnapshot(safe);
       setSelectedPath(current => current ?? safe.sessions?.[0]?.filePath ?? null);
-      setDetailRevision(current => current + 1);
+      // Detail refetch parses up to 16MB of transcript in main. The page stays mounted for
+      // the app's whole lifetime, and pushes arrive after every Claude turn — so only refetch
+      // while the tab is actually visible; activation's refresh() bumps the revision anyway.
+      if (activeRef.current) setDetailRevision(current => current + 1);
     });
   }, []);
 
@@ -150,10 +155,13 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false, focusS
   }, [toast]);
 
   // The resume command mirrors what the Resume button launches, with a cd prefix so a paste
-  // into any terminal lands in the session's original working directory first.
+  // lands in the session's original working directory first. Joined with ";" not "&&":
+  // Windows PowerShell 5.1 (the shell the Resume button itself opens, and the Windows
+  // Terminal default) rejects "&&", while ";" works in both PS 5.1 and PowerShell 7 — and
+  // PowerShell's cd changes drives without the /d that cmd's cd would need.
   function resumeCommandFor(session: ClaudeSessionIndexItem) {
     const base = `claude --resume ${session.sessionId}`;
-    return session.projectPath ? `cd "${session.projectPath}" && ${base}` : base;
+    return session.projectPath ? `cd "${session.projectPath}"; ${base}` : base;
   }
 
   async function copyToClipboard(text: string, doneMessage: string) {

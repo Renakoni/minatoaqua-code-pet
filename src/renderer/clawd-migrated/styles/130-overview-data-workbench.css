@@ -1691,6 +1691,13 @@
   gap: 8px;
 }
 
+/* The scope popup must be able to escape the card (workbench-section clips overflow, and a
+   short rankings area — few tools, many projects — would cut the menu's tail off). Nothing
+   else in this section bleeds to the card edges, so releasing the clip is safe. */
+.data-usage-section {
+  overflow: visible;
+}
+
 /* Custom scope dropdown — a native <select>'s popup is OS-drawn (gray/white system list),
    so the whole control is self-drawn in the workbench language, mirroring the profile
    switcher's trigger + listbox pattern. */

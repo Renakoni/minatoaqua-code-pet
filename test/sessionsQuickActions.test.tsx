@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionsPage } from "../src/renderer/clawd-migrated/components/sessions/SessionsPage";
@@ -25,10 +25,11 @@ function installCompanion() {
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
   const listeners: SnapshotListener[] = [];
   const getClaudeSessions = vi.fn(async () => ({ sessions: [session], scannedAt: 1, projectsDir: "~/.claude/projects" }));
+  const getClaudeSessionDetail = vi.fn(async () => ({ messages: [], totalMessages: 0 }));
   const openClaudeResource = vi.fn(async () => true);
   Reflect.set(window, "companion", {
     getClaudeSessions,
-    getClaudeSessionDetail: async () => ({ messages: [], totalMessages: 0 }),
+    getClaudeSessionDetail,
     resumeClaudeSession: vi.fn(),
     openClaudeResource,
     onSessionsUpdated: (listener: SnapshotListener) => {
@@ -36,7 +37,7 @@ function installCompanion() {
       return () => listeners.splice(listeners.indexOf(listener), 1);
     }
   });
-  return { writeText, getClaudeSessions, openClaudeResource, push: (snapshot: unknown) => listeners.forEach(listener => listener(snapshot)) };
+  return { writeText, getClaudeSessions, getClaudeSessionDetail, openClaudeResource, push: (snapshot: unknown) => listeners.forEach(listener => listener(snapshot)) };
 }
 
 afterEach(() => {
@@ -46,11 +47,12 @@ afterEach(() => {
 });
 
 describe("SessionsPage quick actions", () => {
-  it("copies the resume command with a cd prefix", async () => {
+  it("copies the resume command with a cd prefix that Windows PowerShell 5.1 accepts", async () => {
     const { writeText } = installCompanion();
     render(<SessionsPage />);
     fireEvent.click(await screen.findByRole("button", { name: /复制恢复命令/ }));
-    expect(writeText).toHaveBeenCalledWith('cd "C:\\project" && claude --resume abc123def456');
+    // ";" not "&&": PS 5.1 (the shell the Resume button opens) rejects "&&".
+    expect(writeText).toHaveBeenCalledWith('cd "C:\\project"; claude --resume abc123def456');
   });
 
   it("copies the bare session id", async () => {
@@ -99,5 +101,20 @@ describe("SessionsPage live refresh (pushed snapshots)", () => {
 
     // Detail header still shows the originally selected session, not the new list head.
     expect(screen.getByRole("heading", { name: "Test session" })).toBeTruthy();
+  });
+
+  it("does not refetch the open detail from pushes while the tab is hidden", async () => {
+    const { getClaudeSessionDetail, push } = installCompanion();
+    render(<SessionsPage active={false} />);
+    await waitFor(() => expect(getClaudeSessionDetail).toHaveBeenCalledTimes(1)); // initial preload
+
+    // The page stays mounted for the app's lifetime and pushes arrive after every Claude
+    // turn — a hidden tab must not re-parse the transcript on each one.
+    act(() => {
+      push({ sessions: [session], scannedAt: 2, projectsDir: "~/.claude/projects" });
+      push({ sessions: [session], scannedAt: 3, projectsDir: "~/.claude/projects" });
+    });
+    await act(async () => {});
+    expect(getClaudeSessionDetail).toHaveBeenCalledTimes(1);
   });
 });

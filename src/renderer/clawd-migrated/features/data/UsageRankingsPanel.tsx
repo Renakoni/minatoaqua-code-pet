@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { useI18n } from "../../useI18n";
 
@@ -38,6 +38,7 @@ export function UsageRankingsPanel({ hideSensitiveContent = false }: { hideSensi
   const [scopeKey, setScopeKey] = useState("all");
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const scopeTriggerRef = useRef(null);
 
   const load = async (force = false) => {
     setLoading(true);
@@ -54,11 +55,17 @@ export function UsageRankingsPanel({ hideSensitiveContent = false }: { hideSensi
 
   useEffect(() => { void load(false); }, []);
 
+  // Resolve the remembered scope against the CURRENT snapshot: if the project rotated out of
+  // the top-20 list, or privacy mode hides project identities, fall back to "all" — otherwise
+  // the label would show a raw project path over silently-global numbers.
+  const resolvedScopeKey = !hideSensitiveContent && scopeKey !== "all" && (snapshot?.projects ?? []).some(project => project.projectKey === scopeKey)
+    ? scopeKey
+    : "all";
   const scope = useMemo(() => {
     if (!snapshot) return null;
-    if (scopeKey === "all") return snapshot.global;
-    return snapshot.projects?.find(project => project.projectKey === scopeKey) ?? snapshot.global;
-  }, [snapshot, scopeKey]);
+    if (resolvedScopeKey === "all") return snapshot.global;
+    return snapshot.projects?.find(project => project.projectKey === resolvedScopeKey) ?? snapshot.global;
+  }, [snapshot, resolvedScopeKey]);
 
   const summary = snapshot && scope
     ? zh ? `${(scope.totalToolUses ?? 0).toLocaleString()} 次工具调用` : `${(scope.totalToolUses ?? 0).toLocaleString()} tool invocations`
@@ -79,7 +86,7 @@ export function UsageRankingsPanel({ hideSensitiveContent = false }: { hideSensi
               className="usage-scope-dropdown"
               onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setScopeMenuOpen(false); }}
               onKeyDown={event => {
-                if (event.key === "Escape") { setScopeMenuOpen(false); return; }
+                if (event.key === "Escape") { setScopeMenuOpen(false); scopeTriggerRef.current?.focus(); return; }
                 if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
                 const options = [...event.currentTarget.querySelectorAll("[role=option]")];
                 if (options.length === 0) return;
@@ -92,6 +99,7 @@ export function UsageRankingsPanel({ hideSensitiveContent = false }: { hideSensi
               }}
             >
               <button
+                ref={scopeTriggerRef}
                 type="button"
                 className="usage-scope-trigger"
                 aria-haspopup="listbox"
@@ -99,13 +107,13 @@ export function UsageRankingsPanel({ hideSensitiveContent = false }: { hideSensi
                 aria-label={zh ? "统计范围" : "Ranking scope"}
                 onClick={() => setScopeMenuOpen(open => !open)}
               >
-                <span>{scopeKey === "all" ? (zh ? "全部项目" : "All projects") : (snapshot.projects.find(project => project.projectKey === scopeKey)?.projectName ?? scopeKey)}</span>
+                <span>{resolvedScopeKey === "all" ? (zh ? "全部项目" : "All projects") : (snapshot.projects.find(project => project.projectKey === resolvedScopeKey)?.projectName ?? (zh ? "全部项目" : "All projects"))}</span>
                 <ChevronDown size={13} aria-hidden="true" />
               </button>
               {scopeMenuOpen ? (
                 <div className="usage-scope-options" role="listbox" aria-label={zh ? "统计范围" : "Ranking scope"}>
                   {[{ projectKey: "all", projectName: zh ? "全部项目" : "All projects" }, ...snapshot.projects].map(option => {
-                    const current = option.projectKey === scopeKey;
+                    const current = option.projectKey === resolvedScopeKey;
                     return (
                       <button
                         type="button"
@@ -113,7 +121,7 @@ export function UsageRankingsPanel({ hideSensitiveContent = false }: { hideSensi
                         aria-selected={current}
                         key={option.projectKey}
                         className={current ? "current" : undefined}
-                        onClick={() => { setScopeKey(option.projectKey); setScopeMenuOpen(false); }}
+                        onClick={() => { setScopeKey(option.projectKey); setScopeMenuOpen(false); scopeTriggerRef.current?.focus(); }}
                       >
                         <span>{option.projectName}</span>
                         {current ? <Check size={13} aria-hidden="true" /> : null}
