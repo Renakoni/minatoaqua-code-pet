@@ -58,26 +58,19 @@ function SessionsPageInner({ active = true, hideSensitiveContent = false, focusS
     if (active && !wasActive) void refresh(false, true);
   }, [active, refresh]);
 
-  // Live refresh: a session_start / done hook event means the transcript set changed on disk
-  // (main ages its snapshot cache on the same events). Debounced so a burst of Stop events
-  // triggers one rescan; only wired while the tab is visible — a hidden tab picks the change
-  // up through the refresh-on-activation above.
+  // Live refresh: main runs a debounced forced rescan on SessionStart / Stop hook events and
+  // pushes every fresh scan result over this channel. Subscribing (even while hidden) is what
+  // makes a new session appear within seconds — pulling via getClaudeSessions would only get
+  // the stale snapshot that stale-while-revalidate serves.
   useEffect(() => {
-    if (!active || typeof window.companion.onEvent !== "function") return undefined;
-    let timer: number | null = null;
-    const off = window.companion.onEvent(event => {
-      if (event.event !== "session_start" && event.event !== "done") return;
-      if (timer) window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        timer = null;
-        void refresh(false, true);
-      }, 1500);
+    if (typeof window.companion.onSessionsUpdated !== "function") return undefined;
+    return window.companion.onSessionsUpdated(next => {
+      const safe = (next as ClaudeSessionSnapshot | null) ?? emptySnapshot;
+      setSnapshot(safe);
+      setSelectedPath(current => current ?? safe.sessions?.[0]?.filePath ?? null);
+      setDetailRevision(current => current + 1);
     });
-    return () => {
-      off();
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [active, refresh]);
+  }, []);
 
   // Jump-in from the data tab: select the requested transcript and clear any filter that
   // could hide it. The scroll is parked in pendingFocusRef because the snapshot may still be

@@ -1,5 +1,6 @@
 // @ts-nocheck
 import React, { useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { useI18n } from "../../useI18n";
 
 const COLLAPSED_ROWS = 8;
@@ -70,12 +71,15 @@ export function UsageRankingsPanel({ hideSensitiveContent = false }: { hideSensi
         <p className="note">{error ? `${zh ? "加载失败" : "Failed to load"}: ${error}` : summary}</p>
         <div className="usage-rankings-controls">
           {!hideSensitiveContent && (snapshot?.projects?.length ?? 0) > 0 ? (
-            <select value={scopeKey} onChange={event => setScopeKey(event.target.value)} aria-label={zh ? "统计范围" : "Ranking scope"}>
-              <option value="all">{zh ? "全部项目" : "All projects"}</option>
-              {snapshot.projects.map(project => (
-                <option key={project.projectKey} value={project.projectKey}>{project.projectName}</option>
-              ))}
-            </select>
+            <label className="usage-scope-select">
+              <select value={scopeKey} onChange={event => setScopeKey(event.target.value)} aria-label={zh ? "统计范围" : "Ranking scope"}>
+                <option value="all">{zh ? "全部项目" : "All projects"}</option>
+                {snapshot.projects.map(project => (
+                  <option key={project.projectKey} value={project.projectKey}>{project.projectName}</option>
+                ))}
+              </select>
+              <ChevronDown size={13} />
+            </label>
           ) : null}
           <button className="ghost-btn" onClick={() => void load(true)} disabled={loading}>{loading ? (zh ? "扫描中…" : "Scanning…") : t("common.refresh", "刷新")}</button>
         </div>
@@ -84,7 +88,7 @@ export function UsageRankingsPanel({ hideSensitiveContent = false }: { hideSensi
       {scope ? (
         <div className="usage-rank-columns">
           <RankColumn title={zh ? "工具" : "Tools"} rows={scope.tools ?? []} expanded={expanded} zh={zh} />
-          <RankColumn title="Skills" rows={scope.skills ?? []} expanded={expanded} zh={zh} />
+          <RankColumn title={zh ? "Skills / 命令" : "Skills / Commands"} rows={scope.skills ?? []} expanded={expanded} zh={zh} />
           <RankColumn title={zh ? "子代理" : "Subagents"} rows={scope.agents ?? []} expanded={expanded} zh={zh} />
         </div>
       ) : null}

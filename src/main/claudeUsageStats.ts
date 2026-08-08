@@ -80,6 +80,31 @@ export function countToolUseBlocks(content: unknown, counts: UsageCounts, seenTo
   }
 }
 
+const COMMAND_NAME_PATTERN = /<command-name>([^<]+)<\/command-name>/g;
+
+/**
+ * Count user-typed slash commands from a user row's message content. In CLI transcripts a
+ * typed `/review` is NOT a tool_use — it lands as `<command-name>/review</command-name>` in
+ * the user message — so without this the skills ranking only sees the (rare) model-invoked
+ * Skill tool calls and misses how people actually run their skills. Names are normalized
+ * without the leading slash so both invocation paths merge under one entry.
+ */
+export function countUserCommands(content: unknown, counts: UsageCounts): void {
+  const text = typeof content === "string" ? content
+    : Array.isArray(content)
+      ? content.map(block => {
+          if (!block || typeof block !== "object" || Array.isArray(block)) return "";
+          const value = block as Record<string, unknown>;
+          return typeof value.text === "string" ? value.text : "";
+        }).join("\n")
+      : "";
+  if (!text || !text.includes("<command-name>")) return;
+  for (const match of text.matchAll(COMMAND_NAME_PATTERN)) {
+    const name = match[1].trim().replace(/^\//, "");
+    if (name) bump(counts.skills, name);
+  }
+}
+
 export function mergeUsageCounts(target: UsageCounts, source: UsageCounts): void {
   for (const [name, count] of Object.entries(source.tools)) target.tools[name] = (target.tools[name] ?? 0) + count;
   for (const [name, count] of Object.entries(source.skills)) target.skills[name] = (target.skills[name] ?? 0) + count;

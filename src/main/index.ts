@@ -71,7 +71,7 @@ import { mergeRuntimeStats, type RuntimeStatsShape } from "./runtimeStatsMerge";
 import { recordSessionSighting } from "./runtimeSessions";
 import { loadScanCache, saveScanCache, type CachedScan } from "./scanCachePersistence";
 import { aggregateRecentEdits, editFromToolUseResult, emptyRecentEditsSnapshot, type ParsedEditRecord, type RecentEditsSnapshot } from "./claudeEditLog";
-import { aggregateUsageRankings, countToolUseBlocks, createUsageCounts, emptyUsageRankingsSnapshot, type UsageCounts, type UsageRankingsSnapshot } from "./claudeUsageStats";
+import { aggregateUsageRankings, countToolUseBlocks, countUserCommands, createUsageCounts, emptyUsageRankingsSnapshot, type UsageCounts, type UsageRankingsSnapshot } from "./claudeUsageStats";
 import type { CompanionInitialState } from "../renderer/shared/events";
 
 type DailyRuntimeStats = {
@@ -1673,8 +1673,21 @@ const CLAUDE_SESSION_SCAN_CONCURRENCY = 10;
 const CLAUDE_SESSION_FILE_SCAN_CONCURRENCY = 4;
 const CLAUDE_SESSION_DETAIL_MAX_BYTES = 16 * 1024 * 1024;
 const CLAUDE_SESSION_DETAIL_MAX_MESSAGES = 240;
-let claudeSessionCache: { data: { sessions: ClaudeSessionIndexItem[]; scannedAt: number; projectsDir: string }; timestamp: number } | null = null;
-let pendingClaudeSessionScan: Promise<{ sessions: ClaudeSessionIndexItem[]; scannedAt: number; projectsDir: string }> | null = null;
+type ClaudeSessionSnapshotData = { sessions: ClaudeSessionIndexItem[]; scannedAt: number; projectsDir: string };
+let claudeSessionCache: { data: ClaudeSessionSnapshotData; timestamp: number } | null = null;
+let pendingClaudeSessionScan: Promise<ClaudeSessionSnapshotData> | null = null;
+// Debounce for the hook-event-triggered forced rescan (SessionStart / Stop bursts → one scan).
+const SESSION_EVENT_RESCAN_DEBOUNCE_MS = 1500;
+let sessionEventRescanTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Every fresh scan result goes through here: cache it AND push it to the panel. The push is
+// what actually repaints an open sessions page after stale-while-revalidate served old data —
+// without it a background scan's result would sit in this cache until the next manual refresh.
+function commitClaudeSessionSnapshot(data: ClaudeSessionSnapshotData): ClaudeSessionSnapshotData {
+  claudeSessionCache = { data, timestamp: Date.now() };
+  panelWindow?.webContents.send("companion:sessions-updated", data);
+  return data;
+}
 let claudeSessionFileCache = new Map<string, { mtimeMs: number; size: number; item: ClaudeSessionIndexItem }>();
 // Bump when ClaudeSessionIndexItem's shape or scanSingleClaudeSessionStream's logic changes, so a
 // stale on-disk cache is discarded rather than served.
@@ -1856,10 +1869,7 @@ async function getClaudeSessionSnapshot(force = false) {
   if (!force && claudeSessionCache && now - claudeSessionCache.timestamp < CLAUDE_SESSION_STALE_TTL) {
     if (!pendingClaudeSessionScan) {
       pendingClaudeSessionScan = scanClaudeSessionsFresh()
-        .then(data => {
-          claudeSessionCache = { data, timestamp: Date.now() };
-          return data;
-        })
+        .then(commitClaudeSessionSnapshot)
         .finally(() => { pendingClaudeSessionScan = null; });
     }
     return claudeSessionCache.data;
@@ -1867,10 +1877,7 @@ async function getClaudeSessionSnapshot(force = false) {
 
   if (pendingClaudeSessionScan) return pendingClaudeSessionScan;
   pendingClaudeSessionScan = scanClaudeSessionsFresh()
-    .then(data => {
-      claudeSessionCache = { data, timestamp: Date.now() };
-      return data;
-    })
+    .then(commitClaudeSessionSnapshot)
     .finally(() => { pendingClaudeSessionScan = null; });
   return pendingClaudeSessionScan;
 }
@@ -1943,7 +1950,8 @@ let claudeTokenFileCache = new Map<string, { mtimeMs: number; size: number } & T
 // re-derived from the current pricing table every aggregation), so a rate refresh never invalidates it.
 // v3: entries also carry the file's extracted edit records (recent-edits timeline).
 // v4: entries also carry tool/skill/subagent usage counts and the file's resolved project.
-const TOKEN_FILE_CACHE_VERSION = 4;
+// v5: skill counts additionally include user-typed slash commands (<command-name> rows).
+const TOKEN_FILE_CACHE_VERSION = 5;
 let tokenFileCacheLoaded = false;
 // The (path:mtime:size) signature of the file set at the last full scan. When it is unchanged the
 // aggregate is provably identical, so a background refresh can skip the whole re-parse+re-aggregate.
@@ -2205,6 +2213,12 @@ async function scanClaudeTokenFile(filePath: string, encodedProject: string, mti
           pendingUserTimestamp = timestampFromRecord(userRecord, fallbackTime);
           if (typeof userRecord.sessionId === "string") sessionId = userRecord.sessionId;
           if (projectPath === undefined && typeof userRecord.cwd === "string") projectPath = userRecord.cwd;
+          // User-typed slash commands land on user rows as <command-name> tags, not tool_use —
+          // count them into the skills ranking here (the row is already parsed).
+          const userMessage = userRecord.message && typeof userRecord.message === "object" && !Array.isArray(userRecord.message)
+            ? userRecord.message as Record<string, unknown>
+            : null;
+          if (userMessage) countUserCommands(userMessage.content, usageCounts);
           // Applied Edit/Write results ride on these same user rows as `toolUseResult` — the
           // record is already parsed, so the recent-edits timeline costs no extra IO here.
           if (userRecord.toolUseResult) {
@@ -3617,11 +3631,16 @@ function broadcastCompanionEvent(event: CompanionEvent) {
 function publishPetEvent(event: PetEvent) {
   if (event.notificationKind !== "info") currentState = event.event;
   // A session lifecycle hook means the on-disk transcript set just changed (a new file, or new
-  // rows in an existing one). Age the session snapshot cache past its TTL so the next fetch
-  // serves stale-and-revalidates instead of waiting out the full TTL — the sessions page
-  // refreshes on these same events, which is what makes new sessions appear within seconds.
-  if ((event.hook === "SessionStart" || event.hook === "Stop") && claudeSessionCache) {
-    claudeSessionCache.timestamp = Math.min(claudeSessionCache.timestamp, Date.now() - CLAUDE_SESSION_CACHE_TTL - 1);
+  // rows in an existing one). Kick a debounced FORCED rescan here in main — its result flows
+  // through commitClaudeSessionSnapshot, which pushes the fresh snapshot to the panel. Merely
+  // aging the cache would not be enough: a non-forced read serves the stale snapshot and the
+  // background revalidation's result would never reach an already-open sessions page.
+  if (event.hook === "SessionStart" || event.hook === "Stop") {
+    if (sessionEventRescanTimer) clearTimeout(sessionEventRescanTimer);
+    sessionEventRescanTimer = setTimeout(() => {
+      sessionEventRescanTimer = null;
+      void getClaudeSessionSnapshot(true).catch(() => {});
+    }, SESSION_EVENT_RESCAN_DEBOUNCE_MS);
   }
   eventHistory = [event, ...eventHistory].slice(0, 100);
   const companionEvent = toCompanionEvent(event);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateUsageRankings,
   countToolUseBlocks,
+  countUserCommands,
   createUsageCounts,
   mergeUsageCounts,
   rankUsageCounts
@@ -55,6 +56,33 @@ describe("countToolUseBlocks", () => {
       block({ name: "Task", id: "a3", input: { prompt: "no type" } })
     ], counts, new Set());
     expect(counts.agents).toEqual({ Explore: 2 });
+  });
+});
+
+describe("countUserCommands", () => {
+  it("counts user-typed slash commands into the skills map, without the slash", () => {
+    const counts = createUsageCounts();
+    countUserCommands("<command-name>/review</command-name><command-message>review</command-message>", counts);
+    countUserCommands("<command-name>/review</command-name>", counts);
+    countUserCommands([{ type: "text", text: "<command-name>/graphify</command-name>" }], counts);
+    expect(counts.skills).toEqual({ review: 2, graphify: 1 });
+    expect(counts.tools).toEqual({});
+  });
+
+  it("merges typed commands with tool-invoked skills under one name", () => {
+    const counts = createUsageCounts();
+    countToolUseBlocks([block({ name: "Skill", id: "s1", input: { skill: "review" } })], counts, new Set());
+    countUserCommands("<command-name>/review</command-name>", counts);
+    expect(counts.skills.review).toBe(2);
+  });
+
+  it("ignores plain prompts and command-output rows", () => {
+    const counts = createUsageCounts();
+    countUserCommands("just a normal prompt with a /slash word", counts);
+    countUserCommands("<local-command-stdout>done</local-command-stdout>", counts);
+    countUserCommands([{ type: "tool_result", content: "x" }], counts);
+    countUserCommands(undefined, counts);
+    expect(counts.skills).toEqual({});
   });
 });
 

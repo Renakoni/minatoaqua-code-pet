@@ -1,0 +1,8 @@
+files=293 totalToolUseBlocks=24536 distinctIds=24518
+idsInMultipleFiles=0 extraOccurrences=0 (inflation=0.0%)
+TOOL NAMES: Read=5538 Edit=5386 Bash=5123 PowerShell=3230 Grep=2205 Write=984 Glob=318 TaskUpdate=316 Agent=278 TaskCreate=177 mcp__playwright__browser_take_screenshot=135 mcp__playwright__browser_click=128 mcp__playwright__browser_evaluate=117 ToolSearch=93 WebFetch=76
+SKILL tool input shapes: args,skill=9
+SKILL names via tool: impeccable=2 graphify=2 review=1 claude-code-qa=1 pptx=1 update-config=1 frontend-visual-check=1
+SLASHCOMMAND inputs: 
+AGENT input shapes: description,prompt,subagent_type=261 description,prompt,run_in_background,subagent_type=10 description,prompt,subagent_type,subject=6 description,prompt=1
+USER <command-name> rows=122: /review=53 /model=25 /compact=22 /code-review=8 /effort=7 /goal=3 /fast=1 /usage-credits=1 /recap=1 /mcp=1

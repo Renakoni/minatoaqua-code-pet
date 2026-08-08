@@ -103,6 +103,7 @@ type CompanionApi = {
   applyClaudeProfile: (profileId: string) => Promise<ClaudeProfileMutationResult>;
   setClaudeProfileResourceState: (input: ClaudeProfileResourceStateInput) => Promise<ClaudeProfileMutationResult>;
   getClaudeSessions: (force?: boolean) => Promise<unknown>;
+  onSessionsUpdated: (callback: Listener<unknown>) => Unsubscribe;
   getClaudeSessionDetail: (filePath: string) => Promise<unknown>;
   resumeClaudeSession: (sessionId: string, projectPath?: string) => Promise<unknown>;
   openClaudeResource: (path: string) => Promise<void>;
@@ -570,6 +571,7 @@ export function installClawdCompat() {
       return { ok: true, profileId: profile.id, snapshot: mockClaudeProfiles };
     },
     getClaudeSessions: async () => ({ sessions: [], scannedAt: Date.now(), projectsDir: "~/.claude/projects" }),
+    onSessionsUpdated: () => () => {},
     getClaudeSessionDetail: async () => null,
     resumeClaudeSession: async sessionId => ({ ok: false, command: `claude --resume ${sessionId}` }),
     openClaudeResource: async () => undefined,

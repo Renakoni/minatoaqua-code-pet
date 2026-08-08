@@ -96,6 +96,8 @@
 
 .data-workbench .workbench-section > .stats-workbench,
 .data-workbench .workbench-section > .token-panel,
+.data-workbench .workbench-section > .usage-rankings-panel,
+.data-workbench .workbench-section > .recent-edits-panel,
 .data-workbench .workbench-section > .note {
   padding: 16px 18px 18px;
 }
@@ -1689,35 +1691,91 @@
   gap: 8px;
 }
 
-.usage-rankings-controls select {
-  max-width: 180px;
-  min-height: 28px;
-  padding: 2px 8px;
-  border: 1px solid var(--workbench-line);
-  border-radius: 7px;
-  background: var(--workbench-subtle);
-  color: var(--ink);
-  font-size: 12px;
+/* Native select restyled to the workbench language: borderless-adjacent ghost control with a
+   custom chevron (the native arrow is hidden via appearance:none). The popup itself is
+   OS-drawn; color-scheme keeps it dark under the dark theme. */
+.usage-scope-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
 }
 
+.usage-scope-select select {
+  max-width: 190px;
+  min-height: 30px;
+  padding: 0 26px 0 10px;
+  overflow: hidden;
+  appearance: none;
+  border: 1px solid var(--workbench-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.usage-scope-select select:hover {
+  border-color: var(--workbench-muted);
+  background: var(--workbench-subtle);
+}
+
+.usage-scope-select > svg {
+  position: absolute;
+  right: 9px;
+  pointer-events: none;
+  color: var(--workbench-muted);
+}
+
+[data-theme=dark] .usage-scope-select select {
+  color-scheme: dark;
+}
+
+/* token-more-btn is styled as a table-footer row; standalone under these panels it reads as a
+   heavy full-width bar. Render it as a quiet centered pill instead. */
+.usage-rankings-panel .token-more-btn,
+.recent-edits-panel .token-more-btn {
+  width: auto;
+  min-width: 180px;
+  justify-self: center;
+  padding: 5px 18px;
+  border: 1px solid var(--workbench-line);
+  border-radius: 999px;
+  background: transparent;
+}
+
+.usage-rankings-panel .token-more-btn:hover,
+.recent-edits-panel .token-more-btn:hover {
+  border-color: var(--workbench-muted);
+  background: var(--workbench-subtle);
+}
+
+/* One container, three columns split by hairlines — not three stacked boxes. */
 .usage-rank-columns {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.usage-rank-column {
   overflow: hidden;
   border: 1px solid var(--workbench-line);
   border-radius: 8px;
   background: var(--workbench-subtle);
 }
 
+.usage-rank-column {
+  min-width: 0;
+}
+
+.usage-rank-column + .usage-rank-column {
+  border-left: 1px solid var(--workbench-line);
+}
+
 .usage-rank-column > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 11px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--workbench-line);
 }
 
@@ -1738,11 +1796,11 @@
 
 .usage-rank-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 56px 44px;
+  grid-template-columns: minmax(0, 1fr) 48px 44px;
   gap: 8px;
   align-items: center;
-  min-height: 30px;
-  padding: 4px 11px;
+  min-height: 31px;
+  padding: 4px 12px;
   border-bottom: 1px solid var(--workbench-line);
   font-size: 12px;
 }
@@ -1811,11 +1869,11 @@
 
 .recent-edit-row {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 44px 88px 110px 76px 26px;
+  grid-template-columns: 16px minmax(0, 1fr) 44px 88px 76px 26px;
   gap: 12px;
   align-items: center;
   min-height: 44px;
-  padding: 8px 11px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--workbench-line);
   font-size: 12px;
 }
@@ -1874,14 +1932,16 @@
   color: var(--workbench-muted);
 }
 
-.recent-edit-project,
 .recent-edit-row time {
   overflow: hidden;
   color: var(--workbench-muted);
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* Quiet by default, discoverable on row hover — a bordered button per row read as yet
+   another box inside the list. */
 .recent-edit-jump {
   display: inline-flex;
   align-items: center;
@@ -1889,24 +1949,30 @@
   width: 26px;
   height: 26px;
   padding: 0;
-  border: 1px solid var(--workbench-line);
+  border: 0;
   border-radius: 7px;
   background: transparent;
   color: var(--workbench-muted);
+  opacity: 0.45;
   cursor: pointer;
+  transition: opacity 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.recent-edit-row:hover .recent-edit-jump {
+  opacity: 1;
 }
 
 .recent-edit-jump:hover {
-  border-color: var(--workbench-muted);
+  background: var(--workbench-line);
   color: var(--ink);
 }
 
 @media (max-width: 1100px) {
   .recent-edit-row {
-    grid-template-columns: 16px minmax(0, 1fr) 44px 88px 76px 26px;
+    grid-template-columns: 16px minmax(0, 1fr) 44px 88px 26px;
   }
 
-  .recent-edit-project {
+  .recent-edit-row time {
     display: none;
   }
 }

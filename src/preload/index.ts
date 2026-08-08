@@ -128,6 +128,7 @@ contextBridge.exposeInMainWorld("companion", {
   applyClaudeProfile: (profileId: string) => ipcRenderer.invoke("companion:apply-claude-profile", profileId) as Promise<ClaudeProfileMutationResult>,
   setClaudeProfileResourceState: (input: ClaudeProfileResourceStateInput) => ipcRenderer.invoke("companion:set-claude-profile-resource-state", input) as Promise<ClaudeProfileMutationResult>,
   getClaudeSessions: (force?: boolean) => ipcRenderer.invoke("companion:get-claude-sessions", force),
+  onSessionsUpdated: (callback: (snapshot: unknown) => void) => onChannel("companion:sessions-updated", callback),
   getClaudeSessionDetail: (filePath: string) => ipcRenderer.invoke("companion:get-claude-session-detail", filePath),
   resumeClaudeSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke("companion:resume-claude-session", sessionId, projectPath),
   openClaudeResource: (path: string) => ipcRenderer.invoke("companion:open-claude-resource", path),

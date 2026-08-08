@@ -82,7 +82,6 @@ export function RecentEditsPanel({ hideSensitiveContent = false, onOpenSession }
                   {edit.removedLines > 0 ? <b className="del">−{edit.removedLines}</b> : null}
                   {edit.addedLines === 0 && edit.removedLines === 0 ? <b className="none">—</b> : null}
                 </span>
-                <span className="recent-edit-project" title={hideSensitiveContent ? undefined : edit.projectName}>{hideSensitiveContent ? (zh ? "已隐藏" : "Hidden") : edit.projectName}</span>
                 <time>{formatWhen(edit.timestamp, zh)}</time>
                 <button
                   type="button"

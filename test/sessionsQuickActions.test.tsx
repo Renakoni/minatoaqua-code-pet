@@ -18,12 +18,12 @@ const session = {
   lastMessageAt: 0
 };
 
-type EventListener = (event: { event: string }) => void;
+type SnapshotListener = (snapshot: unknown) => void;
 
 function installCompanion() {
   const writeText = vi.fn(async () => {});
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-  const listeners: EventListener[] = [];
+  const listeners: SnapshotListener[] = [];
   const getClaudeSessions = vi.fn(async () => ({ sessions: [session], scannedAt: 1, projectsDir: "~/.claude/projects" }));
   const openClaudeResource = vi.fn(async () => true);
   Reflect.set(window, "companion", {
@@ -31,12 +31,12 @@ function installCompanion() {
     getClaudeSessionDetail: async () => ({ messages: [], totalMessages: 0 }),
     resumeClaudeSession: vi.fn(),
     openClaudeResource,
-    onEvent: (listener: EventListener) => {
+    onSessionsUpdated: (listener: SnapshotListener) => {
       listeners.push(listener);
       return () => listeners.splice(listeners.indexOf(listener), 1);
     }
   });
-  return { writeText, getClaudeSessions, openClaudeResource, emit: (event: { event: string }) => listeners.forEach(listener => listener(event)) };
+  return { writeText, getClaudeSessions, openClaudeResource, push: (snapshot: unknown) => listeners.forEach(listener => listener(snapshot)) };
 }
 
 afterEach(() => {
@@ -68,35 +68,36 @@ describe("SessionsPage quick actions", () => {
   });
 });
 
-describe("SessionsPage live refresh", () => {
-  it("debounces session lifecycle events into one refresh", async () => {
-    const { getClaudeSessions, emit } = installCompanion();
+describe("SessionsPage live refresh (pushed snapshots)", () => {
+  it("repaints from a pushed snapshot without pulling the stale cache", async () => {
+    const { getClaudeSessions, push } = installCompanion();
     render(<SessionsPage active />);
     await screen.findAllByText("Test session");
     expect(getClaudeSessions).toHaveBeenCalledTimes(1);
 
-    vi.useFakeTimers();
+    // Main finished a hook-triggered forced rescan and pushes the fresh snapshot.
+    const newSession = { ...session, filePath: "C:\\project\\fresh.jsonl", sessionId: "fresh123", title: "Fresh session", lastMessageAt: 9 };
     act(() => {
-      emit({ event: "session_start" });
-      emit({ event: "done" });
-      emit({ event: "tool_start" }); // irrelevant event must not schedule anything
+      push({ sessions: [newSession, session], scannedAt: 2, projectsDir: "~/.claude/projects" });
     });
-    act(() => { vi.advanceTimersByTime(1499); });
+
+    // The new session appears without any additional getClaudeSessions pull —
+    // pulling would only return the stale snapshot stale-while-revalidate serves.
+    await screen.findAllByText("Fresh session");
     expect(getClaudeSessions).toHaveBeenCalledTimes(1);
-    act(() => { vi.advanceTimersByTime(2); });
-    expect(getClaudeSessions).toHaveBeenCalledTimes(2);
-    expect(getClaudeSessions).toHaveBeenLastCalledWith(false);
   });
 
-  it("does not listen while the tab is hidden", async () => {
-    const { getClaudeSessions, emit } = installCompanion();
-    render(<SessionsPage active={false} />);
-    await act(async () => {});
-    const callsBefore = getClaudeSessions.mock.calls.length;
+  it("keeps the current selection when a pushed snapshot arrives", async () => {
+    const { push } = installCompanion();
+    render(<SessionsPage active />);
+    await screen.findAllByText("Test session");
 
-    vi.useFakeTimers();
-    act(() => { emit({ event: "session_start" }); });
-    act(() => { vi.advanceTimersByTime(5000); });
-    expect(getClaudeSessions).toHaveBeenCalledTimes(callsBefore);
+    const newSession = { ...session, filePath: "C:\\project\\fresh.jsonl", sessionId: "fresh123", title: "Fresh session", lastMessageAt: 9 };
+    act(() => {
+      push({ sessions: [newSession, session], scannedAt: 2, projectsDir: "~/.claude/projects" });
+    });
+
+    // Detail header still shows the originally selected session, not the new list head.
+    expect(screen.getByRole("heading", { name: "Test session" })).toBeTruthy();
   });
 });
