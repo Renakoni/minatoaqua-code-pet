@@ -704,7 +704,7 @@ function configureAutoUpdater() {
   autoUpdater.setFeedURL({
     provider: "github",
     owner: "Renakoni",
-    repo: "minatoaqua-code-pet",
+    repo: "chara-desk",
     releaseType: "release"
   });
 

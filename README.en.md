@@ -25,7 +25,7 @@
   &nbsp;
   <img src="https://img.shields.io/badge/Windows-10%2F11%20x64-4c8492?style=flat-square&logo=windows&logoColor=white" alt="Windows 10/11 x64">
   &nbsp;
-  <a href="https://github.com/Renakoni/minatoaqua-code-pet/releases/latest"><img src="https://img.shields.io/github/v/release/Renakoni/minatoaqua-code-pet?style=flat-square&color=c98a4b&label=release&include_prereleases" alt="Latest release"></a>
+  <a href="https://github.com/Renakoni/chara-desk/releases/latest"><img src="https://img.shields.io/github/v/release/Renakoni/chara-desk?style=flat-square&color=c98a4b&label=release&include_prereleases" alt="Latest release"></a>
 </p>
 
 <p align="center">
@@ -111,7 +111,7 @@ The workbench brings together token usage, session history, provider switching, 
 
 Requires **Windows 10 / 11 x64**, [Claude Code](https://claude.com/claude-code) installed, and [Node.js](https://nodejs.org/) on `PATH` (the hook forwarder runs on your system Node).
 
-1. Download `CharaDesk-Setup-*.exe` from [Releases](https://github.com/Renakoni/minatoaqua-code-pet/releases/latest) and install it.
+1. Download `CharaDesk-Setup-*.exe` from [Releases](https://github.com/Renakoni/chara-desk/releases/latest) and install it.
 2. Alpha builds are unsigned — when SmartScreen warns, choose "More info → Run anyway".
 3. Launch the app, install the hooks with one click from the Overview page, then start a new Claude Code session.
 

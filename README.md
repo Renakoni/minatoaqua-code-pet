@@ -25,7 +25,7 @@
   &nbsp;
   <img src="https://img.shields.io/badge/Windows-10%2F11%20x64-4c8492?style=flat-square&logo=windows&logoColor=white" alt="Windows 10/11 x64">
   &nbsp;
-  <a href="https://github.com/Renakoni/minatoaqua-code-pet/releases/latest"><img src="https://img.shields.io/github/v/release/Renakoni/minatoaqua-code-pet?style=flat-square&color=c98a4b&label=release&include_prereleases" alt="最新发布版本"></a>
+  <a href="https://github.com/Renakoni/chara-desk/releases/latest"><img src="https://img.shields.io/github/v/release/Renakoni/chara-desk?style=flat-square&color=c98a4b&label=release&include_prereleases" alt="最新发布版本"></a>
 </p>
 
 <p align="center">
@@ -111,7 +111,7 @@ Chara Desk 是一个面向 Claude Code 的 Windows 桌面应用，由桌宠和�
 
 需要 **Windows 10 / 11 x64**、本机已安装 [Claude Code](https://claude.com/claude-code)，以及 `PATH` 上的 [Node.js](https://nodejs.org/)（hook 转发依赖系统 Node）。
 
-1. 从 [Releases](https://github.com/Renakoni/minatoaqua-code-pet/releases/latest) 下载 `CharaDesk-Setup-*.exe` 并安装。
+1. 从 [Releases](https://github.com/Renakoni/chara-desk/releases/latest) 下载 `CharaDesk-Setup-*.exe` 并安装。
 2. alpha 版本尚未签名，SmartScreen 提示时选择「更多信息 → 仍要运行」。
 3. 启动后在「总览」里一键安装 hooks，重新开一个 Claude Code 会话即可。
 
