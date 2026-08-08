@@ -242,7 +242,7 @@ export function SettingsSection({
             <span className="settings-about-version">{appVersion ? `v${appVersion}` : "—"}</span>
             <p className="settings-about-tagline">{t("settings.about.description", "面向 Claude Code 的本地桌宠和工作台。")}</p>
             <div className="settings-about-actions">
-              <button className="inline-action" onClick={() => window.companion.openExternal("https://github.com/Renakoni/minatoaqua-code-pet")}>GitHub</button>
+              <button className="inline-action" onClick={() => window.companion.openExternal("https://github.com/Renakoni/chara-desk")}>GitHub</button>
               <button className="inline-action" onClick={handleCheckUpdate} disabled={checkingUpdate || updateStatus.checking || updateStatus.downloading}>
                 {checkingUpdate || updateStatus.checking ? t("update.checkShort", "检查中...") : t("update.check", "检查更新")}
               </button>
